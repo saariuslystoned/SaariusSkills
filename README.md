@@ -11,6 +11,15 @@ Host the plugin in Codex, Cursor, or Claude Code, then delegate over ACP to
 Cursor, Antigravity, or Grok. Published install is this plugin, not a
 hand-written `~/.cursor/mcp.json`.
 
+## EmDash sites and plugins
+
+[EmDash Sites](skills/emdash-sites/SKILL.md) adds implementation and verification
+judgment for editable sites, native and sandboxed plugins, CMS content, hosting
+and commerce. Four bundled upstream skills cover site building, plugin creation,
+CLI operations and upgrades. All five use the same plugin installation paths
+below; see [EmDash packaging](docs/emdash-skills.md) for the upstream pin,
+standalone installation and version-specific corrections.
+
 ## Archived: Puppet and Herdr-Puppet
 
 The `puppet` and `herdr-puppet` skills are archived. The local Cursor ACP and

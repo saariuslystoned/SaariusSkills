@@ -7,7 +7,11 @@
     "./skills/automate-me/",
     "./skills/blast-radius/",
     "./skills/bobby-mode/",
+    "./skills/building-emdash-site/",
     "./skills/create-verification-skill/",
+    "./skills/creating-plugins/",
+    "./skills/emdash-cli/",
+    "./skills/emdash-sites/",
     "./skills/grilltrack/",
     "./skills/grok-acp-delegation/",
     "./skills/how/",
@@ -17,6 +21,7 @@
     "./skills/reflect/",
     "./skills/tdd/",
     "./skills/unslop/",
+    "./skills/upgrading-emdash/",
     "./skills/why/"
   ],
   "mcpServers": "./.cursor-plugin/mcp.json"

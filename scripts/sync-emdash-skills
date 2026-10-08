@@ -1,0 +1,496 @@
+#!/usr/bin/env python3
+"""Sync or check the vendored EmDash agent skills (vendor/emdash-skills).
+
+The upstream skills are generated from the EmDash monorepo on every release
+(https://github.com/emdash-cms/skills). This mirror is a pinned, verbatim copy
+with provenance: never edit it by hand; run `--update` to move the pin.
+
+  scripts/sync-emdash-skills --check                 # mirror matches its manifest (no hand edits)
+  scripts/sync-emdash-skills --update                # clone upstream main and refresh the mirror
+  scripts/sync-emdash-skills --update --ref <sha>    # pin a specific commit, tag or branch
+  scripts/sync-emdash-skills --update --source <dir> # from a local clone instead of the network
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+TARGET = ROOT / "vendor" / "emdash-skills"
+MANIFEST_NAME = "UPSTREAM.json"
+UPSTREAM_REPO = "https://github.com/emdash-cms/skills.git"
+# The WordPress porting skills are left out until there is WordPress work.
+DEFAULT_SKILLS = ("building-emdash-site", "creating-plugins", "emdash-cli", "upgrading-emdash")
+ROOT_FILES = ("LICENSE",)
+IGNORED_NAMES = {".DS_Store", "__pycache__"}
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Sync or check the vendored EmDash agent skills.")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--check", action="store_true", help="Verify the mirror matches its manifest.")
+    mode.add_argument("--update", action="store_true", help="Refresh the mirror from upstream and rewrite the manifest.")
+    parser.add_argument("--ref", default=None, help="Upstream ref (branch, tag, or commit SHA) to pin on --update. Default: main (or HEAD if --source).")
+    parser.add_argument("--source", type=Path, help="A local clone of the upstream repository (skips the network).")
+    parser.add_argument("--skills", nargs="+", default=list(DEFAULT_SKILLS), help="Upstream skill directories to mirror.")
+    parser.add_argument("--verbose", action="store_true", help="Print every copied or drifted path.")
+    return parser.parse_args()
+
+
+def digest(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def mirrored_files(target: Path = TARGET) -> dict[str, Path]:
+    files: dict[str, Path] = {}
+    if not target.exists():
+        return files
+    manifest_path = target / MANIFEST_NAME
+    for path in target.rglob("*"):
+        if path.is_file() and path != manifest_path and not any(part in IGNORED_NAMES for part in path.parts):
+            files[path.relative_to(target).as_posix()] = path
+    return files
+
+
+def check(verbose: bool, target: Path = TARGET) -> int:
+    manifest_path = target / MANIFEST_NAME
+    if not manifest_path.is_file():
+        rel = manifest_path.relative_to(ROOT) if manifest_path.is_relative_to(ROOT) else manifest_path
+        print(f"missing manifest {rel}; run scripts/sync-emdash-skills --update", file=sys.stderr)
+        return 1
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    expected: dict[str, str] = manifest.get("files", {})
+    actual = mirrored_files(target)
+    missing = sorted(set(expected) - set(actual))
+    extra = sorted(set(actual) - set(expected))
+    changed = sorted(rel for rel in set(expected) & set(actual) if digest(actual[rel]) != expected[rel])
+    if missing or extra or changed:
+        print("emdash skills mirror drift detected (the mirror is never edited by hand; run --update)")
+        print(f"missing: {len(missing)}")
+        print(f"changed: {len(changed)}")
+        print(f"extra: {len(extra)}")
+        if verbose:
+            for label, paths in (("missing", missing), ("changed", changed), ("extra", extra)):
+                for rel in paths:
+                    print(f"{label}: {rel}")
+        return 1
+    print(f"emdash skills mirror clean ({len(expected)} files, upstream {manifest.get('commit', '?')[:12]} from {manifest.get('synced_at', '?')})")
+    return 0
+
+
+def git(args: list[str], cwd: Path) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+
+def extract_snapshot(repo_dir: Path, commit: str, dest_dir: Path) -> None:
+    ls_proc = subprocess.run(
+        ["git", "ls-tree", "-r", "-z", commit],
+        cwd=repo_dir,
+        capture_output=True,
+    )
+    if ls_proc.returncode != 0:
+        err = ls_proc.stderr.decode().strip()
+        raise RuntimeError(f"git ls-tree failed for {commit}: {err}")
+
+    raw_entries = ls_proc.stdout.split(b"\0")
+    entries: list[tuple[int, str, str]] = []
+    for raw in raw_entries:
+        if not raw:
+            continue
+        try:
+            meta, rel_path_raw = raw.split(b"\t", 1)
+            mode_str, type_str, obj_sha = meta.decode("ascii").split(" ", 2)
+            rel_path = rel_path_raw.decode("utf-8")
+        except Exception as exc:
+            raise RuntimeError(f"failed to parse git ls-tree entry {raw!r}: {exc}") from exc
+
+        # Check for unsupported types (symlinks 120000, submodules 160000, etc.)
+        if type_str != "blob" or mode_str not in ("100644", "100755"):
+            raise RuntimeError(
+                f"unsupported entry type '{type_str}' (mode {mode_str}) for '{rel_path}' in {commit}: "
+                "symlinks and submodules are not supported"
+            )
+
+        # Avoid path traversal / escapes
+        path_obj = Path(rel_path)
+        if path_obj.is_absolute() or ".." in path_obj.parts:
+            raise RuntimeError(f"unsafe relative path '{rel_path}' in commit {commit}")
+
+        mode_int = int(mode_str, 8) & 0o777
+        entries.append((mode_int, obj_sha, rel_path))
+
+    cat_proc = subprocess.Popen(
+        ["git", "cat-file", "--batch"],
+        cwd=repo_dir,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        for mode, obj_sha, rel_path in entries:
+            cat_proc.stdin.write(f"{obj_sha}\n".encode("ascii"))
+            cat_proc.stdin.flush()
+            header = cat_proc.stdout.readline()
+            parts = header.split()
+            if len(parts) < 3 or parts[1] != b"blob":
+                raise RuntimeError(f"failed to read blob {obj_sha} for '{rel_path}' in {commit}")
+            size = int(parts[2])
+            content = cat_proc.stdout.read(size)
+            newline = cat_proc.stdout.read(1)
+            if newline != b"\n":
+                raise RuntimeError(f"corrupt cat-file stream reading {obj_sha} for '{rel_path}'")
+
+            dest_file = dest_dir / rel_path
+            dest_file.parent.mkdir(parents=True, exist_ok=True)
+            dest_file.write_bytes(content)
+            dest_file.chmod(mode)
+    finally:
+        if cat_proc.stdin:
+            cat_proc.stdin.close()
+        cat_proc.terminate()
+        cat_proc.wait()
+
+
+def is_valid_skill_component(name: str) -> bool:
+    """Validate that a skill name is a single relative path component."""
+    if not isinstance(name, str) or not name or name.strip() != name:
+        return False
+    if "/" in name or "\\" in name or "\0" in name:
+        return False
+    if name in (".", ".."):
+        return False
+    p = Path(name)
+    if p.is_absolute() or p.parts != (name,):
+        return False
+    return True
+
+
+def update(ref: str | None, source: Path | None, skills: list[str], verbose: bool, target: Path = TARGET) -> int:
+    target_resolved = target.resolve()
+    if target_resolved == ROOT.resolve() or target_resolved in ROOT.resolve().parents:
+        print(f"refusing to clear repository root or ancestor as target: {target}", file=sys.stderr)
+        return 2
+    if source:
+        source_resolved = source.expanduser().resolve()
+        if target_resolved == source_resolved:
+            print(f"target and source cannot be the same directory: {target}", file=sys.stderr)
+            return 2
+        if target_resolved in source_resolved.parents:
+            print(f"refusing to use ancestor of source as target: {target}", file=sys.stderr)
+            return 2
+        if source_resolved in target_resolved.parents:
+            print(f"refusing to use descendant of source as target: {target}", file=sys.stderr)
+            return 2
+
+    # Validate skill names early as single relative components before snapshot or clone
+    for skill in skills:
+        if not is_valid_skill_component(skill):
+            print(f"invalid skill name '{skill}': must be a single relative path component", file=sys.stderr)
+            return 2
+
+    with tempfile.TemporaryDirectory(prefix="emdash-skills-") as tmp:
+        tmp_path = Path(tmp)
+        if source:
+            clone = source.expanduser().resolve()
+            res = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=clone, capture_output=True, text=True)
+            if res.returncode != 0:
+                print(f"{clone} is not a git repository", file=sys.stderr)
+                return 2
+            repo_dir = clone
+            effective_ref = ref if ref else "HEAD"
+            manifest_ref = ref if ref else "local"
+
+            sha_res = subprocess.run(
+                ["git", "rev-parse", "--verify", f"{effective_ref}^{{commit}}"],
+                cwd=repo_dir,
+                capture_output=True,
+                text=True,
+            )
+            if sha_res.returncode != 0:
+                print(f"could not resolve ref '{effective_ref}' in source repository {clone}", file=sys.stderr)
+                return 2
+            commit = sha_res.stdout.strip()
+        else:
+            repo_dir = tmp_path / "upstream"
+            repo_dir.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["git", "init", "--quiet", str(repo_dir)], check=True)
+            subprocess.run(["git", "remote", "add", "origin", UPSTREAM_REPO], cwd=repo_dir, check=True)
+            effective_ref = ref if ref else "main"
+            manifest_ref = effective_ref
+
+            shallow_res = subprocess.run(
+                ["git", "fetch", "--quiet", "--depth", "1", "origin", effective_ref],
+                cwd=repo_dir,
+                capture_output=True,
+                text=True,
+            )
+            if shallow_res.returncode == 0:
+                sha_res = subprocess.run(
+                    ["git", "rev-parse", "--verify", "FETCH_HEAD^{commit}"],
+                    cwd=repo_dir,
+                    capture_output=True,
+                    text=True,
+                )
+                if sha_res.returncode != 0:
+                    print(f"could not resolve ref '{effective_ref}' from FETCH_HEAD", file=sys.stderr)
+                    return 2
+                commit = sha_res.stdout.strip()
+            else:
+                # Fetch full refs if shallow fetch of ref directly failed (e.g. short SHA or unadvertised commit)
+                subprocess.run(
+                    ["git", "fetch", "--quiet", "origin"],
+                    cwd=repo_dir,
+                    capture_output=True,
+                    text=True,
+                )
+                sha_res = subprocess.run(
+                    ["git", "rev-parse", "--verify", f"{effective_ref}^{{commit}}"],
+                    cwd=repo_dir,
+                    capture_output=True,
+                    text=True,
+                )
+                if sha_res.returncode != 0:
+                    sha_res = subprocess.run(
+                        ["git", "rev-parse", "--verify", f"origin/{effective_ref}^{{commit}}"],
+                        cwd=repo_dir,
+                        capture_output=True,
+                        text=True,
+                    )
+                if sha_res.returncode != 0:
+                    print(f"upstream ref '{effective_ref}' not found", file=sys.stderr)
+                    return 2
+                commit = sha_res.stdout.strip()
+
+        # Materialize an exact committed snapshot without mutating repo_dir or copying dirty/untracked files
+        snapshot_dir = tmp_path / "snapshot"
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            extract_snapshot(repo_dir, commit, snapshot_dir)
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+
+        # Validate that all requested skills are valid, strictly contained, and present BEFORE touching target
+        skills_root = snapshot_dir / "skills"
+        skills_root.mkdir(parents=True, exist_ok=True)
+        skills_root_resolved = skills_root.resolve()
+
+        for skill in skills:
+            if not is_valid_skill_component(skill):
+                print(f"invalid skill name '{skill}': must be a single relative path component", file=sys.stderr)
+                return 2
+
+            skill_path = skills_root / skill
+            try:
+                skill_path_resolved = skill_path.resolve()
+                if (
+                    skill_path_resolved == skills_root_resolved
+                    or not skill_path_resolved.is_relative_to(skills_root_resolved)
+                    or skill_path_resolved.parent != skills_root_resolved
+                ):
+                    print(f"skill '{skill}' is not contained within the skills directory", file=sys.stderr)
+                    return 2
+            except (ValueError, RuntimeError):
+                print(f"invalid skill path for '{skill}'", file=sys.stderr)
+                return 2
+
+            if not (skill_path / "SKILL.md").is_file():
+                print(f"upstream snapshot at {commit[:12]} has no skill named {skill}", file=sys.stderr)
+                return 2
+
+        committed_at = git(["log", "-1", "--format=%cI", commit], repo_dir)
+        subject = git(["log", "-1", "--format=%s", commit], repo_dir)
+
+        # Mutate target only after all validations have passed
+        target.mkdir(parents=True, exist_ok=True)
+        for path in target.iterdir():
+            if path.name in ("README.md",):
+                continue
+            shutil.rmtree(path) if path.is_dir() else path.unlink()
+        (target / "skills").mkdir(parents=True, exist_ok=True)
+
+        copied = 0
+        for skill in skills:
+            skill_src = snapshot_dir / "skills" / skill
+            for src in sorted(skill_src.rglob("*")):
+                if not src.is_file() or any(part in IGNORED_NAMES for part in src.parts):
+                    continue
+                rel = src.relative_to(snapshot_dir)
+                dest = target / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
+                copied += 1
+                if verbose:
+                    print(f"copied: {rel.as_posix()}")
+
+        for name in ROOT_FILES:
+            src = snapshot_dir / name
+            if src.is_file():
+                shutil.copy2(src, target / name)
+                copied += 1
+
+        files = {rel: digest(path) for rel, path in sorted(mirrored_files(target).items())}
+        excluded: list[str] = []
+        if (snapshot_dir / "skills").is_dir():
+            excluded = [name for name in sorted(p.name for p in (snapshot_dir / "skills").iterdir() if p.is_dir()) if name not in skills]
+
+        manifest = {
+            "upstream": UPSTREAM_REPO,
+            "ref": manifest_ref,
+            "commit": commit,
+            "committed_at": committed_at,
+            "subject": subject,
+            "synced_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "skills": skills,
+            "excluded": excluded,
+            "files": files,
+        }
+        manifest_path = target / MANIFEST_NAME
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        print(f"synced emdash skills mirror: {copied} files from {commit[:12]} ({subject}); excluded {', '.join(manifest['excluded']) or 'none'}")
+        return 0
+
+
+def correct_plugin_examples(expected: dict[str, bytes]) -> None:
+    """Apply reviewed corrections only when each pinned source excerpt matches once."""
+    replacements = {
+        "references/block-kit.md": [(
+            '\t\thandler: async (ctx) => {\n'
+            '\t\t\t// EmDash parses the request body once and exposes it as ctx.input;\n'
+            '\t\t\t// read it directly rather than ctx.request.json() (the body is consumed).\n'
+            '\t\t\t// BlockInteraction is the discriminated union of page_load,\n'
+            '\t\t\t// block_action, and form_submit payloads.\n'
+            '\t\t\tconst interaction = ctx.input as BlockInteraction;',
+            '\t\thandler: async (routeCtx, ctx) => {\n'
+            '\t\t\t// Sandboxed handlers receive route input and plugin services separately.\n'
+            '\t\t\t// The request body is already parsed in routeCtx.input.\n'
+            '\t\t\t// BlockInteraction covers page_load, block_action and form_submit.\n'
+            '\t\t\tconst interaction = routeCtx.input as BlockInteraction;',
+        )],
+        "references/hooks.md": [(
+            '\t\tconst apiKey = await ctx.settings.get("apiKey");\n'
+            '\t\tawait ctx.http!.fetch("https://api.resend.com/emails", {\n'
+            '\t\t\tmethod: "POST",\n'
+            '\t\t\theaders: { Authorization: `Bearer ${apiKey}` },\n'
+            '\t\t\tbody: JSON.stringify({\n'
+            '\t\t\t\tto: message.to,\n'
+            '\t\t\t\tcc: message.cc,\n'
+            '\t\t\t\treply_to: message.replyTo,\n'
+            '\t\t\t\tsubject: message.subject,\n'
+            '\t\t\t\ttext: message.text,\n'
+            '\t\t\t}),\n'
+            '\t\t});',
+            '\t\tconst apiKey = await ctx.settings.get("apiKey");\n'
+            '\t\tconst from = await ctx.settings.get("from");\n'
+            '\t\tif (!from) throw new Error("Email delivery failed: missing configured sender");\n'
+            '\t\tconst response = await ctx.http!.fetch("https://api.resend.com/emails", {\n'
+            '\t\t\tmethod: "POST",\n'
+            '\t\t\theaders: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },\n'
+            '\t\t\tbody: JSON.stringify({\n'
+            '\t\t\t\tfrom,\n'
+            '\t\t\t\tto: message.to,\n'
+            '\t\t\t\tcc: message.cc,\n'
+            '\t\t\t\treply_to: message.replyTo,\n'
+            '\t\t\t\tsubject: message.subject,\n'
+            '\t\t\t\ttext: message.text,\n'
+            '\t\t\t}),\n'
+            '\t\t});\n'
+            '\t\tif (!response.ok) {\n'
+            '\t\t\t// Never expose provider bodies, credentials or email addresses in errors.\n'
+            '\t\t\tthrow new Error(`Email delivery failed with HTTP status ${response.status}`);\n'
+            '\t\t}',
+        )],
+    }
+    for path, pairs in replacements.items():
+        text = expected[path].decode("utf-8")
+        for old, new in pairs:
+            if text.count(old) != 1:
+                raise ValueError(f"review packaged correction for changed upstream excerpt: {path}")
+            text = text.replace(old, new, 1)
+        expected[path] = text.encode("utf-8")
+
+
+def package_skills(check_only: bool, target: Path = TARGET, package_root: Path = ROOT / "skills") -> int:
+    """Project only the four owned upstream skills into portable plugin paths."""
+    manifest = json.loads((target / MANIFEST_NAME).read_text(encoding="utf-8"))
+    if set(manifest["skills"]) != set(DEFAULT_SKILLS):
+        print("packaging requires the four declared EmDash skills", file=sys.stderr)
+        return 2
+    expected_by_skill: dict[str, dict[str, bytes]] = {}
+    for name in DEFAULT_SKILLS:
+        source = target / "skills" / name
+        if not (source / "SKILL.md").is_file():
+            print(f"missing upstream skill: {name}", file=sys.stderr)
+            return 2
+        expected = {p.relative_to(source).as_posix(): p.read_bytes() for p in source.rglob("*") if p.is_file()}
+        if name == "creating-plugins":
+            try:
+                correct_plugin_examples(expected)
+            except (KeyError, ValueError) as exc:
+                print(str(exc), file=sys.stderr)
+                return 2
+        expected["LICENSE"] = (target / "LICENSE").read_bytes()
+        expected["UPSTREAM.md"] = (
+            f"# Upstream source\n\nSkill content from https://github.com/emdash-cms/skills\n"
+            f"at commit `{manifest['commit']}` (MIT, Cloudflare Inc.).\n"
+            "LICENSE and this notice are added for standalone distribution.\n"
+            + ("Packaged block-kit.md and hooks.md include deterministic reviewed corrections for\n"
+               "sandboxed handler contexts and email sender/HTTP results. The vendor mirror stays verbatim.\n"
+               if name == "creating-plugins" else "Skill content remains verbatim.\n")
+            + "Further version-specific guidance is in the companion emdash-sites skill.\n"
+        ).encode()
+        expected_by_skill[name] = expected
+        destination = package_root / name
+        if destination.is_symlink() or any(p.is_symlink() for p in destination.rglob("*")):
+            print(f"refusing symlink in packaged skill: {name}", file=sys.stderr)
+            return 2
+    drift = []
+    for name, expected in expected_by_skill.items():
+        destination = package_root / name
+        actual = {p.relative_to(destination).as_posix(): p.read_bytes() for p in destination.rglob("*") if p.is_file()}
+        if actual == expected:
+            continue
+        drift.append(name)
+        if not check_only:
+            if destination.exists():
+                shutil.rmtree(destination)
+            destination.mkdir(parents=True)
+            for rel, content in expected.items():
+                output = destination / rel
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_bytes(content)
+    if check_only and drift:
+        print("packaged EmDash skill drift: " + ", ".join(drift), file=sys.stderr)
+        return 1
+    print("EmDash packaged skills " + ("clean" if check_only else "updated"))
+    return 0
+
+
+def main() -> int:
+    args = parse_args()
+    if args.check:
+        result = check(args.verbose)
+    else:
+        if set(args.skills) != set(DEFAULT_SKILLS):
+            print("packaging requires the four declared EmDash skills", file=sys.stderr)
+            return 2
+        result = update(args.ref, args.source, list(args.skills), args.verbose)
+    if result:
+        return result
+    return package_skills(check_only=args.check)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
