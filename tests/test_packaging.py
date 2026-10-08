@@ -16,7 +16,7 @@ GROK_SKILL = ROOT / "skills" / "grok-acp-delegation"
 class PackagingTests(unittest.TestCase):
     def test_emdash_skills_discoverable_with_licenses(self) -> None:
         upstream = ("building-emdash-site", "creating-plugins", "emdash-cli", "upgrading-emdash")
-        names = ("emdash-sites", "emdash-commerce", *upstream)
+        names = ("emdash-sites", "emdash-commerce", "emdash-ci-deploy", *upstream)
         cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
         codex = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())
         self.assertEqual(codex["skills"], "./skills/")
@@ -27,6 +27,14 @@ class PackagingTests(unittest.TestCase):
                 self.assertEqual((ROOT / "skills" / name / "LICENSE").read_bytes(),
                                  (ROOT / "vendor/emdash-skills/LICENSE").read_bytes())
                 self.assertTrue((ROOT / "skills" / name / "UPSTREAM.md").is_file())
+
+    def test_emdash_ci_deploy_resources_are_packaged(self) -> None:
+        skill = ROOT / "skills" / "emdash-ci-deploy"
+        for name in ("pipeline-and-targets.md", "deploy-stamp-and-verify.md", "onboard-and-troubleshoot.md"):
+            self.assertTrue((skill / "references" / name).is_file())
+        metadata = (skill / "agents" / "openai.yaml").read_text()
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("$emdash-ci-deploy", metadata)
 
     def test_emdash_commerce_resources_are_packaged(self) -> None:
         skill = ROOT / "skills" / "emdash-commerce"

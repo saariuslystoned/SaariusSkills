@@ -1,0 +1,6 @@
+interface:
+  display_name: "EmDash CI Deploy"
+  short_description: "Prepare and verify EmDash deployment pipelines"
+  default_prompt: "Use $emdash-ci-deploy to prepare a deployment pipeline with isolated targets and commit-aware verification, preserving the project's approval gates."
+policy:
+  allow_implicit_invocation: true
