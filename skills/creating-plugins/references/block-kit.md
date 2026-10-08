@@ -20,12 +20,11 @@ import type { BlockInteraction } from "@emdash-cms/blocks";
 
 routes: {
 	admin: {
-		handler: async (ctx) => {
-			// EmDash parses the request body once and exposes it as ctx.input;
-			// read it directly rather than ctx.request.json() (the body is consumed).
-			// BlockInteraction is the discriminated union of page_load,
-			// block_action, and form_submit payloads.
-			const interaction = ctx.input as BlockInteraction;
+		handler: async (routeCtx, ctx) => {
+			// Sandboxed handlers receive route input and plugin services separately.
+			// The request body is already parsed in routeCtx.input.
+			// BlockInteraction covers page_load, block_action and form_submit.
+			const interaction = routeCtx.input as BlockInteraction;
 
 			if (interaction.type === "page_load") {
 				return {

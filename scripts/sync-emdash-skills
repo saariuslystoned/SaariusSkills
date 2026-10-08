@@ -363,6 +363,65 @@ def update(ref: str | None, source: Path | None, skills: list[str], verbose: boo
         return 0
 
 
+def correct_plugin_examples(expected: dict[str, bytes]) -> None:
+    """Apply reviewed corrections only when each pinned source excerpt matches once."""
+    replacements = {
+        "references/block-kit.md": [(
+            '\t\thandler: async (ctx) => {\n'
+            '\t\t\t// EmDash parses the request body once and exposes it as ctx.input;\n'
+            '\t\t\t// read it directly rather than ctx.request.json() (the body is consumed).\n'
+            '\t\t\t// BlockInteraction is the discriminated union of page_load,\n'
+            '\t\t\t// block_action, and form_submit payloads.\n'
+            '\t\t\tconst interaction = ctx.input as BlockInteraction;',
+            '\t\thandler: async (routeCtx, ctx) => {\n'
+            '\t\t\t// Sandboxed handlers receive route input and plugin services separately.\n'
+            '\t\t\t// The request body is already parsed in routeCtx.input.\n'
+            '\t\t\t// BlockInteraction covers page_load, block_action and form_submit.\n'
+            '\t\t\tconst interaction = routeCtx.input as BlockInteraction;',
+        )],
+        "references/hooks.md": [(
+            '\t\tconst apiKey = await ctx.settings.get("apiKey");\n'
+            '\t\tawait ctx.http!.fetch("https://api.resend.com/emails", {\n'
+            '\t\t\tmethod: "POST",\n'
+            '\t\t\theaders: { Authorization: `Bearer ${apiKey}` },\n'
+            '\t\t\tbody: JSON.stringify({\n'
+            '\t\t\t\tto: message.to,\n'
+            '\t\t\t\tcc: message.cc,\n'
+            '\t\t\t\treply_to: message.replyTo,\n'
+            '\t\t\t\tsubject: message.subject,\n'
+            '\t\t\t\ttext: message.text,\n'
+            '\t\t\t}),\n'
+            '\t\t});',
+            '\t\tconst apiKey = await ctx.settings.get("apiKey");\n'
+            '\t\tconst from = await ctx.settings.get("from");\n'
+            '\t\tif (!from) throw new Error("Email delivery failed: missing configured sender");\n'
+            '\t\tconst response = await ctx.http!.fetch("https://api.resend.com/emails", {\n'
+            '\t\t\tmethod: "POST",\n'
+            '\t\t\theaders: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },\n'
+            '\t\t\tbody: JSON.stringify({\n'
+            '\t\t\t\tfrom,\n'
+            '\t\t\t\tto: message.to,\n'
+            '\t\t\t\tcc: message.cc,\n'
+            '\t\t\t\treply_to: message.replyTo,\n'
+            '\t\t\t\tsubject: message.subject,\n'
+            '\t\t\t\ttext: message.text,\n'
+            '\t\t\t}),\n'
+            '\t\t});\n'
+            '\t\tif (!response.ok) {\n'
+            '\t\t\t// Never expose provider bodies, credentials or email addresses in errors.\n'
+            '\t\t\tthrow new Error(`Email delivery failed with HTTP status ${response.status}`);\n'
+            '\t\t}',
+        )],
+    }
+    for path, pairs in replacements.items():
+        text = expected[path].decode("utf-8")
+        for old, new in pairs:
+            if text.count(old) != 1:
+                raise ValueError(f"review packaged correction for changed upstream excerpt: {path}")
+            text = text.replace(old, new, 1)
+        expected[path] = text.encode("utf-8")
+
+
 def package_skills(check_only: bool, target: Path = TARGET, package_root: Path = ROOT / "skills") -> int:
     """Project only the four owned upstream skills into portable plugin paths."""
     manifest = json.loads((target / MANIFEST_NAME).read_text(encoding="utf-8"))
@@ -376,12 +435,21 @@ def package_skills(check_only: bool, target: Path = TARGET, package_root: Path =
             print(f"missing upstream skill: {name}", file=sys.stderr)
             return 2
         expected = {p.relative_to(source).as_posix(): p.read_bytes() for p in source.rglob("*") if p.is_file()}
+        if name == "creating-plugins":
+            try:
+                correct_plugin_examples(expected)
+            except (KeyError, ValueError) as exc:
+                print(str(exc), file=sys.stderr)
+                return 2
         expected["LICENSE"] = (target / "LICENSE").read_bytes()
         expected["UPSTREAM.md"] = (
-            f"# Upstream source\n\nVerbatim skill content from https://github.com/emdash-cms/skills\n"
+            f"# Upstream source\n\nSkill content from https://github.com/emdash-cms/skills\n"
             f"at commit `{manifest['commit']}` (MIT, Cloudflare Inc.).\n"
             "LICENSE and this notice are added for standalone distribution.\n"
-            "Known version-specific corrections are documented in the companion emdash-sites skill.\n"
+            + ("Packaged block-kit.md and hooks.md include deterministic reviewed corrections for\n"
+               "sandboxed handler contexts and email sender/HTTP results. The vendor mirror stays verbatim.\n"
+               if name == "creating-plugins" else "Skill content remains verbatim.\n")
+            + "Further version-specific guidance is in the companion emdash-sites skill.\n"
         ).encode()
         expected_by_skill[name] = expected
         destination = package_root / name

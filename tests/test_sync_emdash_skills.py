@@ -31,6 +31,8 @@ Verifies:
 from __future__ import annotations
 
 import contextlib
+import shutil
+import hashlib
 import io
 import json
 import subprocess
@@ -640,6 +642,39 @@ class PackagedProjectionTests(unittest.TestCase):
             self.assertEqual(sync_mod.package_skills(False, package_root=root), 0)
             self.assertEqual(sync_mod.package_skills(True, package_root=root), 0)
             self.assertEqual(sentinel.read_text(), "untouched")
+
+    def test_primary_examples_corrected_without_changing_vendor_or_native_example(self):
+        vendor = REPO_ROOT / "vendor/emdash-skills"
+        before = {p.relative_to(vendor): hashlib.sha256(p.read_bytes()).hexdigest()
+                  for p in vendor.rglob("*") if p.is_file()}
+        with tempfile.TemporaryDirectory() as tmp:
+            packages = Path(tmp)
+            self.assertEqual(sync_mod.package_skills(False, package_root=packages), 0)
+            block = (packages / "creating-plugins/references/block-kit.md").read_text()
+            original = (vendor / "skills/creating-plugins/references/block-kit.md").read_text()
+            self.assertIn("handler: async (routeCtx, ctx)", block)
+            self.assertIn("const interaction = routeCtx.input as BlockInteraction", block)
+            # Only the first sandboxed snippet changes; native optionsRoute stays byte-identical.
+            self.assertEqual(block.split("## Block Types", 1)[1], original.split("## Block Types", 1)[1])
+            hooks = (packages / "creating-plugins/references/hooks.md").read_text()
+            self.assertIn('const from = await ctx.settings.get("from")', hooks)
+            self.assertIn("if (!response.ok)", hooks)
+            self.assertIn("missing configured sender", hooks)
+            self.assertEqual(sync_mod.package_skills(True, package_root=packages), 0)
+        after = {p.relative_to(vendor): hashlib.sha256(p.read_bytes()).hexdigest()
+                 for p in vendor.rglob("*") if p.is_file()}
+        self.assertEqual(before, after)
+
+    def test_changed_correction_anchor_refuses_before_package_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            vendor = root / "vendor"
+            shutil.copytree(REPO_ROOT / "vendor/emdash-skills", vendor)
+            path = vendor / "skills/creating-plugins/references/block-kit.md"
+            path.write_text(path.read_text().replace("const interaction = ctx.input", "const interaction = changed.input"))
+            packages = root / "packages"
+            self.assertEqual(sync_mod.package_skills(False, target=vendor, package_root=packages), 2)
+            self.assertFalse(packages.exists())
 
     def test_packaged_symlink_refused_before_any_mutation(self):
         with tempfile.TemporaryDirectory() as tmp:

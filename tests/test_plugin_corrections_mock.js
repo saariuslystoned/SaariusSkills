@@ -299,3 +299,56 @@ test("email:deliver: throws sanitized error on HTTP 500 without leaking secrets 
   assert.ok(!caughtError.message.includes(SENDER_EMAIL), "Must not leak sender email");
   assert.ok(!caughtError.message.includes("Internal Server Failure"), "Must not leak provider body");
 });
+
+
+// Exercise the actual packaged examples; handwritten models alone cannot catch drift.
+import { readFileSync } from "node:fs";
+
+function packagedSnippet(file, heading = "") {
+  const source = readFileSync(new URL(`../skills/creating-plugins/references/${file}`, import.meta.url), "utf8");
+  const section = heading ? source.slice(source.indexOf(heading)) : source;
+  const code = section.match(/```typescript\n([\s\S]*?)```/)[1]
+    .replace(/^import type .*;\n/gm, "")
+    .replace(/ as BlockInteraction/g, "")
+    .replace(/ctx\.http!/g, "ctx.http");
+  return Function(`return ({${code}});`)();
+}
+
+test("packaged sandboxed example dispatches with separate route and plugin contexts", async () => {
+  const example = packagedSnippet("block-kit.md");
+  const saved = [];
+  const result = await example.routes.admin.handler(
+    { input: { type: "form_submit", action_id: "save", values: { enabled: true } } },
+    { kv: { set: async (...args) => saved.push(args) } },
+  );
+  assert.deepEqual(saved, [["settings", { enabled: true }]]);
+  assert.equal(result.toast.type, "success");
+});
+
+test("packaged email example validates sender and HTTP outcome with sanitized errors", async () => {
+  const handler = packagedSnippet("hooks.md", "### `email:deliver`")["email:deliver"].handler;
+  const message = { to: "recipient@example.invalid", subject: "test", text: "test" };
+  let calls = 0;
+  let sender;
+  let status = 200;
+  const context = {
+    settings: { get: async (key) => key === "from" ? sender : "synthetic-key" },
+    http: { fetch: async (_url, options) => {
+      calls++;
+      assert.equal(JSON.parse(options.body).from, sender);
+      assert.equal(options.headers["Content-Type"], "application/json");
+      return { ok: status === 200, status, text: async () => { throw new Error("provider body must not be read"); } };
+    } },
+  };
+  await assert.rejects(handler({ message }, context), /missing configured sender/);
+  assert.equal(calls, 0);
+  sender = "sender@example.invalid";
+  await handler({ message }, context);
+  for (status of [401, 500]) {
+    await assert.rejects(handler({ message }, context), (error) => {
+      assert.equal(error.message, `Email delivery failed with HTTP status ${status}`);
+      return true;
+    });
+  }
+  assert.equal(calls, 3);
+});

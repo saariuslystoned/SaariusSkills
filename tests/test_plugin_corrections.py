@@ -31,7 +31,7 @@ class TestPluginCorrectionsMock(unittest.TestCase):
             0,
             f"Mock plugin corrections harness failed (code {res.returncode}):\n{res.stdout}\n{res.stderr}",
         )
-        self.assertIn("pass 8", res.stdout)
+        self.assertIn("pass 10", res.stdout)
 
 
 if __name__ == "__main__":

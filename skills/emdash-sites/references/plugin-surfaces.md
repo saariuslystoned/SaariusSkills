@@ -89,17 +89,16 @@ fully configured host, and keep domain rules behind both UI adapters identical.
 
 ## Pinned upstream corrections (`creating-plugins`)
 
-Upstream vendor mechanics (`creating-plugins`) contain
-known mechanical defects in reference examples. In accordance with shelf source
-priority, shelf-owned corrections override these defects while maintaining
-project-resolved version precedence. Never hand-edit vendored files; implement
-these corrected patterns:
+The verbatim vendor mirror contains these known mechanical defects. Packaged
+`creating-plugins` references already apply the corrections below deterministically.
+This explanation preserves their rationale; project-resolved versions still take
+precedence. Never hand-edit the vendor mirror.
 
 ### 1. Sandboxed vs. native route handler signatures
 
-**Pinned source identities:**
-- `../../creating-plugins/references/block-kit.md` (lines 23–48: sandboxed admin form handler)
-- `../../creating-plugins/references/block-kit.md` (lines 444–453: native Portable Text `optionsRoute`)
+**Affected packaged references** (original excerpts remain in the repository vendor mirror):
+- `../../creating-plugins/references/block-kit.md` (sandboxed admin form handler)
+- `../../creating-plugins/references/block-kit.md` (native Portable Text `optionsRoute`)
 
 **Critical Distinction:**
 As specified in [upstream API route documentation](https://docs.emdashcms.com/plugins/creating-plugins/api-routes/):
@@ -175,8 +174,8 @@ cards: { indexes: ["title"] },
 
 ### 2. Email delivery hook (`email:deliver`) status verification and sender
 
-**Pinned source identity:**
-- `../../creating-plugins/references/hooks.md` (lines 343–356: email transport handler)
+**Affected packaged reference** (original excerpt remains in the repository vendor mirror):
+- `../../creating-plugins/references/hooks.md` (email transport handler)
 
 **Defect:** Upstream's transport example executes `await ctx.http!.fetch(...)` and discards the returned WHATWG `Response`. When an email provider rejects the request (e.g., 401 Unauthorized or 500 Internal Server Error), `fetch()` resolves normally rather than throwing. The handler returns `void`, causing EmDash to falsely treat delivery as successful, dispatch `email:afterSend`, and report success. Additionally, the [Resend Send Email API](https://resend.com/docs/api-reference/emails/send-email) requires a `from` sender field, which upstream omitted.
 

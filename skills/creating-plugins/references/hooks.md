@@ -343,10 +343,13 @@ Implements email transport (e.g. Resend, SMTP, SES). Selected by the admin in Se
 	exclusive: true,
 	handler: async ({ message }, ctx) => {
 		const apiKey = await ctx.settings.get("apiKey");
-		await ctx.http!.fetch("https://api.resend.com/emails", {
+		const from = await ctx.settings.get("from");
+		if (!from) throw new Error("Email delivery failed: missing configured sender");
+		const response = await ctx.http!.fetch("https://api.resend.com/emails", {
 			method: "POST",
-			headers: { Authorization: `Bearer ${apiKey}` },
+			headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
 			body: JSON.stringify({
+				from,
 				to: message.to,
 				cc: message.cc,
 				reply_to: message.replyTo,
@@ -354,6 +357,10 @@ Implements email transport (e.g. Resend, SMTP, SES). Selected by the admin in Se
 				text: message.text,
 			}),
 		});
+		if (!response.ok) {
+			// Never expose provider bodies, credentials or email addresses in errors.
+			throw new Error(`Email delivery failed with HTTP status ${response.status}`);
+		}
 	},
 },
 ```

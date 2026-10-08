@@ -85,9 +85,11 @@ The following systems are comparisons, not dependencies:
 
 ## EmDash skills
 
-The four EmDash mechanics skills are verbatim from
+The four EmDash mechanics skills derive from
 <https://github.com/emdash-cms/skills/tree/15dcb07160fb321aab93fa67c6d0cbfc1c33e90f>.
 License: MIT, Copyright (c) 2026 Cloudflare, Inc. The full license is preserved
 in `vendor/emdash-skills/LICENSE` and each packaged upstream skill.
 `vendor/emdash-skills/UPSTREAM.json` records the provenance and file hashes.
+The vendor mirror is verbatim; packaged `creating-plugins` examples include
+reviewed handler-context and email-transport corrections.
 `emdash-sites` is separately maintained guidance, not an upstream skill.

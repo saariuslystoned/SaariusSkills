@@ -14,12 +14,13 @@ The PR head identifies the candidate; `files.sha256` binds the new skill content
 - Packaged `emdash-sites` plus four upstream skills for existing Codex, Cursor,
   Claude Code and path-based discovery. Cursor's explicit list is extended;
   existing directory-based manifests need no change.
-- Preserved MIT license and upstream provenance. Upstream content is byte-for-byte
-  unchanged; standalone license/notice files are added outside that content.
+- Preserved MIT license and upstream provenance. The vendor mirror remains
+  byte-for-byte unchanged. Packaged plugin examples apply deterministic reviewed
+  corrections; notices distinguish these from verbatim upstream content.
 - Sync checks both the vendor mirror and packaged copies. Updates affect only
   the four declared EmDash skill directories, and reject destination symlinks.
-- Kept route-context, email-result and CLI draft/revision corrections in the
-  companion guidance. Repository-wide third-party notices also follow the
+- Applied route-context and email-result corrections to primary packaged plugin
+  examples; retained the rationale and CLI draft/revision guidance in the companion. Repository-wide third-party notices also follow the
   existing GrillTrack notice-copy packaging contract.
 
 ## Verification
@@ -27,19 +28,33 @@ The PR head identifies the candidate; `files.sha256` binds the new skill content
 - `python3 scripts/sync-emdash-skills --check`: PASS, 23 vendor files and four
   packaged skills match.
 - `python3 -m unittest discover -s tests -p 'test_sync_emdash_skills.py' -q`:
-  PASS, 23 tests, including immutable snapshot extraction, invalid input,
+  PASS, 25 tests, including immutable snapshot extraction, invalid input,
   symlink refusal, drift detection/repair and unrelated-skill preservation.
 - `python3 -m unittest discover -s tests -p 'test_packaging.py' -q`:
   PASS, 15 tests, including skill discovery and standalone licenses.
 - `python3 -m unittest discover -s tests -p 'test_plugin_corrections.py' -q`:
-  PASS, wrapper runs 8 Node mock cases for handler contexts and email outcomes.
+  PASS, wrapper runs 10 Node cases: 8 models and 2 executing actual packaged
+  examples for sandboxed dispatch and email sender/status handling.
 - Skill Creator `quick_validate.py skills/emdash-sites`: PASS using ephemeral
   PyYAML dependency. System Python lacked that optional dependency initially.
 - All relative Markdown links in `skills/emdash-sites`: resolve locally.
 - `git diff --check`: PASS.
 
-- `python3 -m unittest discover -s tests -q`: PASS, 168 tests in
-  142.666 seconds. The transferred correction wrapper also passed separately.
+- `python3 -m unittest discover -s tests -q`: repair PASS, 171 tests in
+  148.655 seconds (including the transferred correction wrapper).
+
+## Review repair, cycle 1
+
+Accepted two P2 findings as `required_fix`: the primary sandboxed Block Kit
+example exposed an invalid single-context handler, and the primary email example
+omitted sender/status validation. Corrected the packaged references at source
+projection time while retaining the exact upstream vendor snapshot. Regression
+checks cover changed-anchor refusal, untouched native examples, vendor hashes,
+idempotent projection, and actual extracted-example behavior.
+
+The owner authorized a one-time review exception for PR #117: passing CI and
+clean comprehensive OpenClaw review suffice; native ClawSweeper is not required
+for this PR. This does not change review policy for other PRs.
 
 ## Limits and privacy
 

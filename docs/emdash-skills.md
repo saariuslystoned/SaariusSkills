@@ -24,15 +24,22 @@ Upstream skill content is vendored verbatim at public commit
 [`15dcb07160fb321aab93fa67c6d0cbfc1c33e90f`](https://github.com/emdash-cms/skills/tree/15dcb07160fb321aab93fa67c6d0cbfc1c33e90f),
 the EmDash v1.2.0 skill release. [UPSTREAM.json](../vendor/emdash-skills/UPSTREAM.json)
 records file hashes. The MIT license is preserved both beside the vendor mirror
-and in every packaged upstream skill. These license/notice additions do not
-modify upstream skill content. WordPress migration skills are outside this set.
+and in every packaged upstream skill. The vendor mirror stays byte-for-byte unchanged. Packaged `creating-plugins`
+references apply two deterministic corrections before distribution; the other
+three skills retain verbatim upstream content. WordPress migration skills are outside this set.
 
-`emdash-sites` is maintained separately. It records corrections to examples at
-the bundled pin: sandboxed versus native handler contexts, email sender/status
-handling, and revision isolation for CLI draft updates. Read it with the relevant
-mechanics skill. The project's resolved implementation takes precedence over a
-historical skill release. Standalone upstream-only installation omits these local
-corrections; install the full set for the maintained guidance.
+Packaged `creating-plugins/references/block-kit.md` corrects the sandboxed form
+handler to receive `(routeCtx, ctx)` and read `routeCtx.input`, preserving native
+single-context examples. Its `references/hooks.md` requires a configured sender,
+sets JSON content type and rejects unsuccessful email-provider responses with a
+sanitized error. The projector validates exact source excerpts before patching;
+a changed upstream excerpt stops packaging for review instead of silently
+applying an outdated patch. These corrections are present in the primary skill,
+so loading `creating-plugins` alone receives the safe examples.
+
+`emdash-sites` is maintained separately with further implementation judgment and
+CLI draft/revision guidance. Read it with the relevant mechanics skill. The
+project's resolved implementation takes precedence over a historical release.
 
 ## Maintenance
 
