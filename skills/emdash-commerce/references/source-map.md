@@ -1,0 +1,15 @@
+# Official research starting points
+
+Use only rows relevant to the focused decision. These are entry points, not a cached comparison or a mandate to copy a platform. Verify linked pages and relevant schemas/release notes at use time; record date, version and availability gates in the decision packet.
+
+| Platform | Useful official entry points | Why select it |
+| --- | --- | --- |
+| WooCommerce / WordPress | [Product management](https://woocommerce.com/document/managing-products/), [developer documentation](https://developer.woocommerce.com/docs/), [REST API reference](https://woocommerce.github.io/woocommerce-rest-api-docs/) | CMS/plugin composition, merchant editing, core versus extension contracts. |
+| Shopify | [ProductVariant](https://shopify.dev/docs/api/admin-graphql/latest/objects/ProductVariant), [category metafields](https://help.shopify.com/en/manual/custom-data/metafields/category-metafields), [developer changelog](https://shopify.dev/changelog) | Hosted catalog, options versus descriptive data, versioned admin/storefront contracts. |
+| BigCommerce | [Catalog overview](https://docs.bigcommerce.com/developer/docs/admin/catalog-and-inventory/products-overview), [developer changelog](https://docs.bigcommerce.com/developer/changelog) | Variants versus modifiers, inventory and channel-facing contracts. |
+| Adobe Commerce / Magento | [Product creation and types](https://experienceleague.adobe.com/en/docs/commerce-admin/catalog/products/product-create), [configurable-product GraphQL schema](https://developer.adobe.com/commerce/webapi/graphql/schema/products/interfaces/types/configurable) | Complex catalog relationships and B2B; check product edition/extension gates. |
+| commercetools | [Catalog overview](https://docs.commercetools.com/api/product-catalog-overview), [Product Types](https://docs.commercetools.com/api/projects/productTypes), [Products API](https://docs.commercetools.com/api/projects/products) | Composable ownership and typed catalog attributes; evaluate added complexity. |
+
+For an agent-facing decision, start with Shopify's [agent catalogs](https://shopify.dev/docs/agents/catalog) and [carts and checkout](https://shopify.dev/docs/agents/carts-and-checkout), or BigCommerce's [MCP overview](https://docs.bigcommerce.com/developer/api-reference/mcp/overview/). Follow their linked API/status/access documentation. Check which server and actions are described; a docs assistant is different from merchant or shopper action support. Do not conclude that EmDash implements a protocol because a comparator documents it.
+
+Entry-point check: 2026-10-08. Shopify ProductVariant displayed API `2026-10`; unversioned documentation needs a fresh date check. Full-page retrieval failed for WooCommerce's REST manual, BigCommerce's changelog/MCP overview and commercetools' Products API. Official search returned BigCommerce's beta description, which is insufficient for specific tool/access claims. These limitations are not evidence of absence. No feature findings are universal policy.
