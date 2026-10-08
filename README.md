@@ -16,7 +16,10 @@ hand-written `~/.cursor/mcp.json`.
 [EmDash Sites](skills/emdash-sites/SKILL.md) adds implementation and verification
 judgment for editable sites, native and sandboxed plugins, CMS content, hosting
 and commerce. Four bundled upstream skills cover site building, plugin creation,
-CLI operations and upgrades. All five use the same plugin installation paths
+CLI operations and upgrades. [EmDash Commerce](skills/emdash-commerce/SKILL.md)
+compares relevant ecommerce platforms before major Commerce or companion-plugin
+decisions in GrillTrack, preserving existing locks and skipping routine fixes.
+All six use the same plugin installation paths
 below; see [EmDash packaging](docs/emdash-skills.md) for the upstream pin,
 standalone installation and version-specific corrections.
 

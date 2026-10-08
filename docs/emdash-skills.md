@@ -1,10 +1,11 @@
 # EmDash skills
 
-The package includes five discoverable skills:
+The package includes six discoverable skills:
 
 | Skill | Responsibility |
 | --- | --- |
 | `emdash-sites` | Implementation decisions, draft safety, plugin surfaces and observable verification |
+| `emdash-commerce` | Official-source platform comparisons before major Commerce/companion-plugin GrillTrack proposals or locks |
 | `building-emdash-site` | Upstream schema, seed, queries and rendering mechanics |
 | `creating-plugins` | Upstream native/sandboxed plugin mechanics |
 | `emdash-cli` | Upstream command-line workflows |
@@ -13,10 +14,10 @@ The package includes five discoverable skills:
 ## Installation and ownership
 
 Codex discovers `skills/` through `.codex-plugin/plugin.json`; Cursor lists the
-five directories in `.cursor-plugin/plugin.json`; Claude Code discovers the
+six directories in `.cursor-plugin/plugin.json`; Claude Code discovers the
 standard `skills/` directory. AGY/path installations use the same directories
 under the root plugin. Use the [repository install guide](../README.md#install).
-For manual skill-only installations, copy all five complete directories into
+For manual skill-only installations, copy all six complete directories into
 the harness's supported skill location. EmDash skills do not require the ACP
 bridges. No installer or account configuration is changed by adding these files.
 
@@ -37,8 +38,17 @@ a changed upstream excerpt stops packaging for review instead of silently
 applying an outdated patch. These corrections are present in the primary skill,
 so loading `creating-plugins` alone receives the safe examples.
 
-`emdash-sites` is maintained separately with further implementation judgment and
-CLI draft/revision guidance. Read it with the relevant mechanics skill. The
+`emdash-sites` and `emdash-commerce` are maintained separately from the upstream
+mirror. Sites adds implementation judgment and CLI draft/revision guidance;
+Commerce prepares source-linked comparisons of 3–5 relevant platforms before
+material product, API or data-model proposals. Commerce consumes current locks,
+preserves unresolved choices and hands research back to GrillTrack without
+replacing its lifecycle or authorizing implementation or delivery. It excludes
+routine fixes and settled implementation unless material evidence calls for
+reopening. Invoke it naturally or as `$emdash-commerce`; its official source map
+is a starting point requiring fresh date/version/status checks.
+
+Read Sites with the relevant mechanics skill. The
 project's resolved implementation takes precedence over a historical release.
 
 ## Maintenance

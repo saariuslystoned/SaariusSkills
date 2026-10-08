@@ -11,6 +11,7 @@
     "./skills/create-verification-skill/",
     "./skills/creating-plugins/",
     "./skills/emdash-cli/",
+    "./skills/emdash-commerce/",
     "./skills/emdash-sites/",
     "./skills/grilltrack/",
     "./skills/grok-acp-delegation/",
