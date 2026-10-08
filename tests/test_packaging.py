@@ -14,6 +14,19 @@ GROK_SKILL = ROOT / "skills" / "grok-acp-delegation"
 
 
 class PackagingTests(unittest.TestCase):
+    def test_emdash_skills_discoverable_with_licenses(self) -> None:
+        names = ("emdash-sites", "building-emdash-site", "creating-plugins", "emdash-cli", "upgrading-emdash")
+        cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
+        codex = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())
+        self.assertEqual(codex["skills"], "./skills/")
+        for name in names:
+            self.assertTrue((ROOT / "skills" / name / "SKILL.md").is_file())
+            self.assertIn(f"./skills/{name}/", cursor["skills"])
+            if name != "emdash-sites":
+                self.assertEqual((ROOT / "skills" / name / "LICENSE").read_bytes(),
+                                 (ROOT / "vendor/emdash-skills/LICENSE").read_bytes())
+                self.assertTrue((ROOT / "skills" / name / "UPSTREAM.md").is_file())
+
     def test_acp_entry_is_discoverable_on_packaged_hosts(self) -> None:
         entry = ROOT / "skills" / "acp-delegation"
         self.assertTrue((entry / "SKILL.md").is_file())

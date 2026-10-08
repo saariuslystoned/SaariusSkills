@@ -1,0 +1,4 @@
+interface:
+  display_name: "EmDash Sites and Plugins"
+  short_description: "Build native EmDash UX with real runtime proof"
+  default_prompt: "Use $emdash-sites to plan and complete this EmDash slice through its real installation path, with upstream UI conventions and evidence of the user outcome."

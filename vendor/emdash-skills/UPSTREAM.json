@@ -1,0 +1,43 @@
+{
+  "upstream": "https://github.com/emdash-cms/skills.git",
+  "ref": "main",
+  "commit": "15dcb07160fb321aab93fa67c6d0cbfc1c33e90f",
+  "committed_at": "2026-10-06T22:14:37Z",
+  "subject": "chore: sync skills from emdash v1.2.0",
+  "synced_at": "2026-10-07T23:55:15+00:00",
+  "skills": [
+    "building-emdash-site",
+    "creating-plugins",
+    "emdash-cli",
+    "upgrading-emdash"
+  ],
+  "excluded": [
+    "wordpress-plugin-to-emdash",
+    "wordpress-theme-to-emdash"
+  ],
+  "files": {
+    "LICENSE": "d5ab82c0225b0def1fa140af22ff2f3bed9791a527545be1b04ab4337dc88675",
+    "README.md": "df0c04a012c1a75fa5eb3104813c493514eb62e912a8bd67fef7c8dbb5d62b62",
+    "skills/building-emdash-site/SKILL.md": "87393083e92b33db4ec77b7037b35bf76f5c77bdf875e3dc233dcde442c12238",
+    "skills/building-emdash-site/references/configuration.md": "c94eb88c0e54e99d032666e55f1ad8123b2d9ba7baaff05f912b74e6355ad3be",
+    "skills/building-emdash-site/references/querying-and-rendering.md": "824ded645620a806e01a676f99c65c93ff44af9a13016211d410aa66f29eaf30",
+    "skills/building-emdash-site/references/schema-and-seed.md": "7f2f898b7d9cc66eaafe3a24ffcc117f75d8807d2ddea1a5e6c3c3237d30e770",
+    "skills/building-emdash-site/references/site-features.md": "069d7a524148cc4943c68d4cdfb338c40d81fed0e27f8f16e06e89467b940e9e",
+    "skills/creating-plugins/SKILL.md": "66fda54d0060e53d2b9ce448940e75a70a693ee11cc527d89e95ab48aac24709",
+    "skills/creating-plugins/references/admin-ui.md": "f7aae0f18bcb0836aed0dd61ae747142765c9f112f1f2966252e9a0ddcaa5ca2",
+    "skills/creating-plugins/references/api-routes.md": "5586881b7f1d1ba5f482f822ef2237159d528e774532116b52d3fdea470b4dc0",
+    "skills/creating-plugins/references/block-kit.md": "237d2bc21cc2a71f60f750c762419ef33c359bdb86e97aabab4cbd013d6b1b4e",
+    "skills/creating-plugins/references/comments.md": "cc3e1ea3657a41365283b0ae89bfab2852930c01c739cc591d1238e26525e068",
+    "skills/creating-plugins/references/content.md": "738f617311dcfa1ab595b674ada072d214012c69178c4d05d8ce371324136007",
+    "skills/creating-plugins/references/hooks.md": "6c115dece039f2f382c9f1a106d905b39aaf87d30bffb0b082a6311f5136a528",
+    "skills/creating-plugins/references/media.md": "bfd6817a2caf3f1c62334628bcf509ce888f7fb2bdcc4c3d35dc13880ab6f5be",
+    "skills/creating-plugins/references/portable-text-blocks.md": "8a24784367a9d8dc37c862d438ed3dcbe6e4f869421e6eee31ef36d1454f8276",
+    "skills/creating-plugins/references/publishing.md": "0831c58eef59fd36b484b8877990ab81f305b9cb4765d31d749247ea6df4bd2b",
+    "skills/creating-plugins/references/sandbox-boundaries.md": "438da67963f66399c32355d51624214fd9cb596043a21ef8ee7521b5404b4687",
+    "skills/creating-plugins/references/storage.md": "12c9dad162f4e4126b476f3fe83929c58d692e8ee9b9a05cc8231a5eb8f93df1",
+    "skills/creating-plugins/references/taxonomies-and-redirects.md": "08d047abb33f405b62af59be1e6024f1e9635da527f7d100192d22e95b151f6f",
+    "skills/emdash-cli/EDITING-FLOW.md": "89bb734c199f4c14f85a7ac88805af18cca398e4f9ec7cd74a3d5e29eda48389",
+    "skills/emdash-cli/SKILL.md": "bb4a01fc0263a4b808b000edeeb1a5bcb0bf20809d8cc219e6aff7bf3664e037",
+    "skills/upgrading-emdash/SKILL.md": "a942be1d972ebccf9e75c869c00a0497c111e6a7747d3f174750258f114fffad"
+  }
+}

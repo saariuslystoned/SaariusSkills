@@ -82,3 +82,12 @@ The following systems are comparisons, not dependencies:
   <https://github.com/gemini-cli-extensions/conductor>
 - GitHub Spec Kit:
   <https://github.github.com/spec-kit/reference/workflows.html>
+
+## EmDash skills
+
+The four EmDash mechanics skills are verbatim from
+<https://github.com/emdash-cms/skills/tree/15dcb07160fb321aab93fa67c6d0cbfc1c33e90f>.
+License: MIT, Copyright (c) 2026 Cloudflare, Inc. The full license is preserved
+in `vendor/emdash-skills/LICENSE` and each packaged upstream skill.
+`vendor/emdash-skills/UPSTREAM.json` records the provenance and file hashes.
+`emdash-sites` is separately maintained guidance, not an upstream skill.
