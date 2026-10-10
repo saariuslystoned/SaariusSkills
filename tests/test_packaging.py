@@ -11,6 +11,7 @@ SKILL = ROOT / "skills" / "grilltrack"
 PHONE_PROOF_SKILL = ROOT / "skills" / "phone-proof"
 ANTIGRAVITY_SKILL = ROOT / "skills" / "antigravity-acp-delegation"
 GROK_SKILL = ROOT / "skills" / "grok-acp-delegation"
+CLAWJEV_SKILL = ROOT / "skills" / "clawjev"
 
 
 class PackagingTests(unittest.TestCase):
@@ -312,7 +313,9 @@ class PackagingTests(unittest.TestCase):
         self.assertNotEqual(cursor, root_plugin)
         self.assertNotEqual(cursor, codex)
 
-        self.assertEqual(set(cursor_mcp["mcpServers"]), {"antigravity-acp", "grok-acp"})
+        self.assertEqual(
+            set(cursor_mcp["mcpServers"]), {"antigravity-acp", "grok-acp", "jev-decision"}
+        )
         server = cursor_mcp["mcpServers"]["antigravity-acp"]
         self.assertEqual(server["command"], "node")
         self.assertEqual(
@@ -426,8 +429,14 @@ class PackagingTests(unittest.TestCase):
         # must be overridden here so no relative, cwd-bound entry leaks in.
         servers = claude["mcpServers"]
         self.assertEqual(set(servers), set(root_mcp["mcpServers"]))
-        self.assertEqual(set(servers), {"cursor-acp", "antigravity-acp", "grok-acp"})
-        for name, server in servers.items():
+        self.assertEqual(
+            set(servers), {"cursor-acp", "antigravity-acp", "grok-acp", "jev-decision"}
+        )
+        # jev-decision is not an ACP bridge; its own test covers its entry.
+        self.assertNotIn("cwd", servers["jev-decision"])
+        self.assertNotIn("env", servers["jev-decision"])
+        acp_servers = {k: v for k, v in servers.items() if k != "jev-decision"}
+        for name, server in acp_servers.items():
             self.assertEqual(server["command"], "node")
             self.assertEqual(
                 server["args"],
@@ -462,6 +471,66 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(len(market["plugins"]), 1)
         self.assertEqual(market["plugins"][0]["name"], claude["name"])
         self.assertEqual(market["plugins"][0]["source"], "./")
+
+    def test_clawjev_skill_is_packaged(self) -> None:
+        skill = (CLAWJEV_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        rubric = (CLAWJEV_SKILL / "references" / "rubric.md").read_text(
+            encoding="utf-8"
+        )
+        cursor = json.loads(
+            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertLessEqual(len(skill), 10000)
+        self.assertIn("decision_evaluate", skill)
+        self.assertIn("`repair`", skill)
+        self.assertIn("`owner-gate`", skill)
+        self.assertIn("`do-not-patch`", skill)
+        self.assertIn("Do not merge", skill)
+        self.assertIn("## repair", rubric)
+        self.assertIn("## owner-gate", rubric)
+        self.assertIn("## do-not-patch", rubric)
+        self.assertIn("./skills/clawjev/", cursor["skills"])
+        self.assertIn("jev-decision", skill)
+        self.assertIn("Jev down never stops the rails", skill)
+        self.assertIn("rubric by hand", skill)
+        self.assertIn("`criteria`", rubric)
+
+    def test_jev_decision_bridge_is_packaged(self) -> None:
+        bridge = ROOT / "bridge" / "jev-decision"
+        server = (bridge / "server.mjs").read_text(encoding="utf-8")
+        client = (bridge / "client.mjs").read_text(encoding="utf-8")
+        claude = json.loads(
+            (ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        cursor_mcp = json.loads(
+            (ROOT / ".cursor-plugin" / "mcp.json").read_text(encoding="utf-8")
+        )
+        codex_mcp = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))
+        workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("from \"@", server + client)
+        self.assertIn('name: "decision_evaluate"', server)
+        self.assertIn("https://api.typesafe.ai/v1/systemone", client)
+        self.assertEqual(
+            codex_mcp["mcpServers"]["jev-decision"]["args"],
+            ["bridge/jev-decision/server.mjs"],
+        )
+        self.assertEqual(
+            claude["mcpServers"]["jev-decision"]["args"],
+            ["${CLAUDE_PLUGIN_ROOT}/bridge/jev-decision/server.mjs"],
+        )
+        self.assertEqual(
+            cursor_mcp["mcpServers"]["jev-decision"]["args"],
+            ["${CURSOR_PLUGIN_ROOT}/bridge/jev-decision/server.mjs"],
+        )
+        for entry in (
+            codex_mcp["mcpServers"]["jev-decision"],
+            claude["mcpServers"]["jev-decision"],
+            cursor_mcp["mcpServers"]["jev-decision"],
+        ):
+            self.assertNotIn("TYPESAFE_API_KEY", json.dumps(entry))
+        self.assertIn("node --test bridge/jev-decision/test/*.test.mjs", workflow)
 
 
 if __name__ == "__main__":

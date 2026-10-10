@@ -48,6 +48,12 @@
       "env": {
         "SAARIUS_ACP_PERMISSION_MODE": "${SAARIUS_ACP_PERMISSION_MODE:-approve-reads}"
       }
+    },
+    "jev-decision": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/bridge/jev-decision/server.mjs"
+      ]
     }
   }
 }
