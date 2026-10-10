@@ -1,9 +1,9 @@
 ---
-name: clawjev
+name: jevsweeper
 description: After a published ClawSweeper review, classify leftover boxes with Jev as repair, owner-gate, or do-not-patch. Not Spark doorbell, leftover recap, GrillTrack Q1, or merge.
 ---
 
-# ClawJev
+# JevSweeper
 
 ClawSweeper writes the review. Jev labels what to do next. When Jev cannot
 run, the agent applies the same rubric and says so; a chat model's label is
@@ -20,8 +20,9 @@ or dispatch. Follow `dinkuskit-leftover-recap` for leftover vs `main`. Follow
 ## Classify
 
 1. Confirm the published review marker names this PR and the live `headRefOid`.
-   A pickup comment or a review on an older SHA is not this skill. Done when
-   those two ids match.
+   A pickup comment or a review on an older SHA is not this skill. Record the
+   bind from [references/coordinator.md](references/coordinator.md): repo, PR,
+   base SHA, head SHA, review comment URL. Done when those ids match.
 2. Build one `choice` question per leftover box. Its `state` is only that
    box (finding, Before-merge box, or Decision needed row) plus the locked
    shop-owner line from CHARTER, FEATURE_MAP, or already-written proof limits.
@@ -38,11 +39,12 @@ or dispatch. Follow `dinkuskit-leftover-recap` for leftover vs `main`. Follow
    `next_move` from the box labels with the rubric's `next_move` rule. Done
    when every box has a label and the report names the judge: `Jev` with the
    result's provenance, or `rubric by hand` with the unavailable reason.
-4. Work the piles in the rubric's `next_move` order: refuse and report each
-   `do-not-patch` item and keep its lock; repair each `repair` item through
-   `dinkuskit-review-rails` product findings; then ask Bobby the shop-owner
-   yes once for the `owner-gate` items still open. A refused item never stops
-   an unrelated repair. Do not merge. Done when every pile has its action.
+4. Attach coordinator status from the coordinator file (`actionable`,
+   `waiting-on-dependency`, or `needs-evidence`). Jev never emits those.
+   Then work the piles in the rubric's `next_move` order: refuse each
+   `do-not-patch`; repair each `repair`; ask Bobby once for remaining
+   `owner-gate` items unless that exact action is already authorized. Do not
+   merge. Done when every pile has its action and the bind is in the report.
 
 ## Jev down never stops the rails
 
@@ -50,3 +52,5 @@ or dispatch. Follow `dinkuskit-leftover-recap` for leftover vs `main`. Follow
 answer and not a reason to stop. Label the boxes by the rubric yourself, write
 `judge: rubric by hand (Jev <reason>)` in the report, and carry on with step 4.
 Do not retry Jev more than once, and never claim a Jev result that did not run.
+
+Acceptance cases: [references/scenarios.md](references/scenarios.md).

@@ -2,7 +2,7 @@
 
 A local MCP server that gives Claude Code, Cursor, Codex and Antigravity the
 same `decision_evaluate` tool OpenClaw has, so skills like
-[clawjev](../../skills/clawjev/SKILL.md) can ask Jev from any harness.
+[jevsweeper](../../skills/jevsweeper/SKILL.md) can ask Jev from any harness.
 
 - Same request and result shape as OpenClaw's core tool: `state`, a
   `questions` map of `boolean`, `choice` or `score` questions, and a result of
@@ -87,7 +87,7 @@ MCP entry, or remove the Keychain item with
 ## Harnesses
 
 - **OpenClaw:** not needed. Its own `decision_evaluate` uses the agent's
-  `decisionModel`; clawjev tries that first.
+  `decisionModel`; jevsweeper tries that first.
 - **Claude Code:** the plugin manifest (`.claude-plugin/plugin.json`) and the
   repo's `.mcp.json` both start `jev-decision`. The tool shows up as
   `mcp__jev-decision__decision_evaluate` (plugin installs add a prefix).

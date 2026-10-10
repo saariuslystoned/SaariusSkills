@@ -11,7 +11,7 @@ SKILL = ROOT / "skills" / "grilltrack"
 PHONE_PROOF_SKILL = ROOT / "skills" / "phone-proof"
 ANTIGRAVITY_SKILL = ROOT / "skills" / "antigravity-acp-delegation"
 GROK_SKILL = ROOT / "skills" / "grok-acp-delegation"
-CLAWJEV_SKILL = ROOT / "skills" / "clawjev"
+JEVSWEEPER_SKILL = ROOT / "skills" / "jevsweeper"
 
 
 class PackagingTests(unittest.TestCase):
@@ -472,9 +472,15 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(market["plugins"][0]["name"], claude["name"])
         self.assertEqual(market["plugins"][0]["source"], "./")
 
-    def test_clawjev_skill_is_packaged(self) -> None:
-        skill = (CLAWJEV_SKILL / "SKILL.md").read_text(encoding="utf-8")
-        rubric = (CLAWJEV_SKILL / "references" / "rubric.md").read_text(
+    def test_jevsweeper_skill_is_packaged(self) -> None:
+        skill = (JEVSWEEPER_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        rubric = (JEVSWEEPER_SKILL / "references" / "rubric.md").read_text(
+            encoding="utf-8"
+        )
+        coordinator = (JEVSWEEPER_SKILL / "references" / "coordinator.md").read_text(
+            encoding="utf-8"
+        )
+        scenarios = (JEVSWEEPER_SKILL / "references" / "scenarios.md").read_text(
             encoding="utf-8"
         )
         cursor = json.loads(
@@ -489,14 +495,19 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("## repair", rubric)
         self.assertIn("## owner-gate", rubric)
         self.assertIn("## do-not-patch", rubric)
-        self.assertIn("./skills/clawjev/", cursor["skills"])
+        self.assertIn("./skills/jevsweeper/", cursor["skills"])
+        self.assertNotIn("./skills/clawjev/", cursor["skills"])
         self.assertIn("jev-decision", skill)
         self.assertIn("Jev down never stops the rails", skill)
         self.assertIn("rubric by hand", skill)
         self.assertIn("`criteria`", rubric)
-        # Mixed labels: one fixed order, and a refusal never stops a repair.
         self.assertIn("one pile never cancels another", rubric)
-        self.assertIn("A refused item never stops", skill)
+        self.assertIn("already authorized", skill)
+        self.assertIn("Missing required proof is repair", rubric)
+        self.assertIn("needs-evidence", coordinator)
+        self.assertIn("waiting-on-dependency", coordinator)
+        self.assertIn("headRefOid", coordinator)
+        self.assertIn("needs-evidence", scenarios)
         self.assertNotIn("- `repair` if any leftover item is repair.", rubric)
 
     def test_jev_decision_bridge_is_packaged(self) -> None:
