@@ -34,7 +34,8 @@ the relevant interruption boundary, including overlapping consumers when the
 deployment permits them. Do not infer success solely from a browser return URL.
 
 Mark an order paid only when an authoritative lookup at the payment gateway
-matches the frozen checkout amount and currency. A webhook only triggers that
+confirms a successful paid or captured status and matches the frozen checkout
+amount and currency. A webhook only triggers that
 lookup; it never marks an order paid by itself. Give each provider its own
 merchant account field so one provider's identifiers never ride in another's.
 
