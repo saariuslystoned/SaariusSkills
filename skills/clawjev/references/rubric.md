@@ -1,6 +1,7 @@
 # ClawJev rubric
 
-Use these three labels only. Pass this file in `decision_evaluate` `state`.
+Use these three labels only. Each label's section below is its description in
+the `choice` question's `criteria`; the box and the locked line go in `state`.
 
 ## repair
 

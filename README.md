@@ -396,7 +396,9 @@ invocation, but it is never required when the user's intent is already clear.
   Hop receipt yet.
 - [`skills/clawjev/SKILL.md`](skills/clawjev/SKILL.md): after a published
   ClawSweeper review, Jev labels leftover boxes `repair`, `owner-gate`, or
-  `do-not-patch`. It is not merge authority.
+  `do-not-patch`. It is not merge authority. Outside OpenClaw it asks Jev
+  through the local [`bridge/jev-decision`](bridge/jev-decision/README.md) MCP
+  server, and falls back to the rubric by hand when Jev is not available.
 
 GrillTrack never treats a decision lock as permission to commit, push, open or
 merge a pull request, deploy, spend, or change an account. Those actions require
