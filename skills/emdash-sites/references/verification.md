@@ -20,11 +20,24 @@ For the affected surface, check:
   endpoints still work. Check Access only where configured.
 - Editor-owned navigation renders the CMS menu, and a permitted editor change
   survives deployment. Mark fallback navigation distinctly during bootstrap.
+- Navigation holds at its real item count: keep any call to action in its own
+  layout area rather than absolutely positioned, and check widths from 1024 to
+  1920 pixels as well as mobile.
+- Right after a CMS publish, the plain homepage URL may serve a cached copy
+  for about a minute. Check a cache-busted URL first, and fail the plain URL
+  only if it is still stale after a few retries.
 
 Run local checks before submitting changes, preview checks before a production
-release and production checks after an authorized deployment. Record exact
-candidate/environment, complete sanitized output and any inapplicable checks
-with reasons. A missing required check is unrun or blocked, never a pass.
+release and production checks after an authorized deployment. A deployment is
+done only when the production check passes. Record exact candidate/environment,
+complete sanitized output and any inapplicable checks with reasons. A missing
+required check is unrun or blocked, never a pass. Pass counts pasted into a
+pull request are not behavior proof: keep the check's log for the deployed
+commit and screenshots of the changed pages.
+
+Keep the verification contract and its commands in the repository being
+verified, beside its feature map, rather than in a separate agent skill that
+can drift from the code.
 
 Use the active harness's supported instruction discovery when documenting the
 command. Do not assume all harnesses share Cursor's project-skill layout or

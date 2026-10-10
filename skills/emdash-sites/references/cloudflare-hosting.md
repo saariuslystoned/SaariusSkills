@@ -12,7 +12,9 @@ A successful deployment does not establish that the CMS has content. Inspect
 the project's setup wizard, CLI, seed application and deployment scripts to
 identify when initialization actually occurs. Smoke the built Worker on the
 matching runtime against a fresh isolated D1 database before a live deployment.
-Then separately prove the initialized CMS and publish flow.
+Then separately prove the initialized CMS and publish flow. Prove price and
+other data-backed UI on the Workers runtime with local D1 bindings (for
+example `wrangler dev`), not a plain Node preview without those bindings.
 
 For a starter landing page, an explicit seed fallback may be appropriate before
 setup. Make that a product choice with a defined end condition, not the default

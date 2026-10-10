@@ -18,8 +18,9 @@ the 1.2 URL behavior and the safer site-level workarounds.
 - Avoid patching EmDash's hashed distribution bundles with `patch-package`;
   the patch breaks on upgrades. Report the upstream defect and work around it
   in the site.
-- Give each product one canonical URL at `/products/{slug}`, never a
-  category-nested product URL. Canonicalize alternate paths there. This matches
+- Give each product one canonical URL at `/products/{slug}` and each category
+  `/categories/{slug}`, never a category-nested product URL. Canonicalize
+  alternate paths there. This matches
   [Google's ecommerce URL guidance](https://developers.google.com/search/docs/specialty/ecommerce/designing-a-url-structure-for-ecommerce-sites)
   and Shopify's model; WooCommerce commonly uses `/product/{slug}/`.
 - Serve the homepage only at `/`. Redirect `/home` to `/` and omit `/home`
@@ -30,15 +31,29 @@ the 1.2 URL behavior and the safer site-level workarounds.
 - Use EmDash's built-in sitemap and `robots.txt`. Do not create a custom
   replacement: an upstream `hasUserDefinedPublicRoute` check can cause it to
   override the built-in behavior.
+- Keep a store `noindex` until launch, then remove it deliberately as a launch
+  step.
 
 ## Product data for agents
 
 - Every product has a permanent Commerce SKU/itemId that never changes. The
   slug is only a URL; feeds, orders, structured data and future agent
   integrations key on the permanent ID.
+- Require the commerce item ID before a product page can publish, and claim it
+  atomically so two pages cannot bind the same item, including simultaneous
+  publishes. Each item has at most one canonical published page.
+- Model products that differ only by an option, such as size or strength, as
+  one product with that option. Each member keeps its own permanent item ID,
+  SKU, price and fulfillment on the one canonical page. Omit unpriced members
+  from the public page and handle their absence; prices come from the commerce
+  server, never from the browser.
 - Every product page emits schema.org `Product`/`Offer` JSON-LD matching the
   visible page: name, SKU, GTIN when available, price, availability,
-  `shippingDetails`, and `hasMerchantReturnPolicy`.
+  `shippingDetails`, and `hasMerchantReturnPolicy`. At zero stock keep the
+  Offer with `OutOfStock` availability rather than dropping it.
+- Sites built from a starter template inherit the commerce version it pins.
+  Before a site relies on a newer commerce feature, check that pin and bump it
+  in its own change.
 - Define shipping and return policies once. Both rendered policy pages and
   product structured data read that shared source.
 - Export product data as a feed for Google Merchant Center and Meta Catalog,

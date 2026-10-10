@@ -31,7 +31,10 @@ Stop only processes owned by the task, never an unrelated listener.
 
 Use the active environment's process, network and browser tools; this procedure
 does not require a particular harness, operating system, machine path or Node
-patch version. Keep those details in the target repository's local instructions.
+patch version. Keep those details in the target repository's local instructions,
+and declare the supported Node range in `package.json` `engines` so an
+unsupported runtime fails at install. EmDash 1.2 declares Node `>=22.16`; an
+older runtime can break local SQLite before any product code runs.
 After recovery, repeat the actual installed behavior: server startup or HTTP 200
 alone is not successful proof.
 
