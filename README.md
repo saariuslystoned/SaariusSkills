@@ -394,6 +394,9 @@ invocation, but it is never required when the user's intent is already clear.
   the local Grok CLI ACP MCP lane (`grok agent stdio`), same six-tool contract,
   separate from Cursor ACP and from Puppet grok; no committed Local / Always-on /
   Hop receipt yet.
+- [`skills/clawjev/SKILL.md`](skills/clawjev/SKILL.md): after a published
+  ClawSweeper review, Jev labels leftover boxes `repair`, `owner-gate`, or
+  `do-not-patch`. It is not merge authority.
 
 GrillTrack never treats a decision lock as permission to commit, push, open or
 merge a pull request, deploy, spend, or change an account. Those actions require

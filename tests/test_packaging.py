@@ -11,6 +11,7 @@ SKILL = ROOT / "skills" / "grilltrack"
 PHONE_PROOF_SKILL = ROOT / "skills" / "phone-proof"
 ANTIGRAVITY_SKILL = ROOT / "skills" / "antigravity-acp-delegation"
 GROK_SKILL = ROOT / "skills" / "grok-acp-delegation"
+CLAWJEV_SKILL = ROOT / "skills" / "clawjev"
 
 
 class PackagingTests(unittest.TestCase):
@@ -462,6 +463,25 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(len(market["plugins"]), 1)
         self.assertEqual(market["plugins"][0]["name"], claude["name"])
         self.assertEqual(market["plugins"][0]["source"], "./")
+
+    def test_clawjev_skill_is_packaged(self) -> None:
+        skill = (CLAWJEV_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        rubric = (CLAWJEV_SKILL / "references" / "rubric.md").read_text(
+            encoding="utf-8"
+        )
+        cursor = json.loads(
+            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertLessEqual(len(skill), 10000)
+        self.assertIn("decision_evaluate", skill)
+        self.assertIn("`repair`", skill)
+        self.assertIn("`owner-gate`", skill)
+        self.assertIn("`do-not-patch`", skill)
+        self.assertIn("Do not merge", skill)
+        self.assertIn("## repair", rubric)
+        self.assertIn("## owner-gate", rubric)
+        self.assertIn("## do-not-patch", rubric)
+        self.assertIn("./skills/clawjev/", cursor["skills"])
 
 
 if __name__ == "__main__":
