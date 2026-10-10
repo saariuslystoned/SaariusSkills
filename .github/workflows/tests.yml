@@ -88,3 +88,6 @@ jobs:
 
       - name: Run shared runtime tests
         run: node --test bridge/acp-runtime/test/*.test.mjs
+
+      - name: Run Jev decision bridge tests
+        run: node --test bridge/jev-decision/test/*.test.mjs
