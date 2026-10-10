@@ -35,9 +35,11 @@ deployment permits them. Do not infer success solely from a browser return URL.
 
 Mark an order paid only when an authoritative lookup at the payment gateway
 confirms a successful paid or captured status and matches the frozen checkout
-amount and currency. A webhook only triggers that
-lookup; it never marks an order paid by itself. Give each provider its own
-merchant account field so one provider's identifiers never ride in another's.
+amount and currency. A pending or failed payment with matching fields is not
+paid. A webhook only triggers that lookup; it never marks an order paid by
+itself. Give each provider its own merchant account field so one provider's
+identifiers never ride in another's (an Authorize.net merchant must not be
+stored in a `stripeAccountId` field).
 
 Keep authoritative payment-session deadlines and discount snapshots intact.
 An unknown provider outcome needs reconciliation, not a new purchase identity
