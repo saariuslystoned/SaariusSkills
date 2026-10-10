@@ -11,9 +11,9 @@ same `decision_evaluate` tool OpenClaw has, so skills like
 - No dependencies. Plain `node` (22 or later) runs it; there is nothing to
   install, so a missing `npm install` can never take the judge down.
 - Never blocks. Every failure (no key, wrong key, rate limit, network, a hung
-  call after `JEV_TIMEOUT_MS`, default 15 seconds) comes back as
-  `status: unavailable` with guidance to apply the rubric by hand. It never
-  throws and never retries on its own.
+  call after `JEV_TIMEOUT_MS`: 30 seconds by default like OpenClaw, at most
+  60) comes back as `status: unavailable` with guidance to apply the rubric by
+  hand. It never throws and never retries on its own.
 
 ## Routes
 
@@ -27,8 +27,10 @@ Picked from local settings on every call, first match wins:
 | macOS Keychain item `typesafe-jev` (or `JEV_KEYCHAIN_SERVICE`) | hosted Jev |
 | none of the above | none (`credentials-unavailable`) |
 
-`JEV_MODEL` picks the hosted model (default `jev-latest`). Hosted calls send
-the supplied `state` to TypeSafe and are billed to that key.
+`JEV_MODEL` picks the hosted model. The default is pinned to `jev-1.13.0`, the
+model the OpenClaw Gateway's decision picker uses, so every harness gets the
+same judge; change both together. Hosted calls send the supplied `state` to
+TypeSafe and are billed to that key.
 
 ## Set up on a Mac (once)
 
@@ -36,10 +38,46 @@ The Keychain route is the one that works for every app, including Cursor and
 Antigravity launched from the Dock, which do not see shell variables.
 
 ```sh
-security add-generic-password -s typesafe-jev -a "$USER" -w
+security add-generic-password -U -s typesafe-jev -a "$USER" -w
 # paste the TypeSafe key at the prompt; it is not echoed or written to a file
 node bridge/jev-decision/server.mjs --check   # which route, no network, no key shown
 node bridge/jev-decision/server.mjs --probe   # one tiny paid call to prove it works
+```
+
+The tests below prove the request and answer mapping with a stand-in judge;
+only `--probe` proves this Mac can reach hosted Jev with this key. Run it once
+after setup and again after changing the key or model.
+
+### One key, two stores
+
+OpenClaw keeps its own copy of the key (`TYPESAFE_API_KEY` in Settings →
+Secrets), and this bridge reads the Keychain item. Apps opened from the Dock
+cannot see OpenClaw's store, so the two copies can drift: rotate one and the
+other keeps the old key. Either rotate both together, or point OpenClaw at the
+same Keychain item with an exec secret provider (not yet tried on this
+Gateway; the Gateway must run as your user to read your login Keychain):
+
+```json5
+{
+  secrets: {
+    providers: {
+      keychain_typesafe: {
+        source: "exec",
+        command: "/usr/bin/security",
+        trustedDirs: ["/usr/bin"],
+        args: ["find-generic-password", "-s", "typesafe-jev", "-w"],
+        jsonOnly: false,
+      },
+    },
+  },
+  plugins: {
+    entries: {
+      typesafe: {
+        config: { apiKey: { source: "exec", provider: "keychain_typesafe", id: "value" } },
+      },
+    },
+  },
+}
 ```
 
 To turn it off without deleting the key: set `JEV_DISABLED=1` in the harness's

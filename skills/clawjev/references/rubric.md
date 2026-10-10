@@ -27,8 +27,15 @@ is locked.
 
 ## next_move
 
-- `repair` if any leftover item is repair.
-- `owner-gate` if every leftover item is owner-gate, including an empty Before
-  merge list with findings none.
-- `do-not-patch` if any leftover item is do-not-patch. Report that item; still
-  repair other mechanical items.
+Handle every pile; one pile never cancels another. In this order:
+
+1. Each `do-not-patch` item: refuse that change, keep the lock, and name the
+   item in the report.
+2. Each `repair` item: fix it, unless the fix would undo a lock from step 1.
+   A refused item never stops an unrelated repair.
+3. Each `owner-gate` item: after the repairs, ask the owner once about the
+   items still open.
+
+`next_move` is the first of those piles that is not empty: `do-not-patch`,
+then `repair`, then `owner-gate`. An empty Before merge list with findings
+none is `owner-gate`.

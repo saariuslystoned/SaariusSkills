@@ -7,10 +7,13 @@ import { execFile } from "node:child_process";
 
 export const HOSTED_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 export const DEFAULT_KEYCHAIN_SERVICE = "typesafe-jev";
-export const DEFAULT_MODEL = "jev-latest";
+// Pinned to the model the OpenClaw Gateway picker uses, so every harness gets
+// the same judge; a floating alias could change answers without notice.
+export const DEFAULT_MODEL = "jev-1.13.0";
 export const LOCAL_MODEL = "kev-latest";
-export const DEFAULT_TIMEOUT_MS = 15_000;
-const MAX_TIMEOUT_MS = 30_000;
+// Same budget as OpenClaw's decision_evaluate; the TypeSafe plugin allows up to 60s.
+export const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_TIMEOUT_MS = 60_000;
 const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_QUESTIONS = 256;
 const LOOPBACK = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::[0-9]{1,5})?\/?$/;

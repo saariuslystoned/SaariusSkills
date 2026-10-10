@@ -38,10 +38,11 @@ or dispatch. Follow `dinkuskit-leftover-recap` for leftover vs `main`. Follow
    `next_move` from the box labels with the rubric's `next_move` rule. Done
    when every box has a label and the report names the judge: `Jev` with the
    result's provenance, or `rubric by hand` with the unavailable reason.
-4. If any item is `repair`, repair that item through `dinkuskit-review-rails`
-   product findings. If every item is `owner-gate`, stop and ask Bobby the
-   shop-owner yes. If any item is `do-not-patch`, refuse that patch and keep the
-   lock. Do not merge. Done when the next action matches those labels.
+4. Work the piles in the rubric's `next_move` order: refuse and report each
+   `do-not-patch` item and keep its lock; repair each `repair` item through
+   `dinkuskit-review-rails` product findings; then ask Bobby the shop-owner
+   yes once for the `owner-gate` items still open. A refused item never stops
+   an unrelated repair. Do not merge. Done when every pile has its action.
 
 ## Jev down never stops the rails
 
