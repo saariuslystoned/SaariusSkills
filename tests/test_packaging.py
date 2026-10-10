@@ -494,6 +494,10 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("Jev down never stops the rails", skill)
         self.assertIn("rubric by hand", skill)
         self.assertIn("`criteria`", rubric)
+        # Mixed labels: one fixed order, and a refusal never stops a repair.
+        self.assertIn("one pile never cancels another", rubric)
+        self.assertIn("A refused item never stops", skill)
+        self.assertNotIn("- `repair` if any leftover item is repair.", rubric)
 
     def test_jev_decision_bridge_is_packaged(self) -> None:
         bridge = ROOT / "bridge" / "jev-decision"

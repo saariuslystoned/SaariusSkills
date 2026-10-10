@@ -3,7 +3,7 @@ import test from "node:test";
 import { checkBatch, evaluate, HOSTED_ENDPOINT, resolveRoute } from "../client.mjs";
 
 const KEY = "ts_test_not_a_real_key_0000";
-const hosted = { kind: "typesafe-hosted", endpoint: HOSTED_ENDPOINT, model: "jev-latest", apiKey: KEY, timeoutMs: 2_000 };
+const hosted = { kind: "typesafe-hosted", endpoint: HOSTED_ENDPOINT, model: "jev-1.13.0", apiKey: KEY, timeoutMs: 2_000 };
 
 const leftover = {
   state: { box: "Accept public guest POSTs to /checkout", locked: "Guest checkout is locked public." },
@@ -53,7 +53,7 @@ test("choice answer comes back in OpenClaw's shape with provenance", async () =>
   assert.deepEqual(outcome.provenance, { judge: "jev", route: "typesafe-hosted", model: "jev-1.13.0" });
   assert.equal(calls[0].url, HOSTED_ENDPOINT);
   assert.equal(calls[0].init.headers.Authorization, `Bearer ${KEY}`);
-  assert.equal(calls[0].body.model, "jev-latest");
+  assert.equal(calls[0].body.model, "jev-1.13.0");
   assert.deepEqual(calls[0].body.questions, leftover.questions);
 });
 
@@ -142,7 +142,11 @@ test("routes resolve from local settings: disabled, local Kev, env key, Keychain
   assert.equal(remote.reason, "not-configured");
 
   const env = await resolveRoute({ TYPESAFE_API_KEY: KEY, JEV_TIMEOUT_MS: "999999" }, noKeychain);
-  assert.deepEqual([env.kind, env.keySource, env.timeoutMs], ["typesafe-hosted", "env", 30_000]);
+  assert.deepEqual([env.kind, env.keySource, env.timeoutMs, env.model], ["typesafe-hosted", "env", 60_000, "jev-1.13.0"]);
+  const defaults = await resolveRoute({ TYPESAFE_API_KEY: KEY }, noKeychain);
+  assert.deepEqual([defaults.timeoutMs, defaults.model], [30_000, "jev-1.13.0"]);
+  const floating = await resolveRoute({ TYPESAFE_API_KEY: KEY, JEV_MODEL: "jev-latest" }, noKeychain);
+  assert.equal(floating.model, "jev-latest");
 
   let asked;
   const keychain = await resolveRoute({}, async (service) => ((asked = service), KEY));
