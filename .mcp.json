@@ -17,6 +17,11 @@
       "command": "node",
       "args": ["bridge/acp-runtime/launcher.mjs", "grok-acp"],
       "cwd": "."
+    },
+    "jev-decision": {
+      "command": "node",
+      "args": ["bridge/jev-decision/server.mjs"],
+      "cwd": "."
     }
   }
 }
