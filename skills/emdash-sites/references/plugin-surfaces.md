@@ -23,6 +23,11 @@ insufficient. Record package/version/digest, installation method, activation
 result, and actual admin operation. Separately report Registry
 publication/listing; do not publish merely to prove a local build.
 
+When the product ships through the Registry, keep native entries as developer
+and test setups. Any feature that temporarily exists only natively belongs in
+the plugin README's list of gaps, each with the work that closes it, so a
+native-only capability is never presented as shipped.
+
 ## Package budget before implementation
 
 Measure the baseline with the pinned official packager before adding a sandboxed
@@ -38,11 +43,31 @@ current per-file, total and file-count limits; do not treat this as permanent.
 A candidate barely below the cap passes that limit but has fragile maintenance
 headroom; report the margin instead of inventing a universal reserve threshold.
 
+Run the official bundle check inside the package build so an oversized backend
+fails the build, not a later installation. The limit applies to the compiled
+file the packager emits; splitting source files recovers space only when code
+actually leaves that emitted file. When several open changes each add bytes,
+build throwaway combination branches and choose a merge order by measured size
+and dependency, since changes that fit alone can exceed the cap together.
+Operator command-line tools belong in separate packages that call the plugin's
+HTTP routes, so they add no bytes to the sandboxed bundle.
+
 Prefer measured, behavior-preserving reuse over repeated speculative minifier
 toggles. Do not remove localization, weaken authorization or validation, bypass
 the cap, or drop promised behavior to recover space. A wider refactor or changed
 product contract needs the applicable scope decision. Preserve regression proof
 for existing behavior as well as the new feature.
+
+## Reach other plugins and services through declared hosts
+
+Check the pinned version, but do not assume one sandboxed plugin can call
+another on the same site; in EmDash 1.2 it cannot. Put cross-plugin behavior
+behind a hosted service and declare it: `network:request` with `allowedHosts`
+listing bare hosts or `*.`-prefixed subdomain wildcards (no URLs or paths).
+Unrestricted outbound access is the separate `network:request:unrestricted`
+capability. Installers consent to these hosts, and changing capabilities needs
+a version bump. A Registry install without the network capability cannot reach
+a payment or other external service, whatever its native entry can do.
 
 ## Block Kit path
 

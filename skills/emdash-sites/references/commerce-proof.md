@@ -33,6 +33,11 @@ an event before its own order result is durably committed. Exercise replay and
 the relevant interruption boundary, including overlapping consumers when the
 deployment permits them. Do not infer success solely from a browser return URL.
 
+Mark an order paid only when an authoritative lookup at the payment gateway
+matches the frozen checkout amount and currency. A webhook only triggers that
+lookup; it never marks an order paid by itself. Give each provider its own
+merchant account field so one provider's identifiers never ride in another's.
+
 Keep authoritative payment-session deadlines and discount snapshots intact.
 An unknown provider outcome needs reconciliation, not a new purchase identity
 or a time-only stock release. Apply the product's specific coupon reservation,

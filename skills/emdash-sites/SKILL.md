@@ -62,8 +62,9 @@ Prefer supported site-level workarounds to patching generated framework bundles.
 Read only the references needed for the slice:
 
 - [Plugin surfaces and admin UX judgment](references/plugin-surfaces.md):
-  Registry column, native admin UX, mounting capabilities, and pinned upstream
-  corrections (route handler signatures and email transport verification).
+  Registry column, bundle size gates, hosted services and declared hosts,
+  native admin UX, mounting capabilities, and pinned upstream corrections
+  (route handler signatures and email transport verification).
 - [Sites, migrations, and demos](references/site-proof.md): editable CMS proof,
   content migration, matched artifacts, and deployable output.
 - [Content ownership and the mirror](references/content-ownership.md): who
