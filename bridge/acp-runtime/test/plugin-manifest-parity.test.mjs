@@ -27,11 +27,19 @@ function isMachineLocal(value) {
   return typeof value === "string" && path.isAbsolute(value);
 }
 
+// jev-decision is a plain MCP server, not an ACP launcher route, so it carries
+// no permission policy; its own manifest entries are checked below.
+const NON_ACP_SERVERS = new Set(["jev-decision"]);
+
+function acpRoutes(servers) {
+  return Object.entries(servers).filter(([name]) => !NON_ACP_SERVERS.has(name));
+}
+
 test("plugin.json and .mcp.json declare the same launcher routes", async () => {
   const claude = await readJson(".claude-plugin/plugin.json");
   const codex = await readJson(".mcp.json");
   assert.deepEqual(Object.keys(claude.mcpServers).sort(), Object.keys(codex.mcpServers).sort());
-  for (const [name, server] of Object.entries(claude.mcpServers)) {
+  for (const [name, server] of acpRoutes(claude.mcpServers)) {
     assert.equal(server.command, "node", name);
     assert.deepEqual(server.args, ["${CLAUDE_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", name]);
     assert.deepEqual(codex.mcpServers[name].args, ["bridge/acp-runtime/launcher.mjs", name]);
@@ -41,7 +49,7 @@ test("plugin.json and .mcp.json declare the same launcher routes", async () => {
 test("every Claude Code route carries the policy env and mirrors portable .mcp.json env keys", async () => {
   const claude = await readJson(".claude-plugin/plugin.json");
   const codex = await readJson(".mcp.json");
-  for (const [name, server] of Object.entries(claude.mcpServers)) {
+  for (const [name, server] of acpRoutes(claude.mcpServers)) {
     const env = server.env ?? {};
     assert.equal(
       env[PERMISSION_MODE_ENV],
@@ -59,6 +67,22 @@ test("every Claude Code route carries the policy env and mirrors portable .mcp.j
     const portable = Object.keys(codexEnv).filter((key) => !isMachineLocal(codexEnv[key])).sort();
     const expected = [...new Set([...portable, PERMISSION_MODE_ENV])].sort();
     assert.deepEqual(Object.keys(env).sort(), expected, `${name}: env keys drifted between plugin.json and .mcp.json`);
+  }
+});
+
+test("jev-decision launches its own server in every manifest with no policy env", async () => {
+  const claude = await readJson(".claude-plugin/plugin.json");
+  const codex = await readJson(".mcp.json");
+  const cursor = await readJson(".cursor-plugin/mcp.json");
+  const routes = [
+    [claude.mcpServers["jev-decision"], "${CLAUDE_PLUGIN_ROOT}/bridge/jev-decision/server.mjs"],
+    [codex.mcpServers["jev-decision"], "bridge/jev-decision/server.mjs"],
+    [cursor.mcpServers["jev-decision"], "${CURSOR_PLUGIN_ROOT}/bridge/jev-decision/server.mjs"],
+  ];
+  for (const [server, script] of routes) {
+    assert.equal(server.command, "node");
+    assert.deepEqual(server.args, [script]);
+    assert.equal(server.env, undefined);
   }
 });
 
