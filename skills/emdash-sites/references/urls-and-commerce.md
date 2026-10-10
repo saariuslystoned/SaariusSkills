@@ -26,8 +26,9 @@ the 1.2 URL behavior and the safer site-level workarounds.
 - Serve the homepage only at `/`. Redirect `/home` to `/` and omit `/home`
   from the sitemap; EmDash has no front-page setting, and the upstream
   marketing template 301s `home.astro`.
-- Choose one trailing-slash policy (for example `trailingSlash: "never"`).
-  Links, sitemap locations, redirects and canonical tags must agree.
+- Choose one trailing-slash policy; default to `trailingSlash: "never"`.
+  Links, sitemap locations, redirects and canonical tags must use the exact
+  same URL.
 - Use EmDash's built-in sitemap and `robots.txt`. Do not create a custom
   replacement: an upstream `hasUserDefinedPublicRoute` check can cause it to
   override the built-in behavior.
@@ -36,12 +37,17 @@ the 1.2 URL behavior and the safer site-level workarounds.
 
 ## Product data for agents
 
-- Every product has a permanent Commerce SKU/itemId that never changes. The
-  slug is only a URL; feeds, orders, structured data and future agent
-  integrations key on the permanent ID.
+- Every product has a permanent commerce item ID that never changes. The SKU is
+  a merchant-facing, editable attribute, not a permanent key, and the slug is
+  only a URL. Feeds, orders, structured data and future agent integrations key
+  on the item ID; emitting the SKU in JSON-LD `sku` is still fine.
 - Require the commerce item ID before a product page can publish, and claim it
   atomically so two pages cannot bind the same item, including simultaneous
-  publishes. Each item has at most one canonical published page.
+  publishes. Each item has at most one canonical published page. The host's
+  page resolver, not the commerce layer, decides which published page is
+  canonical; the commerce item lookup returns product data only and must not
+  infer publication status or gain CMS access. Unpublishing leaves no page and
+  never falls back to a draft.
 - Model products that differ only by an option, such as size or strength, as
   one product with that option. Each member keeps its own permanent item ID,
   SKU, price and fulfillment on the one canonical page. Omit unpriced members
@@ -60,8 +66,12 @@ the 1.2 URL behavior and the safer site-level workarounds.
   with enough stable fields to support later agent catalogs such as OpenAI ACP
   or Google UCP without rebuilding the product model.
 - Record allowed channels on every product. Feeds and integrations read explicit
-  eligibility rather than guessing from category or slug. Verify current platform
-  policies and the merchant's product restrictions before enabling a channel.
+  eligibility rather than guessing from category or slug. Restricted or
+  regulated categories may be ineligible for some agent-checkout or shopping
+  channels while certified products in the same store are eligible. Verify
+  current platform policies (for example
+  [OpenAI commerce policies](https://openai.com/policies/commerce-policies/))
+  and the merchant's product restrictions before enabling a channel.
 
 ## Safe redirects and proof
 

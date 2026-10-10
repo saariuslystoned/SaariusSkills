@@ -69,7 +69,7 @@ Read only the references needed for the slice:
   content migration, matched artifacts, and deployable output.
 - [Content ownership and the mirror](references/content-ownership.md): who
   owns content and media once the CMS is live, the event-driven mirror,
-  agents draft and humans publish.
+  draft and publish token identities, and the commerce media model.
 - [Service connection diagnosis](references/service-connections.md): identity,
   transport, request tracing, test boundaries, and persistence.
 - [Commerce behavior proof](references/commerce-proof.md): payments, stock,
@@ -80,11 +80,16 @@ Read only the references needed for the slice:
 - [CMS launch runbook](references/launch-runbook.md): URL patterns, owned
   menus, first setup, Access machine identities, troubleshooting, cutover,
   and migrated-domain links.
-- [Site verification](references/verification.md): route inventory, repeatable
-  checks, environment-specific expectations, and deployment evidence.
+- [Site verification](references/verification.md): feature map and crawl
+  contract, environment-specific expectations, the deploy gate, and credential
+  handling.
 - [URLs and commerce](references/urls-and-commerce.md): EmDash URL constraints,
   SEO canonicals, product identity/data, feeds, policies, redirects, and
   channel compliance.
+- [Reviews, decisions and agent environments](references/review-and-agents.md):
+  review-bot clearance, decision ledgers, and agent and cloud-session setup.
+- [Scenario checks](references/scenario-checks.md): routing and acceptance
+  checks for revising this skill, and recurring failure patterns.
 
 ## Implement and prove
 
@@ -117,3 +122,6 @@ without asking again, and do not extend them to new live actions.
 This skill owns EmDash implementation judgment. Follow the target project's
 worktree, review, credentials, and deployment contracts. It grants no authority
 to merge, publish, deploy, provision accounts, spend, or retrieve secrets.
+Owner identities, approvers, alert routing, CI infrastructure and deploy targets
+are operator data: read them from the project's private site registry or
+deployment records, never from this public skill.
