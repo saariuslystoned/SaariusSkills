@@ -100,7 +100,7 @@ Cloudflare account.
    export SAARIUS_ACP_TRANSPORT=http
    export SAARIUS_ACP_HTTP_PORT=8765
    export SAARIUS_ACP_HTTP_PUBLIC_HOST=shed.sm0ky.dev
-   export SAARIUS_ACP_ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com
+   export SAARIUS_ACP_ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com   # e.g. sm0kydev.cloudflareaccess.com; must match the JWT iss exactly
    export SAARIUS_ACP_ACCESS_AUD=<aud tag>
    export SAARIUS_ACP_REMOTE_CALLERS=<client-id>.access=acp-runner
    export SAARIUS_ACP_REMOTE_REPO_OWNERS=saariuslystoned,saari-co,dinkuskit
