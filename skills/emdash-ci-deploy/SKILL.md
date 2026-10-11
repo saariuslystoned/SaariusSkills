@@ -30,6 +30,32 @@ release success gate, never a prerequisite that prevents deploying its own fix.
 A failed verification stops promotion and reports failure; it does not authorize
 an automatic rollback, retry loop or further live mutation.
 
+## Must-do release checks
+
+Before a first or changed deployment:
+
+- Check the deployment token before spending time on builds or database work.
+- Compare repository configuration and the live target: runtime settings,
+  domains, bindings and resource IDs must be declared and present. Missing
+  resources are an explicit first-launch/provisioning decision, not a reason to
+  let deployment invent them.
+- Dry-run the exact documented deploy command in CI and inspect its effective
+  bindings and domains. Record the exact rollback command, including overrides,
+  before changing a domain or address.
+- Search every caller before changing or disabling a Worker hostname. Put
+  authentication in front of administrative paths before deployment.
+- Write setup and seed as one ordered first-launch step, protect migrations with
+  a named database restore point, and deploy only from a commit that already
+  contains any newly created resource IDs.
+- Prove the built artifact with a production crawl, page-content checks and one
+  real user path on desktop and mobile. A merge approval is not deployment
+  approval; deployment approval applies to the exact commit and expires when it
+  changes.
+
+See [Deploy stamp and verification](references/deploy-stamp-and-verify.md) for
+the complete release checklist, evidence requirements and local-state recovery
+guidance.
+
 ## Target and verification invariants
 
 - Select an explicit preview or production target with distinct Worker names and
