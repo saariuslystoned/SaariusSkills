@@ -5,7 +5,7 @@ The package contains guidance, not an installed CI pipeline or runtime deploymen
 
 Validation:
 
-- `python3 -m unittest discover -s tests -p test_packaging.py -q`: 17 tests pass.
+- `python3 -m unittest discover -s tests -p test_packaging.py -q`: 19 tests pass.
 - `git diff --check`: pass.
 - General deploy lessons were deduplicated into the portable release checklist
   and surfaced as must-do checks in `SKILL.md`; no site-specific names or
