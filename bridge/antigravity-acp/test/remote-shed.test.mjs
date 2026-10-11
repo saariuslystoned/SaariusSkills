@@ -10,7 +10,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createAccessAuthenticator, parseRemoteCallers, resolveAccessConfig } from "../access-auth.mjs";
 import { resolveHttpConfig, resolveTransport, startRemoteShedHost } from "../http-host.mjs";
-import { createRepoOwnerGuard, githubOwnerFromRemote, parseRepoOwners } from "../repo-allowlist.mjs";
+import { createRepoOwnerGuard, githubOwnerFromRemote, originOwnerFromRemote, parseRepoOwners } from "../repo-allowlist.mjs";
 import { ShedTaskRunner } from "../shed-tasks.mjs";
 import { createShedMcpServer, SHED_TOOL_NAMES } from "../shed-tools.mjs";
 
@@ -70,20 +70,30 @@ function fakeBroker({ delegateError, jobStatus = "completed" } = {}) {
   };
 }
 
-function shedFixture(brokerOptions, { changes = " M README.md" } = {}) {
+const START = "a".repeat(40);
+const HEAD = "b".repeat(40);
+function shedFixture(brokerOptions, { changes = " M README.md", ahead, remoteHead = START, pushError } = {}) {
   const reposRoot = realpathSync(mkdtempSync(path.join(tmpdir(), "shed-root-")));
   mkdirSync(path.join(reposRoot, "saari-co", "site"), { recursive: true });
+  mkdirSync(path.join(reposRoot, "smoky", "motors"), { recursive: true });
+  let committed = false;
   const commands = [];
   const logs = [];
   const broker = fakeBroker(brokerOptions);
   const runner = new ShedTaskRunner({
     broker,
-    env: { SAARIUS_ACP_REMOTE_REPO_OWNERS: OWNERS, SAARIUS_ACP_REMOTE_REPOS_ROOT: reposRoot },
+    env: { SAARIUS_ACP_REMOTE_REPO_OWNERS: OWNERS, SAARIUS_ACP_REMOTE_REPOS_ROOT: reposRoot, SAARIUS_ACP_REMOTE_ORIGIN_OWNERS: "smoky" },
     guard: async () => {},
     log: async (record) => logs.push(record),
     run: async (command, args) => {
       commands.push([command, ...args]);
       if (args[0] === "status") return changes;
+      if (args[0] === "commit") committed = true;
+      if (args[0] === "rev-parse") return args[1] === "--verify" ? START : HEAD;
+      if (args[0] === "rev-list") return String(ahead ?? (committed ? 1 : 0));
+      if (args[0] === "ls-remote") return `${remoteHead}\trefs/heads/x`;
+      if (args[0] === "push" && pushError) throw pushError;
+      if (command === "origin") return "Created change https://origin.cursor.com/smoky/motors/pull/3";
       if (command === "gh") return "https://github.com/saari-co/site/pull/7";
       return "";
     },
@@ -192,10 +202,10 @@ test("a task runs on a new branch and ends in a draft PR; audit log names caller
   assert.doesNotMatch(final.summary, /ghp_abcdefghijklmnop/);
   const delegate = broker.calls.find((call) => call.name === "delegate").input;
   assert.equal(delegate.hostConversationId, started.taskId);
-  assert.match(delegate.prompt, /Do not commit, push/);
+  assert.match(delegate.prompt, /never push, force-push/);
   const flat = commands.map((c) => c.join(" "));
   assert.ok(flat.some((c) => c.startsWith(`git worktree add --quiet -b ${started.branch}`)));
-  assert.ok(flat.some((c) => c === `git push --quiet -u origin ${started.branch}`));
+  assert.ok(flat.some((c) => c === `git push --quiet -u origin HEAD:refs/heads/${started.branch}`));
   assert.ok(flat.some((c) => c.startsWith("gh pr create --draft --base main")));
   assert.ok(!flat.some((c) => /--force(?!\s+\S*worktrees)|merge/.test(c.replace(/git worktree remove --force \S+/, ""))));
   assert.ok(logs.every((line) => line.caller === "acp-runner" && line.requestedBy === "acp-runner"));
@@ -248,4 +258,103 @@ test("repo owner guard checks every remote and the repo root", async () => {
   await assert.rejects(guard(repo()), { code: "REMOTE_REPO_OWNER_REFUSED" });
   mkdirSync(path.join(allowed, "sub"));
   await assert.rejects(guard(path.join(allowed, "sub")), { code: "REMOTE_WORKSPACE_NOT_REPO_ROOT" });
+});
+
+const noForce = (flat) => !flat.some((c) => /--force|\+refs\/heads\/\S+:refs\/heads|push .*\+/.test(c.replace(/git worktree remove --force \S+/, "").replace(/git fetch --quiet origin \+refs\/heads\/\S+:refs\/remotes\/\S+/, "")));
+
+test("agent-made commits on a clean worktree count as changes and are pushed (git am / merge)", async () => {
+  const { runner, broker, commands } = shedFixture({}, { changes: "", ahead: 2 });
+  await runner.init();
+  const started = await runner.runTask(RUN, CALLER);
+  broker.finish();
+  await settle();
+  const final = await runner.status({ taskId: started.taskId });
+  assert.equal(final.status, "pr_opened");
+  assert.equal(final.commitsAhead, 2);
+  assert.equal(final.headSha, HEAD);
+  const flat = commands.map((c) => c.join(" "));
+  assert.ok(!flat.some((c) => c.startsWith("git commit")));
+  assert.ok(flat.some((c) => c === `git rev-list --count ${START}..HEAD`));
+  assert.ok(flat.some((c) => c === `git push --quiet -u origin HEAD:refs/heads/${started.branch}`));
+  assert.ok(noForce(flat));
+});
+
+test("clean worktree with zero commits ahead is no_changes and pushes nothing", async () => {
+  const { runner, broker, commands } = shedFixture({}, { changes: "", ahead: 0 });
+  await runner.init();
+  const started = await runner.runTask(RUN, CALLER);
+  broker.finish();
+  await settle();
+  assert.equal((await runner.status({ taskId: started.taskId })).status, "no_changes");
+  assert.ok(!commands.some((c) => c[1] === "push"));
+});
+
+test("headBranch continues an existing PR branch with a plain fast-forward push", async () => {
+  const { runner, broker, commands } = shedFixture();
+  await runner.init();
+  const started = await runner.runTask({ ...RUN, headBranch: "shed/shed-20261011T211640-ee8eab" }, CALLER);
+  assert.equal(started.branch, "shed/shed-20261011T211640-ee8eab");
+  assert.equal(started.mode, "existing_branch");
+  broker.finish();
+  await settle();
+  const final = await runner.status({ taskId: started.taskId });
+  assert.equal(final.status, "pushed");
+  assert.equal(final.prUrl, "https://github.com/saari-co/site/pull/7");
+  const flat = commands.map((c) => c.join(" "));
+  assert.ok(flat.some((c) => c.startsWith(`git worktree add --quiet --detach`) && c.endsWith(START)));
+  assert.ok(flat.some((c) => c === "git push --quiet origin HEAD:refs/heads/shed/shed-20261011T211640-ee8eab"));
+  assert.ok(!flat.some((c) => c.startsWith("gh pr create")));
+  assert.ok(noForce(flat));
+});
+
+test("headBranch fails clearly and never pushes when the remote moved", async () => {
+  const { runner, broker, commands } = shedFixture({}, { remoteHead: "c".repeat(40) });
+  await runner.init();
+  const started = await runner.runTask({ ...RUN, headBranch: "feature/x" }, CALLER);
+  broker.finish();
+  await settle();
+  const final = await runner.status({ taskId: started.taskId });
+  assert.equal(final.status, "failed");
+  assert.equal(final.error.code, "REMOTE_BRANCH_MOVED");
+  assert.ok(!commands.some((c) => c[1] === "push"));
+  assert.ok(commands.some((c) => c[1] === "update-ref" && c[2] === `refs/shed/keep/${started.taskId}`));
+});
+
+test("headBranch maps a rejected non-fast-forward push to REMOTE_BRANCH_MOVED", async () => {
+  const pushError = Object.assign(new Error("push failed"), { stderr: "! [rejected] HEAD -> x (non-fast-forward)" });
+  const { runner, broker } = shedFixture({}, { pushError });
+  await runner.init();
+  const started = await runner.runTask({ ...RUN, headBranch: "feature/x" }, CALLER);
+  broker.finish();
+  await settle();
+  assert.equal((await runner.status({ taskId: started.taskId })).error.code, "REMOTE_BRANCH_MOVED");
+});
+
+test("headBranch validation", async () => {
+  const { runner } = shedFixture();
+  await runner.init();
+  await assert.rejects(runner.runTask({ ...RUN, headBranch: "--force" }, CALLER), { code: "HEAD_BRANCH_INVALID" });
+  await assert.rejects(runner.runTask({ ...RUN, headBranch: "main" }, CALLER), { code: "HEAD_BRANCH_INVALID" });
+});
+
+test("Origin forge: separate owner allowlist and origin pr create", async () => {
+  const { runner, broker, commands } = shedFixture();
+  await runner.init();
+  await assert.rejects(runner.runTask({ ...RUN, owner: "smoky", repo: "motors" }, CALLER), { code: "REPO_OWNER_REFUSED" });
+  await assert.rejects(runner.runTask({ ...RUN, forge: "origin" }, CALLER), { code: "REPO_OWNER_REFUSED" });
+  await assert.rejects(runner.runTask({ ...RUN, forge: "gitlab" }, CALLER), { code: "FORGE_INVALID" });
+  const started = await runner.runTask({ ...RUN, owner: "smoky", repo: "motors", forge: "origin" }, CALLER);
+  broker.finish();
+  await settle();
+  const final = await runner.status({ taskId: started.taskId });
+  assert.equal(final.status, "pr_opened");
+  assert.equal(final.prUrl, "https://origin.cursor.com/smoky/motors/pull/3");
+  assert.ok(commands.some((c) => c[0] === "origin" && c.includes("--draft") && c.includes("smoky/motors")));
+  assert.equal(originOwnerFromRemote("https://origin.cursor.com/smoky/smokymotors.git"), "smoky");
+  assert.equal(originOwnerFromRemote("https://origin.cursor.com.evil.test/smoky/x.git"), null);
+  const guard = createRepoOwnerGuard({ env: { SAARIUS_ACP_REMOTE_REPO_OWNERS: OWNERS, SAARIUS_ACP_REMOTE_ORIGIN_OWNERS: "smoky" } });
+  await guard(repo("https://origin.cursor.com/smoky/smokymotors.git"));
+  await assert.rejects(guard(repo("https://origin.cursor.com/other/x.git")), { code: "REMOTE_REPO_OWNER_REFUSED" });
+  const githubOnly = createRepoOwnerGuard({ env: { SAARIUS_ACP_REMOTE_REPO_OWNERS: OWNERS } });
+  await assert.rejects(githubOnly(repo("https://origin.cursor.com/smoky/smokymotors.git")), { code: "REMOTE_REPO_OWNER_REFUSED" });
 });

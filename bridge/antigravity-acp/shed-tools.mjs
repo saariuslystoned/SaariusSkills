@@ -32,13 +32,15 @@ export function createShedMcpServer(runner, caller) {
     "shed_task_run",
     {
       description:
-        "Run one coding task with official Antigravity ACP on the owner's AI Shed, in an allowlisted GitHub repo, on a new shed/<taskId> branch, then open a draft PR. One task at a time: returns status \"busy\" when another task is running and \"unavailable\" when the shed cannot run Antigravity right now, so callers can fall back. Never put secrets in any field.",
+        "Run one coding task with official Antigravity ACP on the owner's AI Shed, in an allowlisted GitHub repo, on a new shed/<taskId> branch, then open a draft PR (or continue an existing PR branch via headBranch). One task at a time: returns status \"busy\" when another task is running and \"unavailable\" when the shed cannot run Antigravity right now, so callers can fall back. Never put secrets in any field.",
       inputSchema: {
         owner: z.string().describe("GitHub owner; must be on the shed allowlist"),
         repo: z.string().describe("GitHub repository name, already cloned on the shed"),
         task: z.string().describe("Plain-language coding task"),
         requested_by: z.string().describe("Name of the bot or agent that asked for this task, for the audit log"),
         baseBranch: z.string().optional().describe("Branch to start from; default main"),
+        headBranch: z.string().optional().describe("Existing PR head branch to continue on; pushed fast-forward only (fails if the remote moved), no new PR"),
+        forge: z.enum(["github", "origin"]).optional().describe("Where the repo lives; default github"),
         title: z.string().optional().describe("Draft PR title"),
       },
     },

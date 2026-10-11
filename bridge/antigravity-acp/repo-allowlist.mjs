@@ -7,6 +7,7 @@ import { BridgeError } from "./broker.mjs";
 const execFile = promisify(execFileCallback);
 
 export const REMOTE_REPO_OWNERS_ENV = "SAARIUS_ACP_REMOTE_REPO_OWNERS";
+export const REMOTE_ORIGIN_OWNERS_ENV = "SAARIUS_ACP_REMOTE_ORIGIN_OWNERS";
 const OWNER_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 
 // Parses "owner-a,owner-b" into a lowercase set. Remote mode refuses to
@@ -29,6 +30,22 @@ export function parseRepoOwners(raw) {
     }
   }
   return new Set(owners.map((owner) => owner.toLowerCase()));
+}
+
+// Optional owner list (e.g. Origin namespaces); empty means none allowed.
+export function parseOptionalOwners(raw, envName = REMOTE_ORIGIN_OWNERS_ENV) {
+  if (!String(raw ?? "").trim()) return new Set();
+  try {
+    return parseRepoOwners(raw);
+  } catch {
+    throw new BridgeError("REMOTE_REPO_OWNERS_INVALID", `${envName} entry is not a valid owner`);
+  }
+}
+
+// Extracts the namespace from an origin.cursor.com remote URL, else null.
+export function originOwnerFromRemote(url) {
+  const match = String(url ?? "").trim().match(/^https:\/\/(?:[^@/]+@)?origin\.cursor\.com\/(?:git\/)?([^/]+)\/[^/]+?(?:\.git)?\/?$/i);
+  return match ? match[1].toLowerCase() : null;
 }
 
 // Extracts the owner from a github.com remote URL (https, ssh, scp-like).
@@ -55,8 +72,9 @@ async function git(args, cwd) {
 // Remote-shed workspace admission: the workspace must be an absolute
 // directory that is the top level of a git checkout whose every remote
 // points at github.com/<allowed owner>/... .
-export function createRepoOwnerGuard({ env = process.env, owners, runGit = git } = {}) {
+export function createRepoOwnerGuard({ env = process.env, owners, originOwners, runGit = git } = {}) {
   const allowed = owners ? new Set([...owners].map((o) => o.toLowerCase())) : parseRepoOwners(env[REMOTE_REPO_OWNERS_ENV]);
+  const allowedOrigin = originOwners ? new Set([...originOwners].map((o) => o.toLowerCase())) : parseOptionalOwners(env[REMOTE_ORIGIN_OWNERS_ENV]);
   return async function guardWorkspace(workspace) {
     if (typeof workspace !== "string" || !path.isAbsolute(workspace)) {
       throw new BridgeError("REMOTE_WORKSPACE_INVALID", "remote-shed workspace must be an absolute path on the shed");
@@ -90,6 +108,8 @@ export function createRepoOwnerGuard({ env = process.env, owners, runGit = git }
     }
     for (const url of remotes) {
       const owner = githubOwnerFromRemote(url);
+      const originOwner = owner ? null : originOwnerFromRemote(url);
+      if (originOwner && allowedOrigin.has(originOwner)) continue;
       if (!owner || !allowed.has(owner)) {
         throw new BridgeError("REMOTE_REPO_OWNER_REFUSED", "remote-shed workspace remote is not an allowed GitHub owner", {
           workspace,

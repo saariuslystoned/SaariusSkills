@@ -4,7 +4,7 @@ import { appendFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promis
 import path from "node:path";
 import { promisify } from "node:util";
 import { BridgeError, MAX_PROMPT_CHARS, redactSensitive } from "./broker.mjs";
-import { createRepoOwnerGuard, parseRepoOwners, REMOTE_REPO_OWNERS_ENV } from "./repo-allowlist.mjs";
+import { createRepoOwnerGuard, parseOptionalOwners, parseRepoOwners, REMOTE_ORIGIN_OWNERS_ENV, REMOTE_REPO_OWNERS_ENV } from "./repo-allowlist.mjs";
 
 const execFile = promisify(execFileCallback);
 
@@ -14,6 +14,7 @@ const execFile = promisify(execFileCallback);
 export const REMOTE_REPOS_ROOT_ENV = "SAARIUS_ACP_REMOTE_REPOS_ROOT";
 export const SHED_STATE_DIR_ENV = "SAARIUS_ACP_SHED_STATE_DIR";
 export const BRANCH_PREFIX = "shed/";
+export const FORGES = Object.freeze(["github", "origin"]);
 const REPO_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
 const BRANCH_PATTERN = /^(?!.*\.\.)(?!-)[A-Za-z0-9._/-]{1,100}$/;
 const LABEL_PATTERN = /^[A-Za-z0-9_.@-]{1,64}$/;
@@ -26,7 +27,7 @@ const SECRET_INPUT_PATTERN =
 const SHED_INSTRUCTIONS = [
   "You are running on the owner's AI Shed through SaariusSkills remote-shed mode.",
   "Make the requested change in this repository working tree only.",
-  "Do not commit, push, create branches, or open pull requests; the shed does that after you finish.",
+  "You may create local commits (including merges) if the task needs them, but never push, force-push, rewrite published history, switch branches, or open pull requests; the shed pushes after you finish.",
   "Do not read, print, or write credentials, tokens, .env files, or private keys.",
   "Finish with a short plain-text summary of what you changed.",
 ].join("\n");
@@ -55,17 +56,18 @@ async function defaultRun(command, args, { cwd, timeoutMs = 120_000 } = {}) {
 }
 
 export class ShedTaskRunner {
-  constructor({ broker, env = process.env, run = defaultRun, owners, reposRoot, stateDir, guard, log, now = () => new Date() } = {}) {
+  constructor({ broker, env = process.env, run = defaultRun, owners, originOwners, reposRoot, stateDir, guard, log, now = () => new Date() } = {}) {
     this.broker = broker;
     this.run = run;
     this.now = now;
     this.owners = owners ? new Set([...owners].map((o) => o.toLowerCase())) : parseRepoOwners(env[REMOTE_REPO_OWNERS_ENV]);
+    this.originOwners = originOwners ? new Set([...originOwners].map((o) => o.toLowerCase())) : parseOptionalOwners(env[REMOTE_ORIGIN_OWNERS_ENV], REMOTE_ORIGIN_OWNERS_ENV);
     this.reposRoot = reposRoot ?? env[REMOTE_REPOS_ROOT_ENV]?.trim();
     if (!this.reposRoot || !path.isAbsolute(this.reposRoot)) {
       throw new ShedTaskError("REMOTE_REPOS_ROOT_REQUIRED", `${REMOTE_REPOS_ROOT_ENV} must be an absolute directory holding <owner>/<repo> clones`);
     }
     this.stateDir = stateDir ?? env[SHED_STATE_DIR_ENV]?.trim() ?? path.join(this.reposRoot, ".saarius-shed");
-    this.guard = guard ?? createRepoOwnerGuard({ owners: this.owners });
+    this.guard = guard ?? createRepoOwnerGuard({ owners: this.owners, originOwners: this.originOwners });
     this.log = log ?? ((record) => appendFile(path.join(this.stateDir, "tasks.jsonl"), `${JSON.stringify(record)}\n`));
     this.tasks = new Map();
     this.activeTaskId = null;
@@ -88,7 +90,9 @@ export class ShedTaskRunner {
       caller: task.caller,
       requestedBy: task.requestedBy,
       repo: `${task.owner}/${task.repo}`,
+      forge: task.forge,
       branch: task.branch,
+      headSha: task.headSha ?? null,
       status: task.status,
       prUrl: task.prUrl ?? null,
       errorCode: task.error?.code ?? null,
@@ -100,12 +104,17 @@ export class ShedTaskRunner {
       taskId: task.taskId,
       status: task.status,
       repo: `${task.owner}/${task.repo}`,
+      forge: task.forge,
       baseBranch: task.baseBranch,
       branch: task.branch,
+      mode: task.headBranch ? "existing_branch" : "new_branch",
       requestedBy: task.requestedBy,
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
     };
+    if (task.startSha) out.startSha = task.startSha;
+    if (task.headSha) out.headSha = task.headSha;
+    if (task.commitsAhead !== undefined) out.commitsAhead = task.commitsAhead;
     if (task.prUrl) out.prUrl = task.prUrl;
     if (task.summary) out.summary = task.summary;
     if (task.error) out.error = task.error;
@@ -118,9 +127,12 @@ export class ShedTaskRunner {
       : { status: "idle" };
   }
 
-  validate({ owner, repo, task, baseBranch, title, requested_by }) {
-    if (typeof owner !== "string" || !this.owners.has(owner.toLowerCase())) {
-      throw new ShedTaskError("REPO_OWNER_REFUSED", "owner is not on the shed's repo allowlist", { allowedOwners: [...this.owners] });
+  validate({ owner, repo, task, baseBranch, headBranch, forge, title, requested_by }) {
+    const safeForge = forge ?? "github";
+    if (!FORGES.includes(safeForge)) throw new ShedTaskError("FORGE_INVALID", "forge must be github or origin");
+    const allowedOwners = safeForge === "origin" ? this.originOwners : this.owners;
+    if (typeof owner !== "string" || !allowedOwners.has(owner.toLowerCase())) {
+      throw new ShedTaskError("REPO_OWNER_REFUSED", `owner is not on the shed's ${safeForge} repo allowlist`, { allowedOwners: [...allowedOwners] });
     }
     if (typeof repo !== "string" || !REPO_PATTERN.test(repo) || repo.startsWith(".")) {
       throw new ShedTaskError("REPO_INVALID", "repo must be a plain GitHub repository name");
@@ -130,13 +142,16 @@ export class ShedTaskRunner {
     }
     const base = baseBranch ?? "main";
     if (!BRANCH_PATTERN.test(base)) throw new ShedTaskError("BASE_BRANCH_INVALID", "baseBranch is not a safe branch name");
+    if (headBranch !== undefined && (typeof headBranch !== "string" || !BRANCH_PATTERN.test(headBranch) || headBranch === base)) {
+      throw new ShedTaskError("HEAD_BRANCH_INVALID", "headBranch must be a safe existing branch name different from baseBranch");
+    }
     if (typeof requested_by !== "string" || !LABEL_PATTERN.test(requested_by)) {
       throw new ShedTaskError("REQUESTED_BY_REQUIRED", "requested_by must name the bot that asked (letters, digits, _ . @ -)");
     }
     const safeTitle = typeof title === "string" && title.trim() ? title.trim().slice(0, TITLE_MAX) : undefined;
     assertNoSecrets(task, "task");
     if (safeTitle) assertNoSecrets(safeTitle, "title");
-    return { owner: owner.toLowerCase(), repo, task, baseBranch: base, title: safeTitle, requestedBy: requested_by };
+    return { owner: owner.toLowerCase(), repo, forge: safeForge, task, baseBranch: base, headBranch, title: safeTitle, requestedBy: requested_by };
   }
 
   async runTask(input, caller) {
@@ -155,7 +170,7 @@ export class ShedTaskRunner {
       status: "starting",
       ...request,
       task: undefined,
-      branch: `${BRANCH_PREFIX}${taskId}`,
+      branch: request.headBranch ?? `${BRANCH_PREFIX}${taskId}`,
       caller: caller?.label ?? "unknown",
       createdAt: this.now().toISOString(),
       worktree: path.join(this.stateDir, "worktrees", taskId),
@@ -164,8 +179,15 @@ export class ShedTaskRunner {
     this.tasks.set(taskId, task);
     try {
       await this.record(task, "accepted");
-      await this.run("git", ["fetch", "--quiet", "origin", request.baseBranch], { cwd: repoDir });
-      await this.run("git", ["worktree", "add", "--quiet", "-b", task.branch, task.worktree, `origin/${request.baseBranch}`], { cwd: repoDir });
+      const startRef = request.headBranch ?? request.baseBranch;
+      await this.run("git", ["fetch", "--quiet", "origin", `+refs/heads/${startRef}:refs/remotes/origin/${startRef}`], { cwd: repoDir, timeoutMs: 300_000 });
+      task.startSha = await this.run("git", ["rev-parse", "--verify", `refs/remotes/origin/${startRef}^{commit}`], { cwd: repoDir });
+      if (request.headBranch) {
+        // Existing PR branch: detached checkout at the remote head; pushed back fast-forward only.
+        await this.run("git", ["worktree", "add", "--quiet", "--detach", task.worktree, task.startSha], { cwd: repoDir });
+      } else {
+        await this.run("git", ["worktree", "add", "--quiet", "-b", task.branch, task.worktree, task.startSha], { cwd: repoDir });
+      }
       task.repoDir = repoDir;
       await this.guard(task.worktree);
       const submitted = await this.broker.delegate({
@@ -210,17 +232,26 @@ export class ShedTaskRunner {
       return this.finish(task, "failed");
     }
     const cwd = task.worktree;
-    if (!(await this.run("git", ["status", "--porcelain"], { cwd }))) {
+    const title = task.title ?? `Shed task ${task.taskId}`;
+    if (await this.run("git", ["status", "--porcelain"], { cwd })) {
+      await this.run("git", ["add", "-A"], { cwd });
+      await this.run("git", ["commit", "--quiet", "-m", title, "-m", `Remote-shed task ${task.taskId} requested by ${task.requestedBy}.`], { cwd });
+    }
+    // Count commits ahead of the start point, so agent-made commits (git am,
+    // merges) are pushed too, not only a dirty worktree.
+    task.commitsAhead = Number.parseInt(await this.run("git", ["rev-list", "--count", `${task.startSha}..HEAD`], { cwd }), 10) || 0;
+    if (task.commitsAhead === 0) {
       task.status = "no_changes";
       return this.finish(task, "no_changes");
     }
+    task.headSha = await this.run("git", ["rev-parse", "HEAD"], { cwd });
+    task.status = "pushing";
+    await this.record(task, "pushing");
+    if (task.headBranch) return this.pushExisting(task, cwd);
+    // Plain push of a new branch; never --force.
+    await this.run("git", ["push", "--quiet", "-u", "origin", `HEAD:refs/heads/${task.branch}`], { cwd, timeoutMs: 300_000 });
     task.status = "opening_pr";
     await this.record(task, "opening_pr");
-    const title = task.title ?? `Shed task ${task.taskId}`;
-    await this.run("git", ["add", "-A"], { cwd });
-    await this.run("git", ["commit", "--quiet", "-m", title, "-m", `Remote-shed task ${task.taskId} requested by ${task.requestedBy}.`], { cwd });
-    // Plain push of a new branch; never --force.
-    await this.run("git", ["push", "--quiet", "-u", "origin", task.branch], { cwd, timeoutMs: 300_000 });
     const body = [
       `Opened by SaariusSkills remote-shed task \`${task.taskId}\`.`,
       `Requested by: ${task.requestedBy} (Access caller: ${task.caller}).`,
@@ -229,12 +260,56 @@ export class ShedTaskRunner {
       "",
       task.summary || "(none)",
     ].join("\n");
-    task.prUrl = clean(await this.run("gh", ["pr", "create", "--draft", "--base", task.baseBranch, "--head", task.branch, "--title", title, "--body", body], { cwd, timeoutMs: 120_000 }), 300);
+    const prOut = task.forge === "origin"
+      ? await this.run("origin", ["pr", "create", "--repo", `${task.owner}/${task.repo}`, "--draft", "--base", task.baseBranch, "--head", task.branch, "--title", title, "--body", body], { cwd, timeoutMs: 120_000 })
+      : await this.run("gh", ["pr", "create", "--draft", "--base", task.baseBranch, "--head", task.branch, "--title", title, "--body", body], { cwd, timeoutMs: 120_000 });
+    task.prUrl = clean(prOut.match(/https?:\/\/\S+/)?.[0] ?? prOut, 300);
     task.status = "pr_opened";
     return this.finish(task, "pr_opened");
   }
 
+  // Existing PR head branch: fast-forward push only. If the remote branch
+  // moved since the task started, fail clearly; never force.
+  async pushExisting(task, cwd) {
+    const moved = (remoteSha) => {
+      task.status = "failed";
+      task.error = {
+        code: "REMOTE_BRANCH_MOVED",
+        message: clean(`origin/${task.branch} moved since the task started (was ${task.startSha}${remoteSha ? `, now ${remoteSha}` : ""}); nothing was pushed. Local result kept at refs/shed/keep/${task.taskId}.`, 400),
+      };
+      return this.finish(task, "remote_moved");
+    };
+    let remoteSha = "";
+    try {
+      const line = await this.run("git", ["ls-remote", "--heads", "origin", `refs/heads/${task.branch}`], { cwd, timeoutMs: 120_000 });
+      remoteSha = line.split(/\s+/)[0] ?? "";
+    } catch {
+      remoteSha = "";
+    }
+    if (remoteSha !== task.startSha) return moved(remoteSha);
+    try {
+      await this.run("git", ["push", "--quiet", "origin", `HEAD:refs/heads/${task.branch}`], { cwd, timeoutMs: 300_000 });
+    } catch (error) {
+      if (/non-fast-forward|fetch first|rejected|stale info/i.test(String(error?.stderr ?? error?.message ?? ""))) return moved("");
+      throw error;
+    }
+    if (task.forge === "github") {
+      task.prUrl = clean(await this.run("gh", ["pr", "view", task.branch, "--json", "url", "--jq", ".url"], { cwd, timeoutMs: 60_000 }).catch(() => ""), 300) || undefined;
+    }
+    task.status = "pushed";
+    return this.finish(task, "pushed");
+  }
+
   async finish(task, event) {
+    if (task.repoDir && task.worktree && task.startSha && !["pushed", "pr_opened"].includes(task.status)) {
+      // Keep any unpushed agent commits reachable after the worktree goes away.
+      try {
+        const head = await this.run("git", ["rev-parse", "HEAD"], { cwd: task.worktree });
+        if (head && head !== task.startSha) await this.run("git", ["update-ref", `refs/shed/keep/${task.taskId}`, head], { cwd: task.worktree });
+      } catch {
+        // best effort
+      }
+    }
     if (task.repoDir && task.worktree) {
       // Remove the worktree; the branch (and its PR) stay.
       await this.run("git", ["worktree", "remove", "--force", task.worktree], { cwd: task.repoDir }).catch(() => rm(task.worktree, { recursive: true, force: true }));
