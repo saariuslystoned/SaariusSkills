@@ -37,13 +37,17 @@ Treat the following as release gates, not optional operational advice:
 3. Keep every build and runtime setting in repository configuration. Pin the
    required Node version and declare bindings, domains, site URLs and other
    target variables there. Refuse deployment when the live Worker has settings
-   that the file does not declare.
+   that the file does not declare. Secrets are the exception: they live only in
+   the secret store, never in the file, and the repository's deploy notes list
+   their names (never values) so a missing one is caught.
 4. Before every deploy, diff the expected configuration against Cloudflare.
    Missing Worker, database, bucket, secret or other resources require an
    explicit first-launch decision. Create resources in the same recorded step
    as their IDs, then deploy only from a commit that already contains those
    IDs.
-5. Dry-run the exact documented deploy command in CI. Read the effective
+5. Dry-run the exact documented deploy command in CI, or, where deployment is
+   run by hand, with the same command and configuration the deployer will run.
+   Read the effective
    bindings and domains from its output rather than assuming the configuration
    was honored; deployment tools can create or move resources implicitly.
    Write the exact rollback command, including overrides, before switching a
@@ -56,7 +60,10 @@ Treat the following as release gates, not optional operational advice:
    seed operation where appropriate, or complete it before enabling a cron that
    could mutate the database during seeding. Provide a wipe-and-reseed command
    when local `.wrangler/state` can make an empty catalog look like a remote
-   data failure.
+   data failure. When an EmDash setup screen makes its first user the site's
+   administrator, the owner completes it, not an agent. A new database can
+   serve a placeholder or "content not available" homepage until that step is
+   done, so check the homepage content after it and after every later deploy.
 8. Take a named D1 Time Travel restore point before migrations. Rolling back
    code does not roll back database state; include the restore point in the
    deployment request.
@@ -67,14 +74,18 @@ Treat the following as release gates, not optional operational advice:
 10. Walk one real user path from entry page through the site's meaningful
     success state. Capture desktop and mobile screenshots and have a person
     inspect them before calling the release done.
-11. The deployment request must name configuration values, migrations,
+11. The deployment request must name configuration values (secret names only,
+    never values), migrations,
     setup/seed steps, access status, restore point and proving check. Missing
     any of these means the request is not ready.
 12. Tie approval and verification to the exact commit. A merge approval is not
     deployment approval, and a deployment approval lapses if the commit
     changes. The last production crawl that passed for that commit is the
     rollback point.
-13. Keep reviews isolated: one agent per branch, small pull requests, and no
+13. When one change spans services, such as a new claim one service signs and
+    another requires, deploy and verify the issuing service first. Deploying the
+    consumer first breaks the live path until the issuer catches up.
+14. Keep reviews isolated: one agent per branch, small pull requests, and no
     edits while a review is in progress.
 
 ## Target SEO checks

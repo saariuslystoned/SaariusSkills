@@ -36,17 +36,22 @@ Before a first or changed deployment:
 
 - Check the deployment token before spending time on builds or database work.
 - Compare repository configuration and the live target: runtime settings,
-  domains, bindings and resource IDs must be declared and present. Missing
-  resources are an explicit first-launch/provisioning decision, not a reason to
+  domains, bindings and resource IDs must be declared and present. Secrets are
+  the exception: they live only in the secret store, and the repository lists
+  their names, never their values. Missing resources are an explicit first-launch/provisioning decision, not a reason to
   let deployment invent them.
-- Dry-run the exact documented deploy command in CI and inspect its effective
+- Dry-run the exact documented deploy command (in CI, or with the same command
+  and config the deployer will run) and inspect its effective
   bindings and domains. Record the exact rollback command, including overrides,
   before changing a domain or address.
 - Search every caller before changing or disabling a Worker hostname. Put
   authentication in front of administrative paths before deployment.
 - Write setup and seed as one ordered first-launch step, protect migrations with
   a named database restore point, and deploy only from a commit that already
-  contains any newly created resource IDs.
+  contains any newly created resource IDs. When the first person through a setup
+  screen becomes the site's administrator, the owner does that step, not an agent.
+- When a change adds a value one service issues and another requires, deploy the
+  issuing service first and check it before deploying the one that requires it.
 - Prove the built artifact with a production crawl, page-content checks and one
   real user path on desktop and mobile. A merge approval is not deployment
   approval; deployment approval applies to the exact commit and expires when it
