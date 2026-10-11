@@ -5,8 +5,11 @@ The package contains guidance, not an installed CI pipeline or runtime deploymen
 
 Validation:
 
-- `python3 -m unittest discover -s tests -p test_packaging.py -q`: 17 tests pass.
+- `python3 -m unittest discover -s tests -p test_packaging.py -q`: 19 tests pass.
 - `git diff --check`: pass.
+- General deploy lessons were deduplicated into the portable release checklist
+  and surfaced as must-do checks in `SKILL.md`; no site-specific names or
+  deployment claims were added.
 - Public skill and references inspected for private identities, topology, source
   revisions and private links: none present. Owner approval gates retained.
 - Cursor explicit skill registration updated. Codex directory discovery,
