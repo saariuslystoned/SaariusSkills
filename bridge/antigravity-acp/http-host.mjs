@@ -110,6 +110,7 @@ export async function startRemoteShedHost({ env = process.env, createServer: cre
         caller = await authenticate(req.headers);
       } catch (error) {
         const unavailable = error?.code === "ACCESS_UNAVAILABLE";
+        process.stderr.write(`${JSON.stringify({ status: "access_denied", code: error?.code ?? "ERROR", reason: error?.details?.reason ?? error?.data?.reason ?? null })}\n`);
         return sendJson(res, unavailable ? 503 : 401, rpcError(unavailable ? "auth unavailable" : "unauthorized"));
       }
       const sessionId = req.headers["mcp-session-id"];
