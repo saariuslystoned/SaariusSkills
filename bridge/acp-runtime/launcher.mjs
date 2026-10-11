@@ -5,6 +5,13 @@ import { HOP_WORKER_FLAG, HopError, resolveHop, spawnStdioChild } from "./hop.mj
 
 const bridge = process.argv[2];
 const workerMode = process.argv.slice(3).includes(HOP_WORKER_FLAG);
+// Only the transport selector is forwarded to the pinned server; the remote
+// shed starts it as `launcher.mjs antigravity-acp --transport http`.
+const forwardedArgs = (() => {
+  const rest = process.argv.slice(3);
+  const index = rest.indexOf("--transport");
+  return index >= 0 && rest[index + 1] ? ["--transport", rest[index + 1]] : [];
+})();
 const pluginRoot = pluginRootFromModule();
 
 function fail(error) {
@@ -67,7 +74,7 @@ if (!bridge) {
         const entry = path.join(ready.root, "bridge", bridge, "server.mjs");
         const child = spawnStdioChild({
           command: process.execPath,
-          args: [entry],
+          args: [entry, ...forwardedArgs],
           cwd: process.cwd(),
           env: process.env,
         });
