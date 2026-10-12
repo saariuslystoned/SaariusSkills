@@ -14,7 +14,7 @@
     "serve": "node ../acp-runtime/launcher.mjs antigravity-acp --transport http",
     "setup-runtime": "node ../acp-runtime/prepare.mjs --bridge antigravity-acp",
     "test": "node --test test/*.test.mjs",
-    "check": "node --check contract.mjs && node --check host-policy.mjs && node --check broker.mjs && node --check server.mjs && node --check tools.mjs && node --check http-host.mjs && node --check repo-allowlist.mjs && node --check shed-tools.mjs && node --check shed-tasks.mjs && node --check access-auth.mjs && node --check ../acp-runtime/launcher.mjs && node --check ../acp-runtime/hop.mjs && npm test && node --test ../acp-runtime/test/*.test.mjs",
+    "check": "node --check contract.mjs && node --check host-policy.mjs && node --check broker.mjs && node --check server.mjs && node --check tools.mjs && node --check http-host.mjs && node --check repo-allowlist.mjs && node --check shed-tools.mjs && node --check shed-tasks.mjs && node --check access-auth.mjs && node --check shed-sessions.mjs && node --check viewer-redact.mjs && node --check ../acp-runtime/launcher.mjs && node --check ../acp-runtime/hop.mjs && npm test && node --test ../acp-runtime/test/*.test.mjs",
     "smoke": "node scripts/live-smoke.mjs"
   },
   "dependencies": {

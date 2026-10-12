@@ -5,7 +5,7 @@ import { AntigravityAcpBroker } from "./broker.mjs";
 import { createAntigravityMcpServer } from "./tools.mjs";
 import { createShedMcpServer } from "./shed-tools.mjs";
 import { ShedTaskRunner } from "./shed-tasks.mjs";
-import { createAccessAuthenticator } from "./access-auth.mjs";
+import { createAccessAuthenticator, createViewerAuthenticator } from "./access-auth.mjs";
 import { resolveTransport, startRemoteShedHost } from "./http-host.mjs";
 
 const transportMode = resolveTransport({ argv: process.argv.slice(2), env: process.env });
@@ -23,6 +23,9 @@ if (transportMode === "http") {
     env: process.env,
     bridge: "antigravity-acp",
     authenticate,
+    // Read-only session viewer; disabled (404) unless the viewer Access env is set.
+    viewerAuthenticate: createViewerAuthenticator({ env: process.env }),
+    viewSession: (sessionId) => runner.viewSession(sessionId),
     createServer: (caller) => createShedMcpServer(runner, caller),
   });
   closeHost = host.close;

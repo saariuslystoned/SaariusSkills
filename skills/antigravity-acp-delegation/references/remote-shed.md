@@ -127,6 +127,75 @@ Cloudflare account.
 
    Calls must pass `requested_by`.
 
+## Read-only session viewer (`/s/<sessionId>`)
+
+Every task gets a read-only web page showing what the agent is doing:
+task metadata (repo, branch, requested_by, status, PR link), the prompt,
+the plan, each agent step and tool call, and the final result.
+
+- `shed_task_run` waits up to ~10s for ACP `session/new`. If the session
+  starts in time, its first response carries `session_id` (the ACP session
+  UUID) and `session_url` (`https://shed.sm0ky.dev/s/<session_id>`). If it
+  stalls, the response has `sessionPending: true` and `shed_task_status`
+  returns both fields once ready (per task and in the running list).
+- `GET /s/<id>` serves HTML; `GET /s/<id>.json` serves the same view as JSON.
+  While a task runs the page polls the JSON every 3s and refreshes on change.
+  After it finishes the page renders from the stored transcript at
+  `<stateDir>/sessions/<id>.json` (mode 0600), so it keeps working with no
+  live ACP process and across bridge restarts.
+- Ids must be lowercase UUIDs; anything else (path tricks, query strings,
+  extra segments) is 400/404. Only `GET`/`HEAD` are accepted. The viewer has
+  no route that starts, cancels, or sends input to a task.
+- Everything shown is passed through a redaction pass first (GitHub
+  `ghp_`/`gho_`/`github_pat_` tokens, Cloudflare API tokens and global keys,
+  `CF-Access-Client-Id/Secret`, `Authorization`/Bearer headers, AWS key ids
+  and secret keys, PEM private keys, JWTs, URL credentials, and generic
+  `*_KEY=` / `*_TOKEN=` / `*_SECRET=` / `*_PASSWORD=` lines).
+- Responses carry `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet`,
+  `<meta name="robots" content="noindex, ...">`,
+  `Cache-Control: no-store, private, max-age=0` (plus `CDN-Cache-Control` /
+  `Cloudflare-CDN-Cache-Control: no-store`), a strict nonce CSP,
+  `Referrer-Policy: no-referrer`, and `X-Frame-Options: DENY`.
+
+### Bridge config
+
+| Env | Meaning |
+| --- | --- |
+| `SAARIUS_ACP_VIEWER_ACCESS_AUD` | AUD tag of the **viewer** Access application (below). |
+| `SAARIUS_ACP_VIEWER_EMAILS` | Comma-separated emails allowed to view: `ryan@smokyproduct.co`. |
+| `SAARIUS_ACP_SESSION_BASE_URL` | Optional; default `https://shed.sm0ky.dev`. Must be https. |
+
+If the two viewer variables are unset, `/s/*` answers 404: the viewer is off,
+never open. The bridge re-verifies the Access JWT on every viewer request
+(team keys, issuer, viewer AUD, `email` in the allowlist) and refuses service
+tokens there; `/mcp` keeps its own AUD and service-token check and refuses a
+human login.
+
+### Cloudflare Access setup (operator step; not applied by this change)
+
+Add a second, more specific self-hosted Access application in front of the
+same tunnel hostname. Access matches the most specific path, so `/s/*` gets
+the login policy and `/mcp` keeps the service-token-only application.
+
+1. **Existing app (unchanged): "AI Shed MCP"**, domain `shed.sm0ky.dev/mcp`
+   (or the whole host as today). Policy: action **Service Auth**, include
+   *Service Token* = the shed caller tokens. No email/login rule. Starting
+   and cancelling tasks stays here, service-token only.
+2. **New app: "AI Shed session viewer"**, type Self-hosted,
+   domain `shed.sm0ky.dev`, path `s/*`. Session duration 24h or shorter.
+   Identity provider: one-time PIN (or the team's IdP). Policy
+   "Ryan only": action **Allow**, include *Emails* = `ryan@smokyproduct.co`.
+   No service-token rule, no Bypass, no Everyone.
+   Optional hardening: enable "HTTP-only" and "Same-site: Lax" cookie
+   settings; turn off "Enable automatic cloudflared authentication".
+3. Copy the new app's **Application Audience (AUD) tag** into
+   `SAARIUS_ACP_VIEWER_ACCESS_AUD`, set
+   `SAARIUS_ACP_VIEWER_EMAILS=ryan@smokyproduct.co`, and restart the bridge.
+4. Optional: a Cache Rule for `shed.sm0ky.dev/s/*` set to **Bypass cache**
+   (the bridge already sends `no-store`).
+
+Sending input into a session is out of scope; the viewer is view-only.
+
 ## Example
 
 ```json

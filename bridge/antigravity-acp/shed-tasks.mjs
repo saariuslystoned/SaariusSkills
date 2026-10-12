@@ -4,6 +4,7 @@ import { appendFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promis
 import path from "node:path";
 import { promisify } from "node:util";
 import { BridgeError, MAX_PROMPT_CHARS, redactSensitive } from "./broker.mjs";
+import { appendEvent, buildView, createTranscript, isSessionId, loadSession, resolveSessionBaseUrl, saveSession, sessionUrl } from "./shed-sessions.mjs";
 import { createRepoOwnerGuard, parseOptionalOwners, parseRepoOwners, REMOTE_ORIGIN_OWNERS_ENV, REMOTE_REPO_OWNERS_ENV } from "./repo-allowlist.mjs";
 
 const execFile = promisify(execFileCallback);
@@ -24,6 +25,10 @@ const BRANCH_PATTERN = /^(?!.*\.\.)(?!-)[A-Za-z0-9._/-]{1,100}$/;
 const LABEL_PATTERN = /^[A-Za-z0-9_.@-]{1,64}$/;
 const TITLE_MAX = 120;
 const POLL_WAIT_MS = 30_000;
+// shed_task_run waits this long for ACP session/new so its first response can
+// carry session_id / session_url; past it the ids appear in shed_task_status.
+export const SESSION_WAIT_MS = 10_000;
+const MAX_PENDING_EVENTS = 500;
 // Refuse token-shaped values in task input; callers must never pass secrets.
 const SECRET_INPUT_PATTERN =
   /\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,})\b|Bearer\s+[A-Za-z0-9._~+/=-]{8,}|-----BEGIN [A-Z ]*PRIVATE KEY-----/i;
@@ -70,7 +75,7 @@ async function defaultRun(command, args, { cwd, timeoutMs = 120_000 } = {}) {
 }
 
 export class ShedTaskRunner {
-  constructor({ broker, env = process.env, run = defaultRun, maxConcurrent, owners, originOwners, reposRoot, stateDir, guard, log, now = () => new Date() } = {}) {
+  constructor({ broker, env = process.env, run = defaultRun, maxConcurrent, owners, originOwners, reposRoot, stateDir, guard, log, now = () => new Date(), sessionWaitMs = SESSION_WAIT_MS, sessionBaseUrl } = {}) {
     this.broker = broker;
     this.run = run;
     this.now = now;
@@ -89,6 +94,68 @@ export class ShedTaskRunner {
     this.active = new Map();
     // Per-clone promise chain so fetch / worktree add / remove on one repo never race on git locks.
     this.repoLocks = new Map();
+    // Session viewer: redacted transcripts keyed by taskId, persisted under
+    // <stateDir>/sessions/<sessionId>.json. Never part of tasks/*.json.
+    this.sessionWaitMs = sessionWaitMs;
+    this.sessionBaseUrl = sessionBaseUrl ?? resolveSessionBaseUrl(env);
+    this.sessionsDir = path.join(this.stateDir, "sessions");
+    this.transcripts = new Map();
+    this.jobTasks = new Map();
+    this.pendingEvents = new Map();
+    this.flushTimers = new Map();
+    this.broker?.addEventObserver?.((jobId, event) => this.onAgentEvent(jobId, event));
+  }
+
+  onAgentEvent(jobId, event) {
+    const task = this.jobTasks.get(jobId);
+    if (!task) {
+      // Event raced ahead of delegate() returning; hold a bounded buffer.
+      const pending = this.pendingEvents.get(jobId) ?? [];
+      if (pending.length < MAX_PENDING_EVENTS) pending.push({ event, at: this.now().toISOString() });
+      this.pendingEvents.set(jobId, pending);
+      return;
+    }
+    const transcript = this.transcripts.get(task.taskId);
+    if (!transcript) return;
+    appendEvent(transcript, event, this.now().toISOString());
+    this.scheduleFlush(task);
+  }
+
+  bindJob(task, jobId) {
+    this.jobTasks.set(jobId, task);
+    const transcript = this.transcripts.get(task.taskId);
+    for (const { event, at } of this.pendingEvents.get(jobId) ?? []) if (transcript) appendEvent(transcript, event, at);
+    this.pendingEvents.delete(jobId);
+  }
+
+  scheduleFlush(task) {
+    if (!task.sessionId || this.flushTimers.has(task.taskId)) return;
+    const timer = setTimeout(() => {
+      this.flushTimers.delete(task.taskId);
+      void this.flushSession(task).catch(() => {});
+    }, 1_000);
+    timer.unref?.();
+    this.flushTimers.set(task.taskId, timer);
+  }
+
+  async flushSession(task) {
+    if (!isSessionId(task.sessionId)) return;
+    const transcript = this.transcripts.get(task.taskId);
+    if (!transcript) return;
+    await saveSession(this.sessionsDir, task.sessionId, { sessionId: task.sessionId, task: this.publicTask(task), transcript });
+  }
+
+  // Read-only lookup for GET /s/<sessionId>[.json]. Returns null when unknown.
+  async viewSession(sessionId) {
+    if (!isSessionId(sessionId)) return null;
+    for (const task of this.tasks.values()) {
+      if (task.sessionId === sessionId && this.transcripts.has(task.taskId)) {
+        return buildView({ sessionId, task: this.publicTask(task), transcript: this.transcripts.get(task.taskId) });
+      }
+    }
+    const stored = await loadSession(this.sessionsDir, sessionId);
+    if (!stored || stored.sessionId !== sessionId) return null;
+    return buildView({ sessionId, task: stored.task, transcript: stored.transcript });
   }
 
   // Oldest running task id, kept for callers that read the single-task field.
@@ -112,6 +179,7 @@ export class ShedTaskRunner {
   async init() {
     await mkdir(path.join(this.stateDir, "worktrees"), { recursive: true });
     await mkdir(path.join(this.stateDir, "tasks"), { recursive: true });
+    await mkdir(this.sessionsDir, { recursive: true, mode: 0o700 });
     return this;
   }
 
@@ -152,6 +220,10 @@ export class ShedTaskRunner {
     if (task.headSha) out.headSha = task.headSha;
     if (task.commitsAhead !== undefined) out.commitsAhead = task.commitsAhead;
     if (task.prUrl) out.prUrl = task.prUrl;
+    if (task.sessionId) {
+      out.session_id = task.sessionId;
+      out.session_url = sessionUrl(this.sessionBaseUrl, task.sessionId);
+    }
     if (task.summary) out.summary = task.summary;
     if (task.error) out.error = task.error;
     return out;
@@ -166,6 +238,7 @@ export class ShedTaskRunner {
       branch: task.branch,
       requestedBy: task.requestedBy,
       startedAt: task.createdAt,
+      ...(task.sessionId ? { session_id: task.sessionId, session_url: sessionUrl(this.sessionBaseUrl, task.sessionId) } : {}),
     };
   }
 
@@ -247,6 +320,22 @@ export class ShedTaskRunner {
       return { status: "unavailable", reason: "REPO_NOT_ON_SHED", message: `${request.owner}/${request.repo} is not cloned under the shed repos root` };
     }
     this.tasks.set(taskId, task);
+    this.transcripts.set(taskId, createTranscript({ prompt: request.task }));
+    const started = this.start(task, request, repoDir);
+    let timer;
+    const stalled = new Promise((resolve) => {
+      timer = setTimeout(() => resolve({ ...this.publicTask(task), sessionPending: true, message: "ACP session is still starting; read session_id / session_url from shed_task_status" }), this.sessionWaitMs);
+      timer.unref?.();
+    });
+    try {
+      return await Promise.race([started, stalled]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async start(task, request, repoDir) {
+    const { taskId } = task;
     try {
       await this.record(task, "accepted");
       const startRef = request.headBranch ?? request.baseBranch;
@@ -269,6 +358,8 @@ export class ShedTaskRunner {
         hostConversationId: taskId,
       });
       task.jobId = submitted.jobId;
+      if (isSessionId(submitted.backendSessionId)) task.sessionId = submitted.backendSessionId;
+      this.bindJob(task, submitted.jobId);
       task.status = "running";
       await this.record(task, "running");
     } catch (error) {
@@ -295,6 +386,8 @@ export class ShedTaskRunner {
       if (job.complete) break;
     }
     task.summary = clean(job.handoff);
+    const transcript = this.transcripts.get(task.taskId);
+    if (transcript) transcript.result = String(job.handoff ?? "").slice(0, 20_000) || null;
     if (task.status === "cancelling" || job.status === "cancelled") {
       task.status = "cancelled";
       return this.finish(task, "cancelled");
@@ -395,6 +488,11 @@ export class ShedTaskRunner {
     }
     this.active.delete(task.taskId);
     await this.record(task, event);
+    clearTimeout(this.flushTimers.get(task.taskId));
+    this.flushTimers.delete(task.taskId);
+    await this.flushSession(task).catch(() => {});
+    if (task.jobId) this.jobTasks.delete(task.jobId);
+    this.transcripts.delete(task.taskId);
   }
 
   async status({ taskId } = {}) {

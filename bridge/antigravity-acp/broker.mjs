@@ -654,6 +654,9 @@ export class AntigravityAcpBroker {
       ? options.workerExitWaitMs
       : WORKER_EXIT_WAIT_MS;
     this.onAdmissionBoundary = options.onAdmissionBoundary;
+    // Read-only observers of live ACP turn events (session viewer). An
+    // observer can never affect the turn: errors are swallowed.
+    this.eventObservers = new Set();
     this.active = new Map();
     this.changeWaiters = new Map();
     this.initPromise = null;
@@ -1449,7 +1452,8 @@ export class AntigravityAcpBroker {
         .then(() => this.runJob(job, taskPrompt, requestedModel, { handle }))
         .catch(() => undefined);
       this.active.set(jobId, { promise, handle });
-      return this.publicJob(job);
+      // ACP session/new has completed here; surface its id for the session viewer.
+      return { ...this.publicJob(job), backendSessionId: job.handle?.backendSessionId };
     } catch (error) {
       await this.releaseAdmission(job, handle, error);
       throw toBridgeError(error);
@@ -1521,6 +1525,13 @@ export class AntigravityAcpBroker {
       const eventsPromise = this.consumeEvents(turn.events, async (event) => {
         eventCount += 1;
         if (event?.type === "tool_call") toolCallCount += 1;
+        for (const observer of this.eventObservers) {
+          try {
+            observer(job.jobId, event);
+          } catch {
+            // observers are best effort and read-only
+          }
+        }
         if (event?.type === "text_delta" && event.stream !== "thought") {
           finalText = `${finalText}${String(event.text ?? "")}`.slice(-12_000);
         }
@@ -1595,6 +1606,11 @@ export class AntigravityAcpBroker {
       if (isTerminalStatus(job.status)) this.active.delete(job.jobId);
     }
     return this.publicJob(job);
+  }
+
+  addEventObserver(observer) {
+    this.eventObservers.add(observer);
+    return () => this.eventObservers.delete(observer);
   }
 
   async consumeEvents(events, onEvent) {
