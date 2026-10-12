@@ -170,8 +170,8 @@ test("native MCP timeout schema uses exported policy constants", () => {
   assert.throws(() => schema.parse(MIN_TIMEOUT_MS - 1), /too_small|min/i);
 });
 
-test("server delegate schema imports timeoutMsZod instead of a hardcoded cap", async () => {
-  const source = await readFile(new URL("../server.mjs", import.meta.url), "utf8");
+test("tool delegate schema imports timeoutMsZod instead of a hardcoded cap", async () => {
+  const source = await readFile(new URL("../tools.mjs", import.meta.url), "utf8");
   assert.match(source, /timeoutMsZod/);
   assert.match(source, /timeoutMs:\s*timeoutMsZod\(z\)/);
   assert.doesNotMatch(source, /1_800_000/);
