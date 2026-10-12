@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { inspectRuntime, pluginRootFromModule, setupCommand, RuntimeStoreError } from "./runtime-store.mjs";
-import { HOP_WORKER_FLAG, HopError, resolveHop, spawnStdioChild } from "./hop.mjs";
+import { HOP_ARGV_ENV, HOP_WORKER_FLAG, HopError, resolveHop, spawnStdioChild } from "./hop.mjs";
 
 const bridge = process.argv[2];
 const workerMode = process.argv.slice(3).includes(HOP_WORKER_FLAG);
@@ -36,6 +36,11 @@ if (!bridge) {
   fail(new RuntimeStoreError("INVALID_ARGUMENT", "bridge name is required"));
 } else {
   try {
+    // The remote-shed HTTP host must run locally; never hop it to another
+    // machine (the hop would silently drop --transport http). Fail first.
+    if (forwardedArgs[1] === "http" && typeof process.env[HOP_ARGV_ENV] === "string" && process.env[HOP_ARGV_ENV].trim()) {
+      throw new HopError("HTTP_HOP_REFUSED", `--transport http cannot be combined with ${HOP_ARGV_ENV}; unset the hop for the remote-shed host`, { bridge });
+    }
     const hop = resolveHop({ env: process.env, bridge, workerMode });
     if (hop.mode === "hop") {
       process.stderr.write(`${JSON.stringify({

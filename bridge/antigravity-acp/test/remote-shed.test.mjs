@@ -72,7 +72,7 @@ function fakeBroker({ delegateError, jobStatus = "completed" } = {}) {
 
 const START = "a".repeat(40);
 const HEAD = "b".repeat(40);
-function shedFixture(brokerOptions, { changes = " M README.md", ahead, remoteHead = START, pushError, broker: customBroker, env: extraEnv = {} } = {}) {
+function shedFixture(brokerOptions, { changes = " M README.md", ahead, remoteHead = START, pushError, broker: customBroker, env: extraEnv = {}, symrefHead = "", runnerOptions = {} } = {}) {
   const reposRoot = realpathSync(mkdtempSync(path.join(tmpdir(), "shed-root-")));
   mkdirSync(path.join(reposRoot, "saari-co", "site"), { recursive: true });
   mkdirSync(path.join(reposRoot, "smoky", "motors"), { recursive: true });
@@ -91,12 +91,14 @@ function shedFixture(brokerOptions, { changes = " M README.md", ahead, remoteHea
       if (args[0] === "commit") committed = true;
       if (args[0] === "rev-parse") return args[1] === "--verify" ? START : HEAD;
       if (args[0] === "rev-list") return String(ahead ?? (committed ? 1 : 0));
+      if (args[0] === "ls-remote" && args[1] === "--symref") return symrefHead ? `ref: refs/heads/${symrefHead}\tHEAD\n${START}\tHEAD` : "";
       if (args[0] === "ls-remote") return `${remoteHead}\trefs/heads/x`;
       if (args[0] === "push" && pushError) throw pushError;
       if (command === "origin") return "Created change https://origin.cursor.com/smoky/motors/pull/3";
       if (command === "gh") return "https://github.com/saari-co/site/pull/7";
       return "";
     },
+    ...runnerOptions,
   });
   return { runner, broker, commands, logs, reposRoot };
 }
@@ -310,7 +312,7 @@ test("headBranch continues an existing PR branch with a plain fast-forward push"
 test("headBranch fails clearly and never pushes when the remote moved", async () => {
   const { runner, broker, commands } = shedFixture({}, { remoteHead: "c".repeat(40) });
   await runner.init();
-  const started = await runner.runTask({ ...RUN, headBranch: "feature/x" }, CALLER);
+  const started = await runner.runTask({ ...RUN, headBranch: "codex/x" }, CALLER);
   broker.finish();
   await settle();
   const final = await runner.status({ taskId: started.taskId });
@@ -324,7 +326,7 @@ test("headBranch maps a rejected non-fast-forward push to REMOTE_BRANCH_MOVED", 
   const pushError = Object.assign(new Error("push failed"), { stderr: "! [rejected] HEAD -> x (non-fast-forward)" });
   const { runner, broker } = shedFixture({}, { pushError });
   await runner.init();
-  const started = await runner.runTask({ ...RUN, headBranch: "feature/x" }, CALLER);
+  const started = await runner.runTask({ ...RUN, headBranch: "codex/x" }, CALLER);
   broker.finish();
   await settle();
   assert.equal((await runner.status({ taskId: started.taskId })).error.code, "REMOTE_BRANCH_MOVED");
@@ -335,6 +337,67 @@ test("headBranch validation", async () => {
   await runner.init();
   await assert.rejects(runner.runTask({ ...RUN, headBranch: "--force" }, CALLER), { code: "HEAD_BRANCH_INVALID" });
   await assert.rejects(runner.runTask({ ...RUN, headBranch: "main" }, CALLER), { code: "HEAD_BRANCH_INVALID" });
+  // Only shed-owned prefixes; never main/master/baseBranch, even if "safe".
+  for (const headBranch of ["master", "MAIN", "develop", "feature/x", "release/1.0", "shed/", "codex/", "mainline"]) {
+    await assert.rejects(runner.runTask({ ...RUN, headBranch }, CALLER), { code: "HEAD_BRANCH_INVALID" }, headBranch);
+  }
+  await assert.rejects(runner.runTask({ ...RUN, baseBranch: "codex/base", headBranch: "codex/base" }, CALLER), { code: "HEAD_BRANCH_INVALID" });
+  assert.equal((await runner.status({})).status, "idle");
+});
+
+test("headBranch that is the repo default branch is refused before any worktree or push", async () => {
+  const { runner, commands } = shedFixture({}, { symrefHead: "codex/trunk" });
+  await runner.init();
+  const out = await runner.runTask({ ...RUN, headBranch: "codex/trunk" }, CALLER);
+  assert.equal(out.status, "failed");
+  assert.equal(out.error.code, "HEAD_BRANCH_INVALID");
+  assert.ok(!commands.some((c) => c[1] === "worktree" && c[2] === "add"));
+  assert.ok(!commands.some((c) => c[1] === "push"));
+  assert.equal((await runner.status({})).status, "idle");
+});
+
+test("a task cancelled while waiting for the repo lock never delegates, pushes, or opens a PR", async () => {
+  const { runner, broker, commands, reposRoot } = shedFixture({}, { runnerOptions: { sessionWaitMs: 20 } });
+  await runner.init();
+  let releaseLock;
+  const held = runner.withRepoLock(path.join(reposRoot, "saari-co", "site"), () => new Promise((resolve) => { releaseLock = resolve; }));
+  const started = await runner.runTask(RUN, CALLER);
+  assert.equal(started.sessionPending, true);
+  const cancelled = await runner.cancel({ taskId: started.taskId });
+  assert.equal(cancelled.cancellationRequested, true);
+  releaseLock();
+  await held;
+  await settle();
+  const final = await runner.status({ taskId: started.taskId });
+  assert.equal(final.status, "cancelled");
+  assert.ok(!broker.calls.some((c) => c.name === "delegate"));
+  assert.ok(!commands.some((c) => c[1] === "push" || c[1] === "fetch" || c[0] === "gh"));
+  assert.equal((await runner.status({})).status, "idle");
+});
+
+test("a cancel that lands while delegate() is in flight cancels the job and is never set back to running", async () => {
+  let releaseDelegate;
+  const base = fakeBroker();
+  const broker = {
+    ...base,
+    calls: base.calls,
+    async delegate(input) {
+      base.calls.push({ name: "delegate", input });
+      await new Promise((resolve) => { releaseDelegate = resolve; });
+      return { jobId: "job-1" };
+    },
+  };
+  const { runner, commands } = shedFixture({}, { broker, runnerOptions: { sessionWaitMs: 20 } });
+  await runner.init();
+  const started = await runner.runTask(RUN, CALLER);
+  await settle();
+  await runner.cancel({ taskId: started.taskId });
+  releaseDelegate();
+  await settle();
+  const final = await runner.status({ taskId: started.taskId });
+  assert.equal(final.status, "cancelled");
+  assert.ok(broker.calls.some((c) => c.name === "cancel"));
+  assert.ok(!commands.some((c) => c[1] === "push" || c[0] === "gh"));
 });
 
 test("Origin forge: separate owner allowlist and origin pr create", async () => {
@@ -436,19 +499,19 @@ test("a second task on the same repo+headBranch is refused while the first runs"
   const broker = multiBroker();
   const { runner } = shedFixture(undefined, { broker, env: { SAARIUS_ACP_REMOTE_MAX_CONCURRENT: "5" } });
   await runner.init();
-  const first = await runner.runTask({ ...RUN, headBranch: "feature/x" }, CALLER);
+  const first = await runner.runTask({ ...RUN, headBranch: "codex/x" }, CALLER);
   assert.equal(first.status, "running");
   await assert.rejects(
-    runner.runTask({ ...RUN, task: "other", headBranch: "feature/x" }, CALLER),
+    runner.runTask({ ...RUN, task: "other", headBranch: "codex/x" }, CALLER),
     (error) => error.code === "BRANCH_BUSY" && error.details.taskId === first.taskId,
   );
-  const otherBranch = await runner.runTask({ ...RUN, headBranch: "feature/y" }, CALLER);
+  const otherBranch = await runner.runTask({ ...RUN, headBranch: "codex/y" }, CALLER);
   assert.equal(otherBranch.status, "running");
-  const otherRepo = await runner.runTask({ ...RUN, owner: "smoky", repo: "motors", forge: "origin", headBranch: "feature/x" }, CALLER);
+  const otherRepo = await runner.runTask({ ...RUN, owner: "smoky", repo: "motors", forge: "origin", headBranch: "codex/x" }, CALLER);
   assert.equal(otherRepo.status, "running");
   for (const id of broker.jobs.keys()) broker.finish(id, "cancelled");
   await settle();
-  const freed = await runner.runTask({ ...RUN, task: "later", headBranch: "feature/x" }, CALLER);
+  const freed = await runner.runTask({ ...RUN, task: "later", headBranch: "codex/x" }, CALLER);
   assert.equal(freed.status, "running");
   for (const id of broker.jobs.keys()) broker.finish(id, "cancelled");
   await settle();

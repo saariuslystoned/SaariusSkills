@@ -227,3 +227,34 @@ test("launcher worker mode survives an independent transport environment", () =>
   assert.match(launched.stderr, /HOP_NESTED/);
   assert.doesNotMatch(launched.stdout, /NESTED_HOP_EXECUTED/);
 });
+
+test("launcher refuses --transport http with a hop before resolving or spawning the hop", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "saarius-http-hop-"));
+  const marker = path.join(dir, "hop-spawned");
+  try {
+    const launched = spawnSync(process.execPath, [launcher, "antigravity-acp", "--transport", "http"], {
+      encoding: "utf8",
+      timeout: 10_000,
+      env: {
+        PATH: process.env.PATH ?? "",
+        HOME: tmpdir(),
+        [HOP_ARGV_ENV]: JSON.stringify([process.execPath, "-e", `require("fs").writeFileSync(${JSON.stringify(marker)}, "x")`]),
+      },
+    });
+    assert.equal(launched.status, 2);
+    const report = JSON.parse(launched.stderr.trim().split("\n").at(-1));
+    assert.equal(report.code, "HTTP_HOP_REFUSED");
+    assert.doesNotMatch(launched.stderr, /"status":"hop"/);
+    await assert.rejects(readFile(marker), { code: "ENOENT" });
+    // An invalid hop argv still reports HTTP_HOP_REFUSED: the check runs before resolveHop().
+    const invalid = spawnSync(process.execPath, [launcher, "antigravity-acp", "--transport", "http"], {
+      encoding: "utf8",
+      timeout: 10_000,
+      env: { PATH: process.env.PATH ?? "", HOME: tmpdir(), [HOP_ARGV_ENV]: "{not-json" },
+    });
+    assert.equal(invalid.status, 2);
+    assert.match(invalid.stderr, /HTTP_HOP_REFUSED/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
