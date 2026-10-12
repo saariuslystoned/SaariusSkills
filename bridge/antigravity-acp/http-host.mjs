@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
+import { randomBytes } from "node:crypto";
 import { BridgeError } from "./broker.mjs";
+import { renderSessionHtml, SESSION_ID_PATTERN } from "./shed-sessions.mjs";
 
 // Remote-shed transport: Streamable HTTP on loopback only. The operator
 // publishes it through an outbound Cloudflare Tunnel with an Access
@@ -81,7 +83,61 @@ async function readJson(req) {
   }
 }
 
-export async function startRemoteShedHost({ env = process.env, createServer: createMcp, authenticate, bridge, log = (line) => process.stderr.write(`${line}\n`) } = {}) {
+export const VIEWER_PREFIX = "/s/";
+const VIEWER_PATH = /^\/s\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(\.json)?$/;
+
+function viewerHeaders(type, extra = {}) {
+  return {
+    "content-type": type,
+    "x-robots-tag": "noindex, nofollow, noarchive, nosnippet",
+    "cache-control": "no-store, private, max-age=0",
+    pragma: "no-cache",
+    "cdn-cache-control": "no-store",
+    "cloudflare-cdn-cache-control": "no-store",
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
+    ...extra,
+  };
+}
+
+function viewerText(res, status, message) {
+  res.writeHead(status, viewerHeaders("text/plain; charset=utf-8"));
+  res.end(`${message}\n`);
+}
+
+// Read-only session viewer: GET/HEAD only, UUID ids only, separate Access
+// identity (human login), and no route that starts, cancels or steers tasks.
+async function handleViewer(req, res, url, { viewerAuthenticate, viewSession }) {
+  if (typeof viewerAuthenticate !== "function" || typeof viewSession !== "function") return viewerText(res, 404, "not found");
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.setHeader("allow", "GET, HEAD");
+    return viewerText(res, 405, "method not allowed");
+  }
+  if (url.search) return viewerText(res, 400, "bad request");
+  const match = VIEWER_PATH.exec(url.pathname);
+  if (!match || !SESSION_ID_PATTERN.test(match[1])) return viewerText(res, 404, "not found");
+  try {
+    await viewerAuthenticate(req.headers);
+  } catch (error) {
+    const unavailable = error?.code === "ACCESS_UNAVAILABLE";
+    process.stderr.write(`${JSON.stringify({ status: "viewer_access_denied", code: error?.code ?? "ERROR", reason: error?.details?.reason ?? null })}\n`);
+    return viewerText(res, unavailable ? 503 : 401, unavailable ? "auth unavailable" : "unauthorized");
+  }
+  const view = await viewSession(match[1]);
+  if (!view) return viewerText(res, 404, "not found");
+  if (match[2]) {
+    res.writeHead(200, viewerHeaders("application/json; charset=utf-8"));
+    return res.end(req.method === "HEAD" ? undefined : JSON.stringify(view));
+  }
+  const nonce = randomBytes(16).toString("base64");
+  res.writeHead(200, viewerHeaders("text/html; charset=utf-8", {
+    "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; connect-src 'self'; img-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+  }));
+  return res.end(req.method === "HEAD" ? undefined : renderSessionHtml(view, { nonce }));
+}
+
+export async function startRemoteShedHost({ env = process.env, createServer: createMcp, authenticate, viewerAuthenticate, viewSession, bridge, log = (line) => process.stderr.write(`${line}\n`) } = {}) {
   const config = resolveHttpConfig(env);
   if (typeof authenticate !== "function") throw new BridgeError("HTTP_AUTH_REQUIRED", "remote-shed host requires an authenticator");
   const sessions = new Map();
@@ -104,6 +160,7 @@ export async function startRemoteShedHost({ env = process.env, createServer: cre
     try {
       const url = new URL(req.url ?? "/", "http://local");
       if (!hostAllowed(req.headers.host, config)) return sendJson(res, 403, rpcError("host not allowed"));
+      if (url.pathname.startsWith(VIEWER_PREFIX) || url.pathname === "/s") return await handleViewer(req, res, url, { viewerAuthenticate, viewSession });
       if (url.pathname !== MCP_PATH) return sendJson(res, 404, rpcError("not found"));
       let caller;
       try {

@@ -49,7 +49,7 @@ export function resolveAccessConfig(env = process.env) {
 
 const b64urlJson = (part) => JSON.parse(Buffer.from(part, "base64url").toString("utf8"));
 
-export function createAccessAuthenticator({ env = process.env, config = resolveAccessConfig(env), fetchJwks, now = () => Date.now() } = {}) {
+export function createAccessAuthenticator({ env = process.env, config = resolveAccessConfig(env), fetchJwks, now = () => Date.now(), identify } = {}) {
   const loadJwks = fetchJwks ?? (async () => {
     const response = await fetch(`${config.issuer}/cdn-cgi/access/certs`, { signal: AbortSignal.timeout(10_000) });
     if (!response.ok) throw new Error(`certs ${response.status}`);
@@ -104,9 +104,50 @@ export function createAccessAuthenticator({ env = process.env, config = resolveA
     if (!aud.some((value) => config.audiences.includes(value))) refuse("audience");
     if (typeof claims.exp !== "number" || claims.exp + CLOCK_SKEW_S < nowS) refuse("expired");
     if (typeof claims.nbf === "number" && claims.nbf - CLOCK_SKEW_S > nowS) refuse("not_yet_valid");
+    if (identify) return identify(claims, refuse);
     const clientId = claims.common_name;
     const label = typeof clientId === "string" ? config.callers.get(clientId) : undefined;
     if (!label) refuse("unknown_caller");
     return { label, clientId };
   };
+}
+
+// Session viewer (GET /s/<id>): a separate Access application on
+// <host>/s/* admits a human login; the bridge then re-checks the JWT against
+// that application's AUD and an email allowlist. Service tokens are refused
+// here, and viewer identities are refused on /mcp (different AUD, no
+// common_name). Unset config => viewer disabled (404), never open.
+export const VIEWER_ACCESS_AUD_ENV = "SAARIUS_ACP_VIEWER_ACCESS_AUD";
+export const VIEWER_EMAILS_ENV = "SAARIUS_ACP_VIEWER_EMAILS";
+const EMAIL_PATTERN = /^[^\s@,]{1,64}@[a-z0-9.-]{1,253}$/;
+
+export function resolveViewerConfig(env = process.env) {
+  const audRaw = String(env[VIEWER_ACCESS_AUD_ENV] ?? "").trim();
+  const emailsRaw = String(env[VIEWER_EMAILS_ENV] ?? "").trim();
+  if (!audRaw && !emailsRaw) return null;
+  const audiences = audRaw.split(/[\s,]+/).filter(Boolean);
+  if (audiences.length === 0 || audiences.some((aud) => !/^[a-f0-9]{32,128}$/i.test(aud))) {
+    throw new BridgeError("VIEWER_AUD_REQUIRED", `${VIEWER_ACCESS_AUD_ENV} must be the viewer Access application's AUD tag`);
+  }
+  const emails = new Set(emailsRaw.split(/[\s,]+/).filter(Boolean).map((e) => e.toLowerCase()));
+  if (emails.size === 0 || [...emails].some((e) => !EMAIL_PATTERN.test(e))) {
+    throw new BridgeError("VIEWER_EMAILS_REQUIRED", `${VIEWER_EMAILS_ENV} must list the allowed viewer emails`);
+  }
+  return { audiences, emails };
+}
+
+export function createViewerAuthenticator({ env = process.env, accessConfig, viewerConfig = resolveViewerConfig(env), fetchJwks, now } = {}) {
+  if (!viewerConfig) return null;
+  const base = accessConfig ?? resolveAccessConfig(env);
+  return createAccessAuthenticator({
+    config: { ...base, audiences: viewerConfig.audiences },
+    fetchJwks,
+    now,
+    identify: (claims, refuse) => {
+      if (claims.common_name || claims.type === "app" && !claims.email) refuse("service_token");
+      const email = typeof claims.email === "string" ? claims.email.toLowerCase() : "";
+      if (!email || !viewerConfig.emails.has(email)) refuse("email_not_allowed");
+      return { label: "viewer", email };
+    },
+  });
 }
