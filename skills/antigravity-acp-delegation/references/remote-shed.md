@@ -15,16 +15,23 @@ remote endpoint.
 | Tool | What it does |
 | --- | --- |
 | `shed_task_run` | Run one coding task in an allowlisted GitHub repo on a new `shed/<taskId>` branch, then open a draft PR. |
-| `shed_task_status` | Read one task (status, branch, PR URL, redacted summary). With no `taskId`, says whether the shed is `idle` or `busy`. |
-| `shed_task_cancel` | Cancel the running task. No PR is opened. |
+| `shed_task_status` | Read one task by `taskId` (status, branch, PR URL, redacted summary). With no `taskId`, returns shed state (`idle` / `available` / `busy`), `running`, `maxConcurrent`, and every running task (`taskId`, `repo`, `branch`, `requestedBy`, `startedAt`). |
+| `shed_task_cancel` | Cancel a running task by `taskId`. No PR is opened. |
 
 `shed_task_run` takes `owner`, `repo`, `task`, `requested_by` (the bot that
 asked, for the audit log), and optional `baseBranch` (default `main`) and
 `title`.
 
-The shed runs **one task at a time**. Callers get a clear answer to fall back on:
+The shed runs up to `SAARIUS_ACP_REMOTE_MAX_CONCURRENT` tasks at once
+(default 1, max 16). Each task gets its own git worktree under
+`<repos root>/.saarius-shed/worktrees/<taskId>`, removed when the task ends or
+is cancelled. The bridge keeps **no queue**; callers queue themselves.
+Callers get a clear answer to queue or fall back on:
 
-- `{"status":"busy","activeTaskId":...}`: another task is running.
+- `{"status":"busy","running":N,"maxConcurrent":N,"tasks":[...],"message":...}`:
+  the cap is reached; nothing was started. Queue and resubmit later.
+- Error `BRANCH_BUSY` (`details.taskId`): the same repo + `headBranch` already
+  has a running task. Wait for it or cancel it.
 - `{"status":"unavailable","reason":...}`: Antigravity isn't ready (sign-in,
   runtime, readiness), or the repo isn't cloned on the shed.
 
@@ -105,6 +112,7 @@ Cloudflare account.
    export SAARIUS_ACP_REMOTE_CALLERS=<client-id>.access=acp-runner
    export SAARIUS_ACP_REMOTE_REPO_OWNERS=saariuslystoned,saari-co,dinkuskit
    export SAARIUS_ACP_REMOTE_REPOS_ROOT=$HOME/Shed/repos
+   export SAARIUS_ACP_REMOTE_MAX_CONCURRENT=5   # optional, default 1
    export SAARIUS_ACP_PERMISSION_MODE=approve-all
    npm run serve
    ```

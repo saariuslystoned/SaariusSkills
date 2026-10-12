@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,7 +11,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { createAccessAuthenticator, parseRemoteCallers, resolveAccessConfig } from "../access-auth.mjs";
 import { resolveHttpConfig, resolveTransport, startRemoteShedHost } from "../http-host.mjs";
 import { createRepoOwnerGuard, githubOwnerFromRemote, originOwnerFromRemote, parseRepoOwners } from "../repo-allowlist.mjs";
-import { ShedTaskRunner } from "../shed-tasks.mjs";
+import { parseMaxConcurrent, ShedTaskRunner } from "../shed-tasks.mjs";
 import { createShedMcpServer, SHED_TOOL_NAMES } from "../shed-tools.mjs";
 
 const OWNERS = "saariuslystoned,saari-co,dinkuskit";
@@ -72,17 +72,17 @@ function fakeBroker({ delegateError, jobStatus = "completed" } = {}) {
 
 const START = "a".repeat(40);
 const HEAD = "b".repeat(40);
-function shedFixture(brokerOptions, { changes = " M README.md", ahead, remoteHead = START, pushError } = {}) {
+function shedFixture(brokerOptions, { changes = " M README.md", ahead, remoteHead = START, pushError, broker: customBroker, env: extraEnv = {} } = {}) {
   const reposRoot = realpathSync(mkdtempSync(path.join(tmpdir(), "shed-root-")));
   mkdirSync(path.join(reposRoot, "saari-co", "site"), { recursive: true });
   mkdirSync(path.join(reposRoot, "smoky", "motors"), { recursive: true });
   let committed = false;
   const commands = [];
   const logs = [];
-  const broker = fakeBroker(brokerOptions);
+  const broker = customBroker ?? fakeBroker(brokerOptions);
   const runner = new ShedTaskRunner({
     broker,
-    env: { SAARIUS_ACP_REMOTE_REPO_OWNERS: OWNERS, SAARIUS_ACP_REMOTE_REPOS_ROOT: reposRoot, SAARIUS_ACP_REMOTE_ORIGIN_OWNERS: "smoky" },
+    env: { SAARIUS_ACP_REMOTE_REPO_OWNERS: OWNERS, SAARIUS_ACP_REMOTE_REPOS_ROOT: reposRoot, SAARIUS_ACP_REMOTE_ORIGIN_OWNERS: "smoky", ...extraEnv },
     guard: async () => {},
     log: async (record) => logs.push(record),
     run: async (command, args) => {
@@ -357,4 +357,146 @@ test("Origin forge: separate owner allowlist and origin pr create", async () => 
   await assert.rejects(guard(repo("https://origin.cursor.com/other/x.git")), { code: "REMOTE_REPO_OWNER_REFUSED" });
   const githubOnly = createRepoOwnerGuard({ env: { SAARIUS_ACP_REMOTE_REPO_OWNERS: OWNERS } });
   await assert.rejects(githubOnly(repo("https://origin.cursor.com/smoky/smokymotors.git")), { code: "REMOTE_REPO_OWNER_REFUSED" });
+});
+
+// Broker with one independently released job per delegate call.
+function multiBroker({ onDelegate } = {}) {
+  const jobs = new Map();
+  let n = 0;
+  return {
+    jobs,
+    async delegate(input) {
+      const jobId = `job-${++n}`;
+      let release;
+      const done = new Promise((resolve) => { release = resolve; });
+      jobs.set(jobId, { input, release, done });
+      if (onDelegate) await onDelegate(input);
+      return { jobId };
+    },
+    async result({ jobId }) {
+      const status = await jobs.get(jobId).done;
+      return { complete: true, status: status ?? "completed", handoff: "done" };
+    },
+    async cancel({ jobId }) {
+      jobs.get(jobId).release("cancelled");
+      return { status: "cancellation-requested" };
+    },
+    finish(jobId, status) { jobs.get(jobId).release(status); },
+  };
+}
+
+test("max concurrent parses from env with default 1 and refuses junk", () => {
+  assert.equal(parseMaxConcurrent(undefined), 1);
+  assert.equal(parseMaxConcurrent(""), 1);
+  assert.equal(parseMaxConcurrent("5"), 5);
+  for (const bad of ["0", "-1", "1.5", "abc", "17"]) assert.throws(() => parseMaxConcurrent(bad), { code: "MAX_CONCURRENT_INVALID" });
+});
+
+test("up to the cap tasks run at once; over the cap returns busy with the running list; status lists all; cancel by id", async () => {
+  const broker = multiBroker();
+  const { runner } = shedFixture(undefined, { broker, env: { SAARIUS_ACP_REMOTE_MAX_CONCURRENT: "3" } });
+  await runner.init();
+  assert.deepEqual(await runner.status({}), { status: "idle", running: 0, maxConcurrent: 3, tasks: [] });
+  // Fire all at once: the slot check must be race-free.
+  const results = await Promise.all([1, 2, 3, 4].map((i) => runner.runTask({ ...RUN, task: `t${i}`, requested_by: `bot${i}` }, CALLER)));
+  const started = results.filter((r) => r.status === "running");
+  const busy = results.filter((r) => r.status === "busy");
+  assert.equal(started.length, 3);
+  assert.equal(busy.length, 1);
+  assert.equal(busy[0].running, 3);
+  assert.equal(busy[0].maxConcurrent, 3);
+  assert.match(busy[0].message, /3\/3/);
+  assert.equal(new Set(started.map((t) => t.taskId)).size, 3);
+  const workspaces = [...broker.jobs.values()].map((j) => j.input.workspace);
+  assert.equal(new Set(workspaces).size, 3);
+  const state = await runner.status({});
+  assert.equal(state.status, "busy");
+  assert.deepEqual(state.tasks.map((t) => t.taskId).sort(), started.map((t) => t.taskId).sort());
+  for (const t of state.tasks) {
+    assert.equal(t.repo, "saari-co/site");
+    assert.match(t.branch, /^shed\/shed-/);
+    assert.match(t.requestedBy, /^bot\d$/);
+    assert.ok(t.startedAt);
+  }
+  const cancelled = await runner.cancel({ taskId: started[1].taskId });
+  assert.equal(cancelled.cancellationRequested, true);
+  await settle();
+  assert.equal((await runner.status({ taskId: started[1].taskId })).status, "cancelled");
+  const after = await runner.status({});
+  assert.equal(after.status, "available");
+  assert.equal(after.running, 2);
+  const again = await runner.runTask({ ...RUN, task: "t5" }, CALLER);
+  assert.equal(again.status, "running");
+  for (const id of broker.jobs.keys()) broker.finish(id);
+  await settle();
+  assert.equal((await runner.status({})).status, "idle");
+});
+
+test("a second task on the same repo+headBranch is refused while the first runs", async () => {
+  const broker = multiBroker();
+  const { runner } = shedFixture(undefined, { broker, env: { SAARIUS_ACP_REMOTE_MAX_CONCURRENT: "5" } });
+  await runner.init();
+  const first = await runner.runTask({ ...RUN, headBranch: "feature/x" }, CALLER);
+  assert.equal(first.status, "running");
+  await assert.rejects(
+    runner.runTask({ ...RUN, task: "other", headBranch: "feature/x" }, CALLER),
+    (error) => error.code === "BRANCH_BUSY" && error.details.taskId === first.taskId,
+  );
+  const otherBranch = await runner.runTask({ ...RUN, headBranch: "feature/y" }, CALLER);
+  assert.equal(otherBranch.status, "running");
+  const otherRepo = await runner.runTask({ ...RUN, owner: "smoky", repo: "motors", forge: "origin", headBranch: "feature/x" }, CALLER);
+  assert.equal(otherRepo.status, "running");
+  for (const id of broker.jobs.keys()) broker.finish(id, "cancelled");
+  await settle();
+  const freed = await runner.runTask({ ...RUN, task: "later", headBranch: "feature/x" }, CALLER);
+  assert.equal(freed.status, "running");
+  for (const id of broker.jobs.keys()) broker.finish(id, "cancelled");
+  await settle();
+});
+
+test("real git: concurrent tasks get isolated worktrees, push their own branches, and clean up", async () => {
+  const sh = (args, cwd) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const base = realpathSync(mkdtempSync(path.join(tmpdir(), "shed-git-")));
+  const origin = path.join(base, "origin.git");
+  sh(["init", "-q", "--bare", "-b", "main", origin], base);
+  const seed = path.join(base, "seed");
+  sh(["clone", "-q", origin, seed], base);
+  sh(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"], seed);
+  sh(["push", "-q", "origin", "HEAD:refs/heads/main"], seed);
+  const reposRoot = path.join(base, "repos");
+  const clone = path.join(reposRoot, "saari-co", "site");
+  mkdirSync(path.dirname(clone), { recursive: true });
+  sh(["clone", "-q", origin, clone], base);
+  sh(["config", "user.email", "shed@test"], clone);
+  sh(["config", "user.name", "shed"], clone);
+  const broker = multiBroker({
+    onDelegate: async ({ workspace, hostConversationId }) => writeFileSync(path.join(workspace, `${hostConversationId}.txt`), "x\n"),
+  });
+  const prs = [];
+  const runner = new ShedTaskRunner({
+    broker,
+    env: { SAARIUS_ACP_REMOTE_REPO_OWNERS: OWNERS, SAARIUS_ACP_REMOTE_REPOS_ROOT: reposRoot, SAARIUS_ACP_REMOTE_MAX_CONCURRENT: "5" },
+    guard: async () => {},
+    log: async () => {},
+    run: async (command, args, { cwd } = {}) => {
+      if (command !== "git") { prs.push(args); return `https://example.invalid/pull/${prs.length}`; }
+      return sh(args, cwd);
+    },
+  });
+  await runner.init();
+  const started = await Promise.all([1, 2, 3, 4, 5].map((i) => runner.runTask({ ...RUN, task: `t${i}` }, CALLER)));
+  assert.ok(started.every((t) => t.status === "running"), JSON.stringify(started));
+  assert.equal(sh(["worktree", "list", "--porcelain"], clone).split("\n").filter((l) => l.startsWith("worktree ")).length, 6);
+  for (const id of broker.jobs.keys()) broker.finish(id);
+  for (let i = 0; i < 100 && (await runner.status({})).status !== "idle"; i++) await settle();
+  for (const t of started) {
+    const final = await runner.status({ taskId: t.taskId });
+    assert.equal(final.status, "pr_opened", JSON.stringify(final));
+    const files = sh(["ls-tree", "--name-only", `refs/heads/${t.branch}`], origin).split("\n");
+    assert.deepEqual(files, [`${t.taskId}.txt`]);
+  }
+  assert.equal(prs.length, 5);
+  assert.equal(sh(["worktree", "list", "--porcelain"], clone).split("\n").filter((l) => l.startsWith("worktree ")).length, 1);
+  assert.deepEqual(readdirSync(path.join(reposRoot, ".saarius-shed", "worktrees")), []);
+  assert.ok(!existsSync(path.join(reposRoot, ".saarius-shed", "worktrees", started[0].taskId)));
 });

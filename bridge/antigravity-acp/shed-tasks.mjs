@@ -9,9 +9,13 @@ import { createRepoOwnerGuard, parseOptionalOwners, parseRepoOwners, REMOTE_ORIG
 const execFile = promisify(execFileCallback);
 
 // Remote-shed task runner. The remote endpoint exposes only these narrow
-// operations (run / status / cancel); there is no general exec tool. One task
-// runs at a time on the shed; a second caller gets "busy" and can fall back.
+// operations (run / status / cancel); there is no general exec tool. Up to
+// SAARIUS_ACP_REMOTE_MAX_CONCURRENT tasks (default 1) run at once, each in its
+// own git worktree; over the cap a caller gets "busy" and queues or falls back.
+// The bridge itself keeps no queue.
 export const REMOTE_REPOS_ROOT_ENV = "SAARIUS_ACP_REMOTE_REPOS_ROOT";
+export const MAX_CONCURRENT_ENV = "SAARIUS_ACP_REMOTE_MAX_CONCURRENT";
+export const MAX_CONCURRENT_LIMIT = 16;
 export const SHED_STATE_DIR_ENV = "SAARIUS_ACP_SHED_STATE_DIR";
 export const BRANCH_PREFIX = "shed/";
 export const FORGES = Object.freeze(["github", "origin"]);
@@ -33,6 +37,16 @@ const SHED_INSTRUCTIONS = [
 ].join("\n");
 
 export class ShedTaskError extends BridgeError {}
+
+export function parseMaxConcurrent(value) {
+  if (value === undefined || value === null || String(value).trim() === "") return 1;
+  const text = String(value).trim();
+  const n = Number(text);
+  if (!/^[0-9]+$/.test(text) || !Number.isInteger(n) || n < 1 || n > MAX_CONCURRENT_LIMIT) {
+    throw new ShedTaskError("MAX_CONCURRENT_INVALID", `${MAX_CONCURRENT_ENV} must be an integer from 1 to ${MAX_CONCURRENT_LIMIT}`);
+  }
+  return n;
+}
 
 function assertNoSecrets(value, field) {
   if (SECRET_INPUT_PATTERN.test(value)) {
@@ -56,7 +70,7 @@ async function defaultRun(command, args, { cwd, timeoutMs = 120_000 } = {}) {
 }
 
 export class ShedTaskRunner {
-  constructor({ broker, env = process.env, run = defaultRun, owners, originOwners, reposRoot, stateDir, guard, log, now = () => new Date() } = {}) {
+  constructor({ broker, env = process.env, run = defaultRun, maxConcurrent, owners, originOwners, reposRoot, stateDir, guard, log, now = () => new Date() } = {}) {
     this.broker = broker;
     this.run = run;
     this.now = now;
@@ -70,7 +84,29 @@ export class ShedTaskRunner {
     this.guard = guard ?? createRepoOwnerGuard({ owners: this.owners, originOwners: this.originOwners });
     this.log = log ?? ((record) => appendFile(path.join(this.stateDir, "tasks.jsonl"), `${JSON.stringify(record)}\n`));
     this.tasks = new Map();
-    this.activeTaskId = null;
+    this.maxConcurrent = maxConcurrent !== undefined ? parseMaxConcurrent(maxConcurrent) : parseMaxConcurrent(env[MAX_CONCURRENT_ENV]);
+    // taskId -> task for every task holding a slot (starting through finish).
+    this.active = new Map();
+    // Per-clone promise chain so fetch / worktree add / remove on one repo never race on git locks.
+    this.repoLocks = new Map();
+  }
+
+  // Oldest running task id, kept for callers that read the single-task field.
+  get activeTaskId() {
+    return this.active.keys().next().value ?? null;
+  }
+
+  withRepoLock(repoDir, fn) {
+    const prev = this.repoLocks.get(repoDir) ?? Promise.resolve();
+    const next = prev.catch(() => {}).then(fn);
+    const tail = next.catch(() => {});
+    this.repoLocks.set(repoDir, tail);
+    tail.then(() => { if (this.repoLocks.get(repoDir) === tail) this.repoLocks.delete(repoDir); });
+    return next;
+  }
+
+  branchKey(task) {
+    return `${task.forge}:${task.owner}/${task.repo}#${task.branch}`.toLowerCase();
   }
 
   async init() {
@@ -121,10 +157,30 @@ export class ShedTaskRunner {
     return out;
   }
 
+  runningSummary(task) {
+    return {
+      taskId: task.taskId,
+      status: task.status,
+      repo: `${task.owner}/${task.repo}`,
+      forge: task.forge,
+      branch: task.branch,
+      requestedBy: task.requestedBy,
+      startedAt: task.createdAt,
+    };
+  }
+
+  // status: "idle" (nothing running), "available" (running < cap), "busy" (at cap).
   shedState() {
-    return this.activeTaskId
-      ? { status: "busy", activeTaskId: this.activeTaskId, message: "The shed is running another task; try again later or fall back." }
-      : { status: "idle" };
+    const running = this.active.size;
+    const out = {
+      status: running === 0 ? "idle" : running >= this.maxConcurrent ? "busy" : "available",
+      running,
+      maxConcurrent: this.maxConcurrent,
+      tasks: [...this.active.values()].map((task) => this.runningSummary(task)),
+    };
+    if (running > 0) out.activeTaskId = this.activeTaskId;
+    if (out.status === "busy") out.message = `The shed is at its concurrency cap (${running}/${this.maxConcurrent} tasks running); queue and retry later, or fall back.`;
+    return out;
   }
 
   validate({ owner, repo, task, baseBranch, headBranch, forge, title, requested_by }) {
@@ -155,13 +211,21 @@ export class ShedTaskRunner {
   }
 
   async runTask(input, caller) {
-    if (this.activeTaskId) return this.shedState();
+    if (this.active.size >= this.maxConcurrent) return this.shedState();
     const request = this.validate(input ?? {});
     const repoDir = path.join(this.reposRoot, request.owner, request.repo);
-    try {
-      if (!(await stat(repoDir)).isDirectory()) throw new Error("not a directory");
-    } catch {
-      return { status: "unavailable", reason: "REPO_NOT_ON_SHED", message: `${request.owner}/${request.repo} is not cloned under the shed repos root` };
+    // Everything below up to the slot reservation is synchronous, so two
+    // concurrent calls can never both take the last slot or the same branch.
+    if (request.headBranch) {
+      const key = this.branchKey({ ...request, branch: request.headBranch });
+      const holder = [...this.active.values()].find((t) => this.branchKey(t) === key);
+      if (holder) {
+        throw new ShedTaskError(
+          "BRANCH_BUSY",
+          `${request.owner}/${request.repo} branch ${request.headBranch} already has a running shed task (${holder.taskId}); wait for it to finish or cancel it`,
+          { taskId: holder.taskId, branch: request.headBranch },
+        );
+      }
     }
     const stamp = this.now().toISOString().replace(/[-:]/g, "").replace(/\..*$/, "");
     const taskId = `shed-${stamp}-${randomBytes(3).toString("hex")}`;
@@ -175,20 +239,29 @@ export class ShedTaskRunner {
       createdAt: this.now().toISOString(),
       worktree: path.join(this.stateDir, "worktrees", taskId),
     };
-    this.activeTaskId = taskId;
+    this.active.set(taskId, task);
+    try {
+      if (!(await stat(repoDir)).isDirectory()) throw new Error("not a directory");
+    } catch {
+      this.active.delete(taskId);
+      return { status: "unavailable", reason: "REPO_NOT_ON_SHED", message: `${request.owner}/${request.repo} is not cloned under the shed repos root` };
+    }
     this.tasks.set(taskId, task);
     try {
       await this.record(task, "accepted");
       const startRef = request.headBranch ?? request.baseBranch;
-      await this.run("git", ["fetch", "--quiet", "origin", `+refs/heads/${startRef}:refs/remotes/origin/${startRef}`], { cwd: repoDir, timeoutMs: 300_000 });
-      task.startSha = await this.run("git", ["rev-parse", "--verify", `refs/remotes/origin/${startRef}^{commit}`], { cwd: repoDir });
-      if (request.headBranch) {
-        // Existing PR branch: detached checkout at the remote head; pushed back fast-forward only.
-        await this.run("git", ["worktree", "add", "--quiet", "--detach", task.worktree, task.startSha], { cwd: repoDir });
-      } else {
-        await this.run("git", ["worktree", "add", "--quiet", "-b", task.branch, task.worktree, task.startSha], { cwd: repoDir });
-      }
-      task.repoDir = repoDir;
+      // Each task gets its own worktree under <stateDir>/worktrees/<taskId>.
+      await this.withRepoLock(repoDir, async () => {
+        await this.run("git", ["fetch", "--quiet", "origin", `+refs/heads/${startRef}:refs/remotes/origin/${startRef}`], { cwd: repoDir, timeoutMs: 300_000 });
+        task.startSha = await this.run("git", ["rev-parse", "--verify", `refs/remotes/origin/${startRef}^{commit}`], { cwd: repoDir });
+        if (request.headBranch) {
+          // Existing PR branch: detached checkout at the remote head; pushed back fast-forward only.
+          await this.run("git", ["worktree", "add", "--quiet", "--detach", task.worktree, task.startSha], { cwd: repoDir });
+        } else {
+          await this.run("git", ["worktree", "add", "--quiet", "-b", task.branch, task.worktree, task.startSha], { cwd: repoDir });
+        }
+        task.repoDir = repoDir;
+      });
       await this.guard(task.worktree);
       const submitted = await this.broker.delegate({
         workspace: task.worktree,
@@ -312,9 +385,15 @@ export class ShedTaskRunner {
     }
     if (task.repoDir && task.worktree) {
       // Remove the worktree; the branch (and its PR) stay.
-      await this.run("git", ["worktree", "remove", "--force", task.worktree], { cwd: task.repoDir }).catch(() => rm(task.worktree, { recursive: true, force: true }));
+      await this.withRepoLock(task.repoDir, () =>
+        this.run("git", ["worktree", "remove", "--force", task.worktree], { cwd: task.repoDir })
+          .catch(() => rm(task.worktree, { recursive: true, force: true }))
+          .then(() => this.run("git", ["worktree", "prune"], { cwd: task.repoDir }).catch(() => {})),
+      ).catch(() => {});
+    } else if (task.worktree) {
+      await rm(task.worktree, { recursive: true, force: true }).catch(() => {});
     }
-    if (this.activeTaskId === task.taskId) this.activeTaskId = null;
+    this.active.delete(task.taskId);
     await this.record(task, event);
   }
 
@@ -335,7 +414,7 @@ export class ShedTaskRunner {
 
   async cancel({ taskId } = {}) {
     const task = this.tasks.get(taskId);
-    if (!task || taskId !== this.activeTaskId) {
+    if (!task || !this.active.has(taskId)) {
       const known = task ?? (await this.load(taskId));
       return { ...this.publicTask(known), cancellationRequested: false };
     }
