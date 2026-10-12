@@ -32,7 +32,7 @@ export function createShedMcpServer(runner, caller) {
     "shed_task_run",
     {
       description:
-        "Run one coding task with official Antigravity ACP on the owner's AI Shed, in an allowlisted GitHub repo, on a new shed/<taskId> branch, then open a draft PR (or continue an existing PR branch via headBranch). One task at a time: returns status \"busy\" when another task is running and \"unavailable\" when the shed cannot run Antigravity right now, so callers can fall back. Never put secrets in any field.",
+        "Run one coding task with official Antigravity ACP on the owner's AI Shed, in an allowlisted GitHub repo, on a new shed/<taskId> branch, then open a draft PR (or continue an existing PR branch via headBranch). Up to the shed's concurrency cap of tasks run at once, each in its own worktree: returns status \"busy\" (with running count and cap) when the cap is reached so the caller can queue and retry, error BRANCH_BUSY when the same repo+headBranch already has a running task, and \"unavailable\" when the shed cannot run Antigravity right now, so callers can fall back. Never put secrets in any field.",
       inputSchema: {
         owner: z.string().describe("GitHub owner; must be on the shed allowlist"),
         repo: z.string().describe("GitHub repository name, already cloned on the shed"),
@@ -50,7 +50,7 @@ export function createShedMcpServer(runner, caller) {
   server.registerTool(
     "shed_task_status",
     {
-      description: "Read one shed task (status, branch, draft PR URL, redacted summary). Omit taskId to see whether the shed is idle or busy.",
+      description: "Read one shed task by taskId (status, branch, draft PR URL, redacted summary). Omit taskId to get shed state: idle / available / busy, running count, cap, and every running task (taskId, repo, branch, requestedBy, startedAt).",
       inputSchema: { taskId: z.string().optional() },
     },
     (args) => call(() => runner.status(args ?? {})),
@@ -59,7 +59,7 @@ export function createShedMcpServer(runner, caller) {
   server.registerTool(
     "shed_task_cancel",
     {
-      description: "Cancel the running shed task. No PR is opened for a cancelled task.",
+      description: "Cancel a running shed task by taskId. No PR is opened for a cancelled task.",
       inputSchema: { taskId: z.string() },
     },
     (args) => call(() => runner.cancel(args ?? {})),
