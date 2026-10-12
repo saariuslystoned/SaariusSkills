@@ -19,6 +19,11 @@ export const MAX_CONCURRENT_ENV = "SAARIUS_ACP_REMOTE_MAX_CONCURRENT";
 export const MAX_CONCURRENT_LIMIT = 16;
 export const SHED_STATE_DIR_ENV = "SAARIUS_ACP_SHED_STATE_DIR";
 export const BRANCH_PREFIX = "shed/";
+// headBranch may only continue branches the shed (shed/<taskId>) or a Codex
+// lane (codex/<name>) owns; never main/master/baseBranch or the repo default.
+export const HEAD_BRANCH_PREFIXES = Object.freeze([BRANCH_PREFIX, "codex/"]);
+const PROTECTED_BRANCHES = new Set(["main", "master", "head"]);
+const isCancelled = (task) => task.status === "cancelling" || task.status === "cancelled";
 export const FORGES = Object.freeze(["github", "origin"]);
 const REPO_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
 const BRANCH_PATTERN = /^(?!.*\.\.)(?!-)[A-Za-z0-9._/-]{1,100}$/;
@@ -271,8 +276,14 @@ export class ShedTaskRunner {
     }
     const base = baseBranch ?? "main";
     if (!BRANCH_PATTERN.test(base)) throw new ShedTaskError("BASE_BRANCH_INVALID", "baseBranch is not a safe branch name");
-    if (headBranch !== undefined && (typeof headBranch !== "string" || !BRANCH_PATTERN.test(headBranch) || headBranch === base)) {
-      throw new ShedTaskError("HEAD_BRANCH_INVALID", "headBranch must be a safe existing branch name different from baseBranch");
+    if (headBranch !== undefined && (
+      typeof headBranch !== "string"
+      || !BRANCH_PATTERN.test(headBranch)
+      || headBranch.toLowerCase() === base.toLowerCase()
+      || PROTECTED_BRANCHES.has(headBranch.toLowerCase())
+      || !HEAD_BRANCH_PREFIXES.some((prefix) => headBranch.startsWith(prefix) && headBranch.length > prefix.length)
+    )) {
+      throw new ShedTaskError("HEAD_BRANCH_INVALID", `headBranch must be an existing shed-owned branch (${HEAD_BRANCH_PREFIXES.join(", ")}) different from baseBranch, main, master, and the repo default branch`);
     }
     if (typeof requested_by !== "string" || !LABEL_PATTERN.test(requested_by)) {
       throw new ShedTaskError("REQUESTED_BY_REQUIRED", "requested_by must name the bot that asked (letters, digits, _ . @ -)");
@@ -341,6 +352,8 @@ export class ShedTaskRunner {
       const startRef = request.headBranch ?? request.baseBranch;
       // Each task gets its own worktree under <stateDir>/worktrees/<taskId>.
       await this.withRepoLock(repoDir, async () => {
+        if (isCancelled(task)) return;
+        if (request.headBranch) await this.refuseDefaultBranch(request.headBranch, repoDir);
         await this.run("git", ["fetch", "--quiet", "origin", `+refs/heads/${startRef}:refs/remotes/origin/${startRef}`], { cwd: repoDir, timeoutMs: 300_000 });
         task.startSha = await this.run("git", ["rev-parse", "--verify", `refs/remotes/origin/${startRef}^{commit}`], { cwd: repoDir });
         if (request.headBranch) {
@@ -351,7 +364,11 @@ export class ShedTaskRunner {
         }
         task.repoDir = repoDir;
       });
+      // A cancel that arrived while waiting for the repo lock (or during
+      // setup) ends the task here; never delegate a cancelled task.
+      if (isCancelled(task)) return this.cancelBeforeRun(task);
       await this.guard(task.worktree);
+      if (isCancelled(task)) return this.cancelBeforeRun(task);
       const submitted = await this.broker.delegate({
         workspace: task.worktree,
         prompt: `${SHED_INSTRUCTIONS}\n\nTask:\n${request.task}`,
@@ -360,9 +377,16 @@ export class ShedTaskRunner {
       task.jobId = submitted.jobId;
       if (isSessionId(submitted.backendSessionId)) task.sessionId = submitted.backendSessionId;
       this.bindJob(task, submitted.jobId);
-      task.status = "running";
-      await this.record(task, "running");
+      if (isCancelled(task)) {
+        // Cancel landed while delegate() was in flight: stop the job, keep cancelling.
+        await this.broker.cancel({ jobId: task.jobId, reason: "cancelled by remote caller" }).catch(() => {});
+        await this.record(task, "cancel_requested");
+      } else {
+        task.status = "running";
+        await this.record(task, "running");
+      }
     } catch (error) {
+      if (isCancelled(task)) return this.cancelBeforeRun(task);
       const unavailable = /READINESS|OAUTH|RUNTIME|AUTH|SETUP/i.test(error?.code ?? "");
       task.status = unavailable ? "unavailable" : "failed";
       task.error = { code: error?.code ?? "TASK_START_FAILED", message: clean(error?.message, 300) };
@@ -377,6 +401,33 @@ export class ShedTaskRunner {
       await this.finish(task, "failed");
     });
     return this.publicTask(task);
+  }
+
+  async cancelBeforeRun(task) {
+    task.status = "cancelled";
+    await this.finish(task, "cancelled");
+    return this.publicTask(task);
+  }
+
+  // Refuse a headBranch that is the remote's default branch (e.g. "develop").
+  async refuseDefaultBranch(headBranch, repoDir) {
+    let defaultBranch = "";
+    try {
+      const out = await this.run("git", ["ls-remote", "--symref", "origin", "HEAD"], { cwd: repoDir, timeoutMs: 120_000 });
+      defaultBranch = out.match(/^ref:\s*refs\/heads\/(\S+)\s+HEAD/m)?.[1] ?? "";
+    } catch {
+      defaultBranch = "";
+    }
+    if (!defaultBranch) {
+      try {
+        defaultBranch = (await this.run("git", ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], { cwd: repoDir })).replace(/^origin\//, "");
+      } catch {
+        defaultBranch = "";
+      }
+    }
+    if (defaultBranch && defaultBranch.toLowerCase() === headBranch.toLowerCase()) {
+      throw new ShedTaskError("HEAD_BRANCH_INVALID", "headBranch must not be the repository default branch");
+    }
   }
 
   async watch(task) {
@@ -397,6 +448,10 @@ export class ShedTaskRunner {
       task.error = { code: job.error?.code ?? "AGENT_FAILED", message: clean(job.error?.message ?? job.status, 300) };
       return this.finish(task, "failed");
     }
+    if (isCancelled(task)) {
+      task.status = "cancelled";
+      return this.finish(task, "cancelled");
+    }
     const cwd = task.worktree;
     const title = task.title ?? `Shed task ${task.taskId}`;
     if (await this.run("git", ["status", "--porcelain"], { cwd })) {
@@ -411,6 +466,11 @@ export class ShedTaskRunner {
       return this.finish(task, "no_changes");
     }
     task.headSha = await this.run("git", ["rev-parse", "HEAD"], { cwd });
+    // Last gate before anything leaves the shed.
+    if (isCancelled(task)) {
+      task.status = "cancelled";
+      return this.finish(task, "cancelled");
+    }
     task.status = "pushing";
     await this.record(task, "pushing");
     if (task.headBranch) return this.pushExisting(task, cwd);
