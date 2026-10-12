@@ -17,7 +17,7 @@ JEVSWEEPER_SKILL = ROOT / "skills" / "jevsweeper"
 class PackagingTests(unittest.TestCase):
     def test_emdash_skills_discoverable_with_licenses(self) -> None:
         upstream = ("building-emdash-site", "creating-plugins", "emdash-cli", "upgrading-emdash")
-        names = ("emdash-sites", "emdash-commerce", "emdash-ci-deploy", *upstream)
+        names = ("emdash-sites", "emdash-commerce", "emdash-ci-deploy", "dinkuskit-e2e", *upstream)
         cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
         codex = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())
         self.assertEqual(codex["skills"], "./skills/")

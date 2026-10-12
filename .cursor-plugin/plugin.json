@@ -10,6 +10,7 @@
     "./skills/building-emdash-site/",
     "./skills/create-verification-skill/",
     "./skills/creating-plugins/",
+    "./skills/dinkuskit-e2e/",
     "./skills/emdash-ci-deploy/",
     "./skills/emdash-cli/",
     "./skills/emdash-commerce/",
