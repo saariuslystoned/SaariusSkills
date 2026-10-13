@@ -26,6 +26,9 @@ const BRIDGES = Object.freeze({
   "grok-acp": Object.freeze({
     files: ["server.mjs", "server-errors.mjs", "broker.mjs", "host-policy.mjs"],
   }),
+  "muse-acp": Object.freeze({
+    files: ["server.mjs", "tools.mjs", "server-errors.mjs", "broker.mjs", "host-policy.mjs", "adapter/server.mjs", "adapter/msp-client.mjs", "adapter/translate.mjs", "shed-tools.mjs", "shed-tasks.mjs", "access-auth.mjs", "http-host.mjs", "shed-sessions.mjs", "viewer-redact.mjs", "repo-allowlist.mjs"],
+  }),
 });
 
 const REQUIRED_IMPORTS = Object.freeze([

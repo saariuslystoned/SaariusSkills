@@ -1,0 +1,7 @@
+{"timestamp":"2026-10-13T01:17:31Z","event":"msp_probe_pass","details":{"fingerprint":"sha256:6de32db08bbbe0deb478d2bfcaba001e9fb490986bc80db3aceb4d996abf7df9","provider":"echo"}}
+{"timestamp":"2026-10-13T07:14:00Z","event":"acpx_registry_validated","details":{"method":"esbuild bundle assertions","pnpm":"sandbox fetch failure"}}
+{"timestamp":"2026-10-13T11:27:06Z","event":"local_route_pass","details":{"jobId":"220ac92b-2572-4b06-84a8-22d9952e0498","backendSessionId":"01a134fe-bb3a-7ba0-b954-b05f937752c4"}}
+{"timestamp":"2026-10-13T11:27:06Z","event":"hop_mechanics_pass","details":{"hopIdentity":"4fce41fb5c62c218","jobId":"c2970871-a04a-4a99-981f-1a0e1eba335f","workerStateSeparated":true}}
+{"timestamp":"2026-10-13T11:27:06Z","event":"tunnel_http_local_pass","details":{"noJwt":401,"badJwt":401,"viewerUnset":404}}
+{"timestamp":"2026-10-13T11:27:06Z","event":"live_meta_turn_pass","details":{"sessionId":"01a13502-f3ba-7200-8dea-f710a35f6125","currentModelId":"muse-wonder-1.0","text":"MUSE ACP LIVE OK"}}
+{"timestamp":"2026-10-13T11:27:06Z","event":"stopping_point","details":{"committed":false,"pushed":false,"next":"operator review + GrokBot shed proof"}}
