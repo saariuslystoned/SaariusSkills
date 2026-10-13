@@ -563,3 +563,83 @@ test("real git: concurrent tasks get isolated worktrees, push their own branches
   assert.deepEqual(readdirSync(path.join(reposRoot, ".saarius-shed", "worktrees")), []);
   assert.ok(!existsSync(path.join(reposRoot, ".saarius-shed", "worktrees", started[0].taskId)));
 });
+
+test("finish preserves uncommitted dirty work on rescue ref instead of destroying it", async () => {
+  const sh = (args, cwd) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const base = realpathSync(mkdtempSync(path.join(tmpdir(), "shed-dirty-")));
+  const origin = path.join(base, "origin.git");
+  sh(["init", "-q", "--bare", "-b", "main", origin], base);
+  const seed = path.join(base, "seed");
+  sh(["clone", "-q", origin, seed], base);
+  sh(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"], seed);
+  sh(["push", "-q", "origin", "HEAD:refs/heads/main"], seed);
+  const reposRoot = path.join(base, "repos");
+  const clone = path.join(reposRoot, "saari-co", "site");
+  mkdirSync(path.dirname(clone), { recursive: true });
+  sh(["clone", "-q", origin, clone], base);
+  sh(["config", "user.email", "shed@test"], clone);
+  sh(["config", "user.name", "shed"], clone);
+
+  const broker = multiBroker({
+    onDelegate: async ({ workspace }) => {
+      writeFileSync(path.join(workspace, "uncommitted.txt"), "rescue me!\n");
+    },
+  });
+
+  const runner = new ShedTaskRunner({
+    broker,
+    env: { SAARIUS_ACP_REMOTE_REPO_OWNERS: OWNERS, SAARIUS_ACP_REMOTE_REPOS_ROOT: reposRoot, SAARIUS_ACP_REMOTE_MAX_CONCURRENT: "1" },
+    guard: async () => {},
+    log: async () => {},
+    run: async (command, args, { cwd } = {}) => {
+      if (command !== "git") return "https://example.invalid/pull/1";
+      return sh(args, cwd);
+    },
+  });
+
+  await runner.init();
+  const started = await runner.runTask({ ...RUN, task: "dirty-task" }, CALLER);
+  assert.equal(started.status, "running");
+
+  const [jobId] = broker.jobs.keys();
+  broker.finish(jobId, "failed");
+  for (let i = 0; i < 50 && (await runner.status({})).status !== "idle"; i++) await settle();
+
+  const final = await runner.status({ taskId: started.taskId });
+  assert.equal(final.status, "failed");
+
+  const rescueShow = sh(["show", `refs/shed/keep/${started.taskId}:uncommitted.txt`], clone);
+  assert.equal(rescueShow, "rescue me!");
+});
+
+test("watch loop terminates on terminal state when cleanup is uncertain", async () => {
+  const broker = {
+    calls: [],
+    addEventObserver: () => () => {},
+    async delegate() {
+      return { jobId: "job-uncertain" };
+    },
+    async result() {
+      return {
+        complete: true,
+        taskComplete: true,
+        cleanupReady: false,
+        status: "failed",
+        cleanup: { status: "uncertain" },
+        error: { code: "AGENT_FAILED", message: "cleanup uncertain" },
+      };
+    },
+    async cancel() { return {}; },
+  };
+
+  const { runner } = shedFixture(undefined, { broker });
+  await runner.init();
+  const started = await runner.runTask({ ...RUN, task: "uncertain-task" }, CALLER);
+  assert.equal(started.status, "running");
+
+  await settle(100);
+
+  const final = await runner.status({ taskId: started.taskId });
+  assert.equal(final.status, "failed");
+  assert.equal((await runner.status({})).status, "idle");
+});

@@ -122,3 +122,19 @@ test("MSP approval becomes ACP request_permission and the decision returns", asy
     proc.kill("SIGTERM");
   }
 });
+
+test("failed MSP terminal is reported with error stopReason instead of end_turn", async () => {
+  const { proc, call } = startAdapter();
+  try {
+    await call("initialize", { protocolVersion: 1, clientCapabilities: {} });
+    const session = await call("session/new", { cwd: process.cwd(), mcpServers: [] });
+    const prompt = await call("session/prompt", {
+      sessionId: session.sessionId,
+      prompt: [{ type: "text", text: "this FAILS_TURN please" }],
+    });
+    assert.equal(prompt.stopReason, "error");
+    assert.notEqual(prompt.stopReason, "end_turn");
+  } finally {
+    proc.kill("SIGTERM");
+  }
+});
