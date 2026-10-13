@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { copyFileSync, mkdtempSync, mkdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -76,4 +76,54 @@ test("installed setup initializes real MCP and lists six tools without Antigravi
   assert.equal(report.pin.lastInspectedSourceRelease, "0.17.1");
   assert.ok(Array.isArray(report.runtime.repair));
   assert.equal(report.auth.ultraAttribution, "unclaimed");
+});
+
+test("prepared antigravity-acp starts entrypoint in http mode without ERR_MODULE_NOT_FOUND", async () => {
+  ensureRuntime();
+  const runtimeStore = await import("../../acp-runtime/runtime-store.mjs");
+  const ready = await runtimeStore.inspectRuntime({
+    pluginRoot: path.resolve(root, "../.."),
+    bridge: "antigravity-acp",
+    env: { ...process.env, SAARIUS_ACP_RUNTIME_ROOT: runtimeRoot },
+  });
+  assert.equal(ready.state, "ready");
+  const entry = path.join(ready.root, "bridge", "antigravity-acp", "server.mjs");
+  const stateRoot = mkdtempSync(path.join(tmpdir(), "antigravity-acp-http-state-"));
+  try {
+    const child = spawn(process.execPath, [entry, "--transport", "http"], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        SAARIUS_ACP_RUNTIME_ROOT: runtimeRoot,
+        SAARIUS_ANTIGRAVITY_ACP_STATE_DIR: stateRoot,
+        SAARIUS_MUSE_ACP_STATE_DIR: path.join(stateRoot, "muse"),
+        SAARIUS_ACP_HTTP_PORT: "0",
+      },
+    });
+    let stderr = "";
+    const started = new Promise((resolve, reject) => {
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+        if (stderr.includes('"listening"') || stderr.includes("ERR_MODULE_NOT_FOUND")) {
+          resolve();
+        }
+      });
+      child.once("error", reject);
+      child.once("exit", () => {
+        resolve();
+      });
+    });
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Timed out waiting for startup; stderr: ${stderr}`)), 15_000),
+    );
+    await Promise.race([started, timeout]);
+    child.kill("SIGTERM");
+    await new Promise((resolve) => child.once("exit", resolve));
+
+    assert.ok(!stderr.includes("ERR_MODULE_NOT_FOUND"), `entrypoint failed with ERR_MODULE_NOT_FOUND: ${stderr}`);
+    assert.ok(stderr.includes('"listening"'), `expected listening confirmation on startup, got: ${stderr}`);
+  } finally {
+    rmSync(stateRoot, { recursive: true, force: true });
+  }
 });

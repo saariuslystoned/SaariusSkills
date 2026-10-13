@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { access, lstat, mkdir, readFile, readdir, readlink, rename, rm, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, readdir, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -21,13 +21,23 @@ const BRIDGES = Object.freeze({
     files: ["server.mjs", "broker.mjs", "host-policy.mjs"],
   }),
   "antigravity-acp": Object.freeze({
-    files: ["server.mjs", "tools.mjs", "shed-tools.mjs", "shed-tasks.mjs", "access-auth.mjs", "http-host.mjs", "shed-sessions.mjs", "viewer-redact.mjs", "repo-allowlist.mjs", "broker.mjs", "contract.mjs", "host-policy.mjs"],
+    files: [
+      "server.mjs", "tools.mjs", "shed-tools.mjs", "shed-tasks.mjs", "access-auth.mjs",
+      "http-host.mjs", "shed-sessions.mjs", "viewer-redact.mjs", "repo-allowlist.mjs",
+      "broker.mjs", "contract.mjs", "host-policy.mjs",
+    ],
+    siblingBridges: ["muse-acp"],
   }),
   "grok-acp": Object.freeze({
     files: ["server.mjs", "server-errors.mjs", "broker.mjs", "host-policy.mjs"],
   }),
   "muse-acp": Object.freeze({
-    files: ["server.mjs", "tools.mjs", "server-errors.mjs", "broker.mjs", "host-policy.mjs", "adapter/server.mjs", "adapter/msp-client.mjs", "adapter/translate.mjs", "shed-tools.mjs", "shed-tasks.mjs", "access-auth.mjs", "http-host.mjs", "shed-sessions.mjs", "viewer-redact.mjs", "repo-allowlist.mjs"],
+    files: [
+      "server.mjs", "tools.mjs", "server-errors.mjs", "broker.mjs", "host-policy.mjs",
+      "adapter/server.mjs", "adapter/msp-client.mjs", "adapter/translate.mjs", "shed-tools.mjs",
+      "shed-tasks.mjs", "access-auth.mjs", "http-host.mjs", "shed-sessions.mjs",
+      "viewer-redact.mjs", "repo-allowlist.mjs",
+    ],
   }),
 });
 
@@ -123,7 +133,20 @@ async function readPackageJson(sourceRoot) {
 export async function describeSource({ pluginRoot, bridge }) {
   const spec = bridgeSpec(bridge);
   const sourceRoot = sourceRootFor(pluginRoot, bridge);
-  const files = ["package.json", "package-lock.json", ...spec.files, "../acp-runtime/lifecycle.mjs", "../acp-runtime/recovery.mjs", "../acp-runtime/process-identity.mjs"];
+  const siblingFiles = (spec.siblingBridges ?? []).flatMap((sibling) => [
+    `../${sibling}/package.json`,
+    `../${sibling}/package-lock.json`,
+    ...(BRIDGES[sibling]?.files ?? []).map((file) => `../${sibling}/${file}`),
+  ]);
+  const files = [
+    "package.json",
+    "package-lock.json",
+    ...spec.files,
+    "../acp-runtime/lifecycle.mjs",
+    "../acp-runtime/recovery.mjs",
+    "../acp-runtime/process-identity.mjs",
+    ...siblingFiles,
+  ];
   const entries = [];
   for (const relativePath of files) {
     const absolutePath = path.join(sourceRoot, relativePath);
@@ -164,6 +187,7 @@ export async function describeSource({ pluginRoot, bridge }) {
     identity,
     sourceRoot,
     files,
+    siblingBridges: spec.siblingBridges ?? [],
     fileDigests: Object.fromEntries(entries.map((entry) => [entry.path, entry.sha256])),
     dependencies: packageJson.dependencies ?? {},
   };
@@ -472,6 +496,19 @@ function runNpm({ cwd, npmCommand = "npm", npmEnv = {}, timeoutMs = NPM_TIMEOUT_
   });
 }
 
+async function linkSiblingDependencies(descriptor, stagingRoot) {
+  for (const sibling of descriptor.siblingBridges ?? []) {
+    const siblingDir = path.join(stagingRoot, "bridge", sibling);
+    await mkdir(siblingDir, { recursive: true });
+    const targetModules = path.join(siblingDir, "node_modules");
+    try {
+      await lstat(targetModules);
+    } catch {
+      await symlink(`../${descriptor.bridge}/node_modules`, targetModules);
+    }
+  }
+}
+
 async function copySource(descriptor, stagingRoot) {
   const sourceRoot = path.join(stagingRoot, "bridge", descriptor.bridge);
   await mkdir(sourceRoot, { recursive: true });
@@ -482,6 +519,7 @@ async function copySource(descriptor, stagingRoot) {
     const bytes = await readFile(source);
     await writeFile(destination, bytes, { mode: 0o644 });
   }
+  await linkSiblingDependencies(descriptor, stagingRoot);
 }
 
 export async function prepareRuntime({ pluginRoot, bridge, env = process.env, npmCommand, npmEnv, timeoutMs = NPM_TIMEOUT_MS, npmTerminationTimeoutMs = NPM_TERMINATION_TIMEOUT_MS, replaceInvalid = false, recoveryLockTimeoutMs = RECOVERY_LOCK_TIMEOUT_MS }) {
@@ -511,6 +549,7 @@ async function installRuntime({ descriptor, root, env, npmCommand, npmEnv, timeo
   try {
     await copySource(descriptor, stagingRoot);
     await runNpm({ cwd: copiedSourceRoot(stagingRoot, descriptor), npmCommand, npmEnv, timeoutMs, terminationTimeoutMs: npmTerminationTimeoutMs, stagingRoot });
+    await linkSiblingDependencies(descriptor, stagingRoot);
     const inventory = await dependencyInventory(copiedSourceRoot(stagingRoot, descriptor));
     const dependencyRecord = {
       schema: DEPENDENCY_SCHEMA,
@@ -543,7 +582,7 @@ async function installRuntime({ descriptor, root, env, npmCommand, npmEnv, timeo
       await rename(stagingRoot, root);
       return { descriptor, root, reused: false, ...replaced };
     } catch (error) {
-      if (!(["EEXIST", "ENOTEMPTY", "EISDIR"].includes(error?.code))) throw error;
+      if (!handleRenameError(error)) throw error;
       const concurrent = await inspectTree(root, descriptor, true);
       if (concurrent.ok) {
         await rm(stagingRoot, { recursive: true, force: true });
@@ -558,6 +597,10 @@ async function installRuntime({ descriptor, root, env, npmCommand, npmEnv, timeo
       ? error
       : new RuntimeStoreError("RUNTIME_PREPARE_FAILED", "persistent runtime preparation failed", { cause: error?.code ?? "unknown" });
   }
+}
+
+function handleRenameError(error) {
+  return ["EEXIST", "ENOTEMPTY", "EISDIR"].includes(error?.code);
 }
 
 export function pluginRootFromModule() {
