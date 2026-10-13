@@ -336,7 +336,6 @@ export class ShedTaskRunner {
     let timer;
     const stalled = new Promise((resolve) => {
       timer = setTimeout(() => resolve({ ...this.publicTask(task), sessionPending: true, message: "ACP session is still starting; read session_id / session_url from shed_task_status" }), this.sessionWaitMs);
-      timer.unref?.();
     });
     try {
       return await Promise.race([started, stalled]);
