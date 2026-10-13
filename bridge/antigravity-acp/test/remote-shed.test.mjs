@@ -840,3 +840,22 @@ test("model selection: env and config overrides win, request override wins, mode
   reqBroker.finish();
   await reqRunner.whenIdle();
 });
+
+test("runTask propagates rejections from start() instead of resolving with an error value", async () => {
+  const { runner, broker } = shedFixture();
+  await runner.init();
+
+  const originalStart = runner.start.bind(runner);
+  runner.start = async (task) => {
+    runner.releaseActive(task.taskId, task);
+    throw new Error("start failed explicitly");
+  };
+
+  await assert.rejects(runner.runTask(RUN, CALLER), /start failed explicitly/);
+
+  runner.start = originalStart;
+  const normal = await runner.runTask(RUN, CALLER);
+  assert.equal(normal.status, "running");
+  broker.finish();
+  await runner.whenIdle();
+});

@@ -527,14 +527,19 @@ export class ShedTaskRunner {
     const transcript = createTranscript({ prompt: request.task });
     this.transcripts.set(taskId, transcript);
 
-    const started = new Promise((resolve) => {
+    const started = new Promise((resolve, reject) => {
       let timer;
-      const done = (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      };
       timer = setTimeout(() => resolve({ ...this.publicTask(task), sessionPending: true, message: "ACP session is still starting; read session_id / session_url from shed_task_status" }), this.sessionWaitMs);
-      this.start(task, request, repoDir).then(done, done);
+      this.start(task, request, repoDir).then(
+        (v) => {
+          clearTimeout(timer);
+          resolve(v);
+        },
+        (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+      );
     });
 
     return started;
