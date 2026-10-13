@@ -210,11 +210,17 @@ export function renderHarnessBadge(rawHarness) {
   return `<span class="badge harness-badge ${info.badgeClass}">${info.svg} ${escapeHtml(info.name)}</span>`;
 }
 
+export function harnessFaviconDataUri(rawHarness) {
+  const harness = resolveViewerHarness(rawHarness);
+  const info = HARNESS_INFO[harness] ?? HARNESS_INFO.unknown;
+  return `data:image/svg+xml,${encodeURIComponent(info.svg)}`;
+}
+
 export function renderSessionHtml(view, { nonce }) {
   const t = view.task ?? {};
   const pr = safeHref(t.prUrl);
   const row = (label, value) => `<tr><th>${escapeHtml(label)}</th><td>${value}</td></tr>`;
-  const entries = view.entries
+  const entries = (view.entries ?? [])
     .map((entry) => {
       if (entry.kind === "tool") {
         return `<li class="tool"><div class="h">🔧 ${escapeHtml(entry.title)}${entry.toolKind ? ` <span class="k">${escapeHtml(entry.toolKind)}</span>` : ""}${entry.status ? ` <span class="s">${escapeHtml(entry.status)}</span>` : ""}<time>${escapeHtml(entry.at)}</time></div>${entry.detail ? `<pre>${escapeHtml(entry.detail)}</pre>` : ""}</li>`;
@@ -223,19 +229,21 @@ export function renderSessionHtml(view, { nonce }) {
       return `<li class="${escapeHtml(entry.kind)}"><div class="h">${label}<time>${escapeHtml(entry.at)}</time></div><pre>${escapeHtml(entry.text)}</pre></li>`;
     })
     .join("\n");
-  const plan = view.plan.length
+  const plan = view.plan?.length
     ? `<h2>Plan</h2><ul class="plan">${view.plan.map((p) => `<li><span class="s">${escapeHtml(p.status)}</span> ${escapeHtml(p.content)}</li>`).join("")}</ul>`
     : "";
   const poll = view.live
     ? `<script nonce="${nonce}">(()=>{const v=${JSON.stringify(view.version).replace(/</g, "\\u003c")};const tick=async()=>{try{const r=await fetch(location.pathname+".json",{cache:"no-store",credentials:"same-origin"});if(r.ok){const j=await r.json();if(j.version!==v){location.reload();return;}}}catch{}setTimeout(tick,3000)};setTimeout(tick,3000)})();</script>`
     : "";
   const harnessBadge = renderHarnessBadge(view.harness);
+  const faviconUri = harnessFaviconDataUri(view.harness);
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Shed session ${escapeHtml(view.sessionId)}</title>
+<link rel="icon" href="${escapeHtml(faviconUri)}">
 <style nonce="${nonce}">
 body{font:14px/1.45 -apple-system,system-ui,sans-serif;margin:0 auto;max-width:960px;padding:16px;color:#1b1b1b;background:#fafafa}
 table{border-collapse:collapse}th{text-align:left;padding:2px 12px 2px 0;color:#555;font-weight:500}

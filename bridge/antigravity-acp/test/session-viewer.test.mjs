@@ -11,6 +11,8 @@ import {
   appendEvent,
   buildView,
   createTranscript,
+  HARNESS_INFO,
+  harnessFaviconDataUri,
   isSessionId,
   loadSession,
   normalizeHarness,
@@ -132,6 +134,8 @@ test("record with harness=muse renders the Muse badge", () => {
   assert.match(html, /class="badge harness-badge harness-muse"/);
   assert.match(html, /Muse/);
   assert.match(html, /<svg /);
+  const museUri = harnessFaviconDataUri("muse");
+  assert.match(html, new RegExp(`<link rel="icon" href="${museUri.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}">`));
   assert.ok(!html.includes("http://"), "no remote assets");
   assert.ok(!html.includes("https://"), "no remote assets in badge");
 });
@@ -148,6 +152,8 @@ test("record without the field renders Antigravity", () => {
   assert.match(html, /class="badge harness-badge harness-antigravity"/);
   assert.match(html, /Antigravity/);
   assert.match(html, /<svg /);
+  const agyUri = harnessFaviconDataUri("antigravity");
+  assert.match(html, new RegExp(`<link rel="icon" href="${agyUri.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}">`));
 });
 
 test("unknown value renders a neutral badge", () => {
@@ -160,6 +166,8 @@ test("unknown value renders a neutral badge", () => {
   assert.equal(view.harness, "unknown");
   const html = renderSessionHtml(view, { nonce: "n" });
   assert.match(html, /class="badge harness-badge harness-neutral/);
+  const unknownUri = harnessFaviconDataUri("unknown");
+  assert.match(html, new RegExp(`<link rel="icon" href="${unknownUri.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}">`));
 
   // Unrecognized harness strings also render a neutral badge
   const customView = buildView({
@@ -171,6 +179,68 @@ test("unknown value renders a neutral badge", () => {
   assert.equal(customView.harness, "unknown");
   const customHtml = renderSessionHtml(customView, { nonce: "n" });
   assert.match(customHtml, /class="badge harness-badge harness-neutral/);
+  assert.match(customHtml, new RegExp(`<link rel="icon" href="${unknownUri.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}">`));
+});
+
+test("session viewer favicon link uses harness logo data URI", () => {
+  const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  // 1. Muse session
+  const museView = buildView({
+    sessionId: SID,
+    harness: "muse",
+    task: { taskId: "shed-1", status: "completed", repo: "o/r" },
+    transcript: createTranscript(),
+  });
+  const museHtml = renderSessionHtml(museView, { nonce: "n" });
+  const museUri = harnessFaviconDataUri("muse");
+  assert.ok(museUri.startsWith("data:image/svg+xml,"));
+  assert.match(museHtml, new RegExp(`<link rel="icon" href="${escapeRegExp(museUri)}">`));
+  assert.equal(decodeURIComponent(museUri.slice("data:image/svg+xml,".length)), HARNESS_INFO.muse.svg);
+
+  // 2. Historical (unset) session defaults to Antigravity
+  const historicalView = buildView({
+    sessionId: SID,
+    task: { taskId: "shed-1", status: "completed", repo: "o/r" },
+    transcript: createTranscript(),
+  });
+  const historicalHtml = renderSessionHtml(historicalView, { nonce: "n" });
+  const agyUri = harnessFaviconDataUri("antigravity");
+  assert.ok(agyUri.startsWith("data:image/svg+xml,"));
+  assert.match(historicalHtml, new RegExp(`<link rel="icon" href="${escapeRegExp(agyUri)}">`));
+  assert.equal(decodeURIComponent(agyUri.slice("data:image/svg+xml,".length)), HARNESS_INFO.antigravity.svg);
+
+  // Raw view without harness property directly also defaults to Antigravity
+  const rawHistoricalHtml = renderSessionHtml({ sessionId: SID, task: {} }, { nonce: "n" });
+  assert.match(rawHistoricalHtml, new RegExp(`<link rel="icon" href="${escapeRegExp(agyUri)}">`));
+
+  // 3. Unknown harness uses neutral unknown icon
+  const unknownView = buildView({
+    sessionId: SID,
+    harness: "unregistered-runner-lane",
+    task: { taskId: "shed-1", status: "completed", repo: "o/r" },
+    transcript: createTranscript(),
+  });
+  const unknownHtml = renderSessionHtml(unknownView, { nonce: "n" });
+  const unknownUri = harnessFaviconDataUri("unregistered-runner-lane");
+  assert.ok(unknownUri.startsWith("data:image/svg+xml,"));
+  assert.match(unknownHtml, new RegExp(`<link rel="icon" href="${escapeRegExp(unknownUri)}">`));
+  assert.equal(decodeURIComponent(unknownUri.slice("data:image/svg+xml,".length)), HARNESS_INFO.unknown.svg);
+
+  // Also check grok-build and cursor
+  const grokUri = harnessFaviconDataUri("grok-build");
+  assert.equal(decodeURIComponent(grokUri.slice("data:image/svg+xml,".length)), HARNESS_INFO["grok-build"].svg);
+  const cursorUri = harnessFaviconDataUri("cursor");
+  assert.equal(decodeURIComponent(cursorUri.slice("data:image/svg+xml,".length)), HARNESS_INFO.cursor.svg);
+
+  // No external URLs or remote assets in favicon link
+  for (const html of [museHtml, historicalHtml, rawHistoricalHtml, unknownHtml]) {
+    const match = html.match(/<link rel="icon"[^>]+>/);
+    assert.ok(match, "favicon link tag exists in HTML");
+    assert.ok(match[0].includes("href=\"data:image/svg+xml,"));
+    assert.ok(!match[0].includes("http://"));
+    assert.ok(!match[0].includes("https://"));
+  }
 });
 
 test("harness normalization and persistence in session records", async () => {
