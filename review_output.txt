@@ -1,0 +1,9 @@
+runner=/home/smoky/Developer/spark-dgx/lanes/openclaw-review/autoreview-run.sh
+requester=/home/smoky/Developer/spark-dgx/lanes/openclaw-review/autoreview-request.sh
+watcher=/home/smoky/Developer/spark-dgx/lanes/openclaw-review/autoreview-watch.sh
+agent_skills_dir=/home/smoky/Developer/repos/openclaw/agent-skills
+requested_reviewers=codex
+worktree=/home/smoky/Developer/_machine-runs/spark-openclaw-review-worktrees/SaariusSkills-main-76b713f
+head=76b713f
+head_full=76b713ff80ac5d3cb6cd401b384618e8d030e208
+{"result": "completed", "proof_path": "runs/spark-openclaw-autoreview-runs/spark-openclaw-autoreview-20261013T145543Z-62961/PROOF.md", "commit_sha": "76b713ff80ac5d3cb6cd401b384618e8d030e208", "pr_url": "https://github.com/saariuslystoned/SaariusSkills/pull/133", "verdict": "spark-openclaw-autoreview completed on spark-2", "blocker": null, "proof_status": "closed", "launch_proof": null, "expected_terminal_proof": null, "actual_terminal_proof": "runs/spark-openclaw-autoreview-runs/spark-openclaw-autoreview-20261013T145543Z-62961/PROOF.md", "host": "spark-2"}
