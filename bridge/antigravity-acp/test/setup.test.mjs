@@ -89,6 +89,8 @@ test("prepared antigravity-acp starts entrypoint in http mode without ERR_MODULE
   assert.equal(ready.state, "ready");
   const entry = path.join(ready.root, "bridge", "antigravity-acp", "server.mjs");
   const stateRoot = mkdtempSync(path.join(tmpdir(), "antigravity-acp-http-state-"));
+  const reposRoot = path.join(stateRoot, "remote-repos");
+  mkdirSync(reposRoot);
   try {
     const child = spawn(process.execPath, [entry, "--transport", "http"], {
       stdio: ["ignore", "pipe", "pipe"],
@@ -98,6 +100,11 @@ test("prepared antigravity-acp starts entrypoint in http mode without ERR_MODULE
         SAARIUS_ANTIGRAVITY_ACP_STATE_DIR: stateRoot,
         SAARIUS_MUSE_ACP_STATE_DIR: path.join(stateRoot, "muse"),
         SAARIUS_ACP_HTTP_PORT: "0",
+        SAARIUS_ACP_ACCESS_TEAM_DOMAIN: "example.cloudflareaccess.com",
+        SAARIUS_ACP_ACCESS_AUD: "a".repeat(64),
+        SAARIUS_ACP_REMOTE_CALLERS: "0123456789abcdef0123456789abcdef.access=test",
+        SAARIUS_ACP_REMOTE_REPO_OWNERS: "saariuslystoned",
+        SAARIUS_ACP_REMOTE_REPOS_ROOT: reposRoot,
       },
     });
     let stderr = "";
@@ -114,12 +121,20 @@ test("prepared antigravity-acp starts entrypoint in http mode without ERR_MODULE
         resolve();
       });
     });
-    const timeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`Timed out waiting for startup; stderr: ${stderr}`)), 15_000),
-    );
-    await Promise.race([started, timeout]);
-    child.kill("SIGTERM");
-    await new Promise((resolve) => child.once("exit", resolve));
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Timed out waiting for startup; stderr: ${stderr}`)), 15_000);
+    });
+    try {
+      await Promise.race([started, timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+    const exited = new Promise((resolve) => child.once("exit", resolve));
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGTERM");
+      await exited;
+    }
 
     assert.ok(!stderr.includes("ERR_MODULE_NOT_FOUND"), `entrypoint failed with ERR_MODULE_NOT_FOUND: ${stderr}`);
     assert.ok(stderr.includes('"listening"'), `expected listening confirmation on startup, got: ${stderr}`);
