@@ -38,7 +38,7 @@ test("prompt blocks translate to closed MSP part types", () => {
 
 test("terminal mapping is fail-safe", () => {
   assert.equal(stopReasonFromTerminal("completed"), "end_turn");
-  assert.equal(stopReasonFromTerminal("failed"), "end_turn");
+  assert.equal(stopReasonFromTerminal("failed"), "error");
   assert.equal(stopReasonFromTerminal("cancelled"), "cancelled");
   assert.equal(stopReasonFromTerminal("something-new"), "end_turn");
   assert.equal(stopReasonFromTerminal(undefined), "end_turn");

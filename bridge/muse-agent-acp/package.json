@@ -13,7 +13,7 @@
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test test/*.test.mjs",
-    "check": "node --check msp-client.mjs && node --check translate.mjs && node --check server.mjs && npm test"
+    "check": "node --check ../muse-acp/adapter/msp-client.mjs && node --check ../muse-acp/adapter/translate.mjs && node --check ../muse-acp/adapter/server.mjs && node --check server.mjs && npm test"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.5.1"

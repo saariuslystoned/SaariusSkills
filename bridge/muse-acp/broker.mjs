@@ -900,6 +900,7 @@ export class MuseAcpBroker {
           }));
     this.active = new Map();
     this.changeWaiters = new Map();
+    this.eventObservers = new Set();
     this.initPromise = null;
     this.heartbeatTimer = null;
   }
@@ -1703,6 +1704,13 @@ export class MuseAcpBroker {
       const eventsPromise = this.consumeEvents(turn.events, async (event) => {
         eventCount += 1;
         if (event?.type === "tool_call") toolCallCount += 1;
+        for (const observer of this.eventObservers) {
+          try {
+            observer(job.jobId, event);
+          } catch {
+            // observers are best effort and read-only
+          }
+        }
         if (event?.type === "text_delta" && event.stream !== "thought") {
           finalText = `${finalText}${String(event.text ?? "")}`.slice(-12_000);
         }
@@ -1805,6 +1813,18 @@ export class MuseAcpBroker {
     await this.saveJob(job);
   }
 
+  addEventObserver(observer) {
+    this.eventObservers.add(observer);
+    return () => this.eventObservers.delete(observer);
+  }
+
+  isJobTerminal(job) {
+    if (!job) return false;
+    if (isCanonicalComplete(job)) return true;
+    if (isTerminalStatus(job.status) && job.cleanup?.status === "uncertain") return true;
+    return false;
+  }
+
   async consumeEvents(events, onEvent) {
     try {
       for await (const event of events) await onEvent(event);
@@ -1837,16 +1857,17 @@ export class MuseAcpBroker {
   async result({ jobId, waitMs } = {}) {
     const boundedWait = parseWait(waitMs, 300_000);
     let job = await this.observeJob(jobId);
-    if (boundedWait > 0 && !isCanonicalComplete(job)) {
+    if (boundedWait > 0 && !this.isJobTerminal(job)) {
       await this.waitForTerminal(jobId, boundedWait);
       job = await this.observeJob(jobId);
     }
+    const terminal = this.isJobTerminal(job);
     return {
       ...this.publicJob(job),
       taskComplete: isTerminalStatus(job.status),
       cleanupReady: isCleanupReady(job),
-      complete: isCanonicalComplete(job),
-      waitExpired: !isCanonicalComplete(job) && boundedWait > 0,
+      complete: terminal,
+      waitExpired: !terminal && boundedWait > 0,
     };
   }
 
@@ -2262,8 +2283,8 @@ export class MuseAcpBroker {
     const deadline = Date.now() + waitMs;
     while (Date.now() < deadline) {
       const job = await this.observeJob(jobId);
-      if (isCanonicalComplete(job)) return;
-      if (isTerminalStatus(job.status) && (!this.active.has(jobId) || job.cleanup?.status === "uncertain")) return;
+      if (this.isJobTerminal(job)) return;
+      if (isTerminalStatus(job.status) && !this.active.has(jobId)) return;
       const remaining = deadline - Date.now();
       if (remaining <= 0) return;
       const slice = this.active.has(jobId)

@@ -47,7 +47,12 @@ for await (const line of rl) {
         notify("item/completed", { sessionId, item: { itemId: "i1", kind: "agentMessage", turnId, status: "completed", text: `echo: ${text}` } });
         notify("turn/completed", { sessionId, turnId, terminal: "completed" });
       };
-      if (text.includes("NEEDS_APPROVAL")) {
+      if (text.includes("FAILS_TURN")) {
+        notify("item/started", { sessionId, item: { itemId: "i1", kind: "agentMessage", turnId, status: "inProgress", text: "" } });
+        notify("item/delta", { sessionId, itemId: "i1", field: "text", delta: "something failed" });
+        notify("item/completed", { sessionId, item: { itemId: "i1", kind: "agentMessage", turnId, status: "failed", text: "something failed" } });
+        notify("turn/completed", { sessionId, turnId, terminal: "failed", error: { message: "intentional turn failure" } });
+      } else if (text.includes("NEEDS_APPROVAL")) {
         pendingApproval = { finish };
         write({
           jsonrpc: "2.0",

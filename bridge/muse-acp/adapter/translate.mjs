@@ -50,8 +50,9 @@ export function stopReasonFromTerminal(terminal) {
   switch (terminal) {
     case "cancelled":
       return "cancelled";
-    case "completed":
     case "failed":
+      return "error";
+    case "completed":
     default:
       return "end_turn";
   }

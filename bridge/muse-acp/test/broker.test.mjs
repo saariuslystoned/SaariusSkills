@@ -596,3 +596,57 @@ await import(${JSON.stringify(fakeMsp)});
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("addEventObserver dispatches live runner events and unsubscribes cleanly", async () => {
+  const fixture = await makeBroker();
+  const observed = [];
+  const unsubscribe = fixture.broker.addEventObserver((jobId, event) => {
+    observed.push({ jobId, event });
+  });
+
+  const job = await fixture.broker.delegate({
+    workspace: fixture.workspace,
+    prompt: "Write one bounded file and report.",
+  });
+  await fixture.broker.result({ jobId: job.jobId, waitMs: 1_000 });
+
+  assert.ok(observed.length > 0);
+  assert.ok(observed.some((entry) => entry.jobId === job.jobId && entry.event?.type === "status"));
+
+  const countBefore = observed.length;
+  unsubscribe();
+
+  const secondJob = await fixture.broker.delegate({
+    workspace: fixture.workspace,
+    prompt: "Write another bounded file.",
+  });
+  await fixture.broker.result({ jobId: secondJob.jobId, waitMs: 1_000 });
+
+  assert.equal(observed.length, countBefore);
+  await fixture.broker.close();
+});
+
+test("broker result is consistent with waitForTerminal when cleanup is uncertain", async () => {
+  const fixture = await makeBroker();
+  const job = await fixture.broker.delegate({
+    workspace: fixture.workspace,
+    prompt: "Write one bounded file and report.",
+  });
+  await fixture.broker.result({ jobId: job.jobId, waitMs: 1_000 });
+
+  // Manually update job to have failed status and uncertain cleanup
+  const jobPath = path.join(fixture.broker.jobsRoot, `${job.jobId}.json`);
+  const raw = JSON.parse(await readFile(jobPath, "utf8"));
+  raw.status = "failed";
+  raw.cleanup = { status: "uncertain", observed: "runtime_close_failed" };
+  await writeFile(jobPath, JSON.stringify(raw), "utf8");
+
+  const res = await fixture.broker.result({ jobId: job.jobId, waitMs: 100 });
+  assert.equal(res.complete, true);
+  assert.equal(res.waitExpired, false);
+  assert.equal(res.taskComplete, true);
+  assert.equal(res.cleanupReady, false);
+  assert.equal(res.status, "failed");
+
+  await fixture.broker.close();
+});
