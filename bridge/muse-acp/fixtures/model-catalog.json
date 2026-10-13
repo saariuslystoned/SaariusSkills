@@ -1,0 +1,12 @@
+{
+  "currentModelId": "fixture-c",
+  "availableModelIds": [
+    "fixture-a",
+    "fixture-b",
+    "fixture-c",
+    "fixture-fast"
+  ],
+  "availableModels": [
+    { "modelId": "fixture-c", "name": "Fixture C" }
+  ]
+}

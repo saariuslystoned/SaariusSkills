@@ -47,9 +47,10 @@ currently supported.
 
 SaariusSkills is the host policy for one local ACP contract. ACpx is the
 local client. ACP is the wire. Host the plugin in **Codex** or **Cursor**,
-then delegate one bounded slice to a **Cursor**, **Antigravity**, or **Grok**
-worker. The Cursor plugin starts `antigravity-acp` and `grok-acp`. The Codex
-plugin starts `antigravity-acp`, `cursor-acp`, and `grok-acp`.
+then delegate one bounded slice to a **Cursor**, **Antigravity**, **Grok**,
+or **Muse** worker. The Cursor plugin starts `antigravity-acp`, `grok-acp`,
+and `muse-acp`. The Codex plugin starts `antigravity-acp`, `cursor-acp`,
+`grok-acp`, and `muse-acp`.
 
 The same six tools (`readiness`, `delegate`, `status`, `result`, `steer`,
 `cancel`) run in three proven placements. A separate host that owns phone
@@ -65,9 +66,9 @@ Former aliases: Local was L; Always-on was A1; Hop was B.
 | **Always-on** | Always-on box | Same box | CP-1: [proof/a1-live-dogfood/RECEIPT.md](proof/a1-live-dogfood/RECEIPT.md) ([hello.mjs](proof/a1-live-dogfood/hello.mjs); `approve-reads` fail-closed job in same receipt). |
 | **Hop** | Carry laptop | Another machine | MacBook → CP-1: [proof/b-live-dogfood/RECEIPT.md](proof/b-live-dogfood/RECEIPT.md) ([hello.mjs](proof/b-live-dogfood/hello.mjs); hop wrapper [#83](https://github.com/saariuslystoned/SaariusSkills/pull/83)). |
 
-Those hello.mjs jobs used the Antigravity worker. The Cursor and Grok worker
-lanes are source-landed and are not those jobs. There is no committed
-`proof/*/RECEIPT.md` for Grok Local / Always-on / Hop until one lands.
+Those hello.mjs jobs used the Antigravity worker. The Cursor, Grok, and Muse
+worker lanes are source-landed and are not those jobs. There is no committed
+`proof/*/RECEIPT.md` for Grok or Muse Local / Always-on / Hop until one lands.
 
 Host policy on `main` ([#80](https://github.com/saariuslystoned/SaariusSkills/pull/80),
 [#82](https://github.com/saariuslystoned/SaariusSkills/pull/82)): readiness
@@ -154,6 +155,20 @@ Grok does not run Luna. The child is `GROK_EXECUTABLE` or
 `grok` on `PATH`; manifests do not ship a machine path. See the
 [Grok setup and reload guide](docs/grok-acp-delegation.md).
 
+### Muse worker (`muse-acp`)
+
+The `muse-acp` bridge routes one bounded slice through pinned `acpx@0.19.4`
+to `muse-agent-acp`, a small adapter (`bridge/muse-acp/adapter/`) that
+translates ACP to Muse Session Protocol (MSP) over `muse serve`
+stdio; Muse ships no ACP server of its own. It exposes the same six
+tools and the same remote-shed HTTP mode (`shed_task_*` only) as the
+Antigravity lane. Muse model ids come from the host's provider-dependent
+MSP catalog, so the lane hard-codes no default id: omitting `model` means
+host default, `fallbackModels` is an ordered preference list, and an
+explicit model stays exact. The adapter spawns `MUSE_EXECUTABLE` or `muse`
+on `PATH`; manifests do not ship a machine path. See the
+[Muse setup guide](docs/muse-acp-delegation.md).
+
 All bridges use a shared per-user persistent dependency store outside
 the Codex and Claude Code plugin caches. After installing or updating the plugin, prepare
 the bridges explicitly from the installed plugin root:
@@ -162,6 +177,7 @@ the bridges explicitly from the installed plugin root:
 node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge cursor-acp
 node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge antigravity-acp
 node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge grok-acp
+node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge muse-acp
 ```
 
 The launchers reuse compatible prepared trees and keep MCP stdout reserved
@@ -300,10 +316,11 @@ git -C ~/.cursor/plugins/local/saarius-skills pull --ff-only
 
 The Cursor plugin MCP entries are hop-free and ship no machine paths. Hop,
 when used, is `SAARIUS_ACP_HOP_ARGV` on the parent attach. For the optional
-Cursor, Antigravity, and Grok worker bridges, see
+Cursor, Antigravity, Grok, and Muse worker bridges, see
 [docs/cursor-acp-delegation.md](docs/cursor-acp-delegation.md),
-[docs/antigravity-acp-delegation.md](docs/antigravity-acp-delegation.md), and
-[docs/grok-acp-delegation.md](docs/grok-acp-delegation.md).
+[docs/antigravity-acp-delegation.md](docs/antigravity-acp-delegation.md),
+[docs/grok-acp-delegation.md](docs/grok-acp-delegation.md), and
+[docs/muse-acp-delegation.md](docs/muse-acp-delegation.md).
 
 ### Claude Code
 
@@ -318,9 +335,9 @@ claude plugin install saarius-skills@saarius-skills
 Inside a session, `/plugin marketplace add saariuslystoned/SaariusSkills` and
 `/plugin install saarius-skills@saarius-skills` do the same. The
 [Claude Code manifest](.claude-plugin/plugin.json) registers the `cursor-acp`
-(Cursor Grok), `antigravity-acp`, and `grok-acp` delegation servers through
+(Cursor Grok), `antigravity-acp`, `grok-acp`, and `muse-acp` delegation servers through
 `${CLAUDE_PLUGIN_ROOT}`, with no machine-specific paths; each bridge keeps its own
-defaults for the Cursor executable, Grok executable, and `GEMINI_HOME`. The
+defaults for the Cursor executable, Grok executable, `GEMINI_HOME`, and Muse executable. The
 manifest passes `SAARIUS_ACP_PERMISSION_MODE` from Claude Code's environment
 through to each bridge, defaulting to `approve-reads`; export
 `SAARIUS_ACP_PERMISSION_MODE=approve-all` (or set it under `env` in Claude
@@ -394,6 +411,10 @@ invocation, but it is never required when the user's intent is already clear.
   the local Grok CLI ACP MCP lane (`grok agent stdio`), same six-tool contract,
   separate from Cursor ACP and from Puppet grok; no committed Local / Always-on /
   Hop receipt yet.
+- [`skills/muse-acp-delegation/SKILL.md`](skills/muse-acp-delegation/SKILL.md):
+  the Muse ACP MCP lane (`muse serve` MSP via the `muse-agent-acp`
+  adapter), same six-tool contract plus remote-shed HTTP mode, separate from
+  the other ACP lanes; no committed Local / Always-on / Hop receipt yet.
 - [`skills/jevsweeper/SKILL.md`](skills/jevsweeper/SKILL.md): after a published
   ClawSweeper review, Jev labels leftover boxes `repair`, `owner-gate`, or
   `do-not-patch`. It is not merge authority. Outside OpenClaw it asks Jev

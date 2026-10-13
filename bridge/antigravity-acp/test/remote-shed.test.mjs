@@ -72,17 +72,18 @@ function fakeBroker({ delegateError, jobStatus = "completed" } = {}) {
 
 const START = "a".repeat(40);
 const HEAD = "b".repeat(40);
-function shedFixture(brokerOptions, { changes = " M README.md", ahead, remoteHead = START, pushError, broker: customBroker, env: extraEnv = {}, symrefHead = "", runnerOptions = {} } = {}) {
+function shedFixture(brokerOptions, { changes = " M README.md", ahead, remoteHead = START, pushError, broker: customBroker, brokers: customBrokers, env: extraEnv = {}, symrefHead = "", runnerOptions = {} } = {}) {
   const reposRoot = realpathSync(mkdtempSync(path.join(tmpdir(), "shed-root-")));
   mkdirSync(path.join(reposRoot, "saari-co", "site"), { recursive: true });
   mkdirSync(path.join(reposRoot, "smoky", "motors"), { recursive: true });
   let committed = false;
   const commands = [];
   const logs = [];
-  const broker = customBroker ?? fakeBroker(brokerOptions);
+  const broker = customBroker ?? (customBrokers ? undefined : fakeBroker(brokerOptions));
   const runner = new ShedTaskRunner({
     broker,
-    env: { SAARIUS_ACP_REMOTE_REPO_OWNERS: OWNERS, SAARIUS_ACP_REMOTE_REPOS_ROOT: reposRoot, SAARIUS_ACP_REMOTE_ORIGIN_OWNERS: "smoky", ...extraEnv },
+    brokers: customBrokers,
+    env: { SAARIUS_ACP_REMOTE_REPO_OWNERS: OWNERS, SAARIUS_ACP_REMOTE_REPOS_ROOT: reposRoot, SAARIUS_ACP_REMOTE_ORIGIN_OWNERS: "smoky", SAARIUS_ACP_REMOTE_MAX_CONCURRENT: "1", ...extraEnv },
     guard: async () => {},
     log: async (record) => logs.push(record),
     run: async (command, args) => {
@@ -483,7 +484,7 @@ test("up to the cap tasks run at once; over the cap returns busy with the runnin
   }
   const cancelled = await runner.cancel({ taskId: started[1].taskId });
   assert.equal(cancelled.cancellationRequested, true);
-  await settle();
+  await runner.whenTask(started[1].taskId);
   assert.equal((await runner.status({ taskId: started[1].taskId })).status, "cancelled");
   const after = await runner.status({});
   assert.equal(after.status, "available");
@@ -491,7 +492,7 @@ test("up to the cap tasks run at once; over the cap returns busy with the runnin
   const again = await runner.runTask({ ...RUN, task: "t5" }, CALLER);
   assert.equal(again.status, "running");
   for (const id of broker.jobs.keys()) broker.finish(id);
-  await settle();
+  await runner.whenIdle();
   assert.equal((await runner.status({})).status, "idle");
 });
 
@@ -510,11 +511,11 @@ test("a second task on the same repo+headBranch is refused while the first runs"
   const otherRepo = await runner.runTask({ ...RUN, owner: "smoky", repo: "motors", forge: "origin", headBranch: "codex/x" }, CALLER);
   assert.equal(otherRepo.status, "running");
   for (const id of broker.jobs.keys()) broker.finish(id, "cancelled");
-  await settle();
+  await runner.whenIdle();
   const freed = await runner.runTask({ ...RUN, task: "later", headBranch: "codex/x" }, CALLER);
   assert.equal(freed.status, "running");
   for (const id of broker.jobs.keys()) broker.finish(id, "cancelled");
-  await settle();
+  await runner.whenIdle();
 });
 
 test("real git: concurrent tasks get isolated worktrees, push their own branches, and clean up", async () => {
@@ -551,7 +552,7 @@ test("real git: concurrent tasks get isolated worktrees, push their own branches
   assert.ok(started.every((t) => t.status === "running"), JSON.stringify(started));
   assert.equal(sh(["worktree", "list", "--porcelain"], clone).split("\n").filter((l) => l.startsWith("worktree ")).length, 6);
   for (const id of broker.jobs.keys()) broker.finish(id);
-  for (let i = 0; i < 100 && (await runner.status({})).status !== "idle"; i++) await settle();
+  await runner.whenIdle();
   for (const t of started) {
     const final = await runner.status({ taskId: t.taskId });
     assert.equal(final.status, "pr_opened", JSON.stringify(final));
@@ -562,4 +563,174 @@ test("real git: concurrent tasks get isolated worktrees, push their own branches
   assert.equal(sh(["worktree", "list", "--porcelain"], clone).split("\n").filter((l) => l.startsWith("worktree ")).length, 1);
   assert.deepEqual(readdirSync(path.join(reposRoot, ".saarius-shed", "worktrees")), []);
   assert.ok(!existsSync(path.join(reposRoot, ".saarius-shed", "worktrees", started[0].taskId)));
+});
+
+
+test("whenIdle and whenTask provide explicit completion signals", async () => {
+  const broker = multiBroker();
+  const { runner } = shedFixture(undefined, { broker, env: { SAARIUS_ACP_REMOTE_MAX_CONCURRENT: "2" } });
+  await runner.init();
+  await runner.whenIdle();
+  const t1 = await runner.runTask({ ...RUN, task: "one" }, CALLER);
+  const t2 = await runner.runTask({ ...RUN, task: "two" }, CALLER);
+  assert.equal(t1.status, "running");
+  assert.equal(t2.status, "running");
+
+  let t1Done = false;
+  const t1Promise = runner.whenTask(t1.taskId).then((res) => {
+    t1Done = true;
+    return res;
+  });
+
+  const firstJobId = broker.jobs.keys().next().value;
+  broker.finish(firstJobId);
+  const t1Result = await t1Promise;
+  assert.equal(t1Done, true);
+  assert.equal(t1Result.taskId, t1.taskId);
+  assert.equal(t1Result.status, "pr_opened");
+  assert.equal((await runner.status({})).status, "available");
+
+  const t1Immediate = await runner.whenTask(t1.taskId);
+  assert.equal(t1Immediate.status, "pr_opened");
+
+  for (const id of broker.jobs.keys()) broker.finish(id);
+  await runner.whenIdle();
+  assert.deepEqual(await runner.status({}), { status: "idle", running: 0, maxConcurrent: 2, tasks: [] });
+});
+
+test("harness validation: refuses unknown harness with HARNESS_INVALID and defaults to antigravity", async () => {
+  const broker = multiBroker();
+  const { runner } = shedFixture(undefined, { broker });
+  await runner.init();
+
+  for (const bad of ["unknown", "codex", "claude", "", "   "]) {
+    await assert.rejects(
+      runner.runTask({ ...RUN, harness: bad }, CALLER),
+      (err) => err.code === "HARNESS_INVALID" && /antigravity, muse/.test(err.message),
+    );
+  }
+
+  // Missing or undefined defaults to antigravity
+  const defaultTask = await runner.runTask(RUN, CALLER);
+  assert.equal(defaultTask.status, "running");
+  assert.equal(defaultTask.harness, "antigravity");
+  broker.finish(broker.jobs.keys().next().value);
+  await runner.whenIdle();
+});
+
+test("routing per harness: antigravity and muse route to their respective brokers and store harness", async () => {
+  const antiBroker = multiBroker();
+  antiBroker.harness = "antigravity";
+  const museBroker = multiBroker();
+  museBroker.harness = "muse";
+
+  const { runner } = shedFixture(undefined, {
+    brokers: { antigravity: antiBroker, muse: museBroker },
+    env: { SAARIUS_ACP_REMOTE_MAX_CONCURRENT: "5" },
+  });
+  await runner.init();
+
+  const antiTask = await runner.runTask({ ...RUN, harness: "antigravity", task: "anti task" }, CALLER);
+  assert.equal(antiTask.status, "running");
+  assert.equal(antiTask.harness, "antigravity");
+  assert.equal(antiBroker.jobs.size, 1);
+  assert.equal(museBroker.jobs.size, 0);
+
+  const museTask = await runner.runTask({ ...RUN, harness: "muse", task: "muse task" }, CALLER);
+  assert.equal(museTask.status, "running");
+  assert.equal(museTask.harness, "muse");
+  assert.equal(antiBroker.jobs.size, 1);
+  assert.equal(museBroker.jobs.size, 1);
+
+  const antiStatus = await runner.status({ taskId: antiTask.taskId });
+  assert.equal(antiStatus.harness, "antigravity");
+
+  const museStatus = await runner.status({ taskId: museTask.taskId });
+  assert.equal(museStatus.harness, "muse");
+
+  // Clean up
+  for (const id of antiBroker.jobs.keys()) antiBroker.finish(id);
+  for (const id of museBroker.jobs.keys()) museBroker.finish(id);
+  await runner.whenIdle();
+});
+
+test("independent lane caps: 5 antigravity running still lets muse start; 6th is busy naming harness", async () => {
+  const antiBroker = multiBroker();
+  antiBroker.harness = "antigravity";
+  const museBroker = multiBroker();
+  museBroker.harness = "muse";
+
+  // Default concurrency: 5 for antigravity and 5 for muse (omit SAARIUS_ACP_REMOTE_MAX_CONCURRENT)
+  const reposRoot = realpathSync(mkdtempSync(path.join(tmpdir(), "shed-caps-")));
+  mkdirSync(path.join(reposRoot, "saari-co", "site"), { recursive: true });
+
+  const runner = new ShedTaskRunner({
+    brokers: { antigravity: antiBroker, muse: museBroker },
+    env: {
+      SAARIUS_ACP_REMOTE_REPO_OWNERS: OWNERS,
+      SAARIUS_ACP_REMOTE_REPOS_ROOT: reposRoot,
+    },
+    guard: async () => {},
+    log: async () => {},
+    run: async (command, args) => {
+      if (args[0] === "rev-parse") return START;
+      return "";
+    },
+  });
+  await runner.init();
+
+  assert.equal(runner.maxConcurrentFor("antigravity"), 5);
+  assert.equal(runner.maxConcurrentFor("muse"), 5);
+
+  // Start 5 antigravity tasks
+  const antiTasks = await Promise.all(
+    [1, 2, 3, 4, 5].map((i) => runner.runTask({ ...RUN, harness: "antigravity", task: `anti-${i}` }, CALLER)),
+  );
+  assert.ok(antiTasks.every((t) => t.status === "running"), "all 5 antigravity tasks should be running");
+  assert.equal(runner.activeCountForHarness("antigravity"), 5);
+  assert.equal(runner.activeCountForHarness("muse"), 0);
+
+  // 6th antigravity task should return busy naming antigravity
+  const antiBusy = await runner.runTask({ ...RUN, harness: "antigravity", task: "anti-6" }, CALLER);
+  assert.equal(antiBusy.status, "busy");
+  assert.equal(antiBusy.harness, "antigravity");
+  assert.equal(antiBusy.running, 5);
+  assert.equal(antiBusy.maxConcurrent, 5);
+  assert.match(antiBusy.message, /antigravity/);
+
+  // 5 antigravity running STILL lets a muse task start
+  const museTask = await runner.runTask({ ...RUN, harness: "muse", task: "muse-1" }, CALLER);
+  assert.equal(museTask.status, "running");
+  assert.equal(museTask.harness, "muse");
+  assert.equal(runner.activeCountForHarness("muse"), 1);
+
+  // Fill remaining 4 muse slots (total 5 muse)
+  const moreMuse = await Promise.all(
+    [2, 3, 4, 5].map((i) => runner.runTask({ ...RUN, harness: "muse", task: `muse-${i}` }, CALLER)),
+  );
+  assert.ok(moreMuse.every((t) => t.status === "running"));
+  assert.equal(runner.activeCountForHarness("muse"), 5);
+
+  // 6th muse task should return busy naming muse
+  const museBusy = await runner.runTask({ ...RUN, harness: "muse", task: "muse-6" }, CALLER);
+  assert.equal(museBusy.status, "busy");
+  assert.equal(museBusy.harness, "muse");
+  assert.equal(museBusy.running, 5);
+  assert.equal(museBusy.maxConcurrent, 5);
+  assert.match(museBusy.message, /muse/);
+
+  // Clean up
+  for (const id of antiBroker.jobs.keys()) antiBroker.finish(id);
+  for (const id of museBroker.jobs.keys()) museBroker.finish(id);
+  await runner.whenIdle();
+});
+
+test("shed_task_run tool input schema exposes headBranch and harness", () => {
+  const fakeRunner = { runTask: () => {}, status: () => {}, cancel: () => {} };
+  const server = createShedMcpServer(fakeRunner, { label: "test" });
+  const tool = server._registeredTools["shed_task_run"];
+  assert.ok(tool, "shed_task_run tool must be registered");
+  const shape = tool.inputSchema.shape;
+  assert.ok(shape.headBranch, "headBranch must be present in input schema");
+  assert.ok(shape.harness, "harness must be present in input schema");
 });

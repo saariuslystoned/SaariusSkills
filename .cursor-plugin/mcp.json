@@ -8,6 +8,10 @@
       "command": "node",
       "args": ["${CURSOR_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", "grok-acp"]
     },
+    "muse-acp": {
+      "command": "node",
+      "args": ["${CURSOR_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", "muse-acp"]
+    },
     "jev-decision": {
       "command": "node",
       "args": ["${CURSOR_PLUGIN_ROOT}/bridge/jev-decision/server.mjs"]
