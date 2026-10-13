@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,7 +11,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { createAccessAuthenticator, parseRemoteCallers, resolveAccessConfig } from "../access-auth.mjs";
 import { resolveHttpConfig, resolveTransport, startRemoteShedHost } from "../http-host.mjs";
 import { createRepoOwnerGuard, githubOwnerFromRemote, originOwnerFromRemote, parseRepoOwners } from "../repo-allowlist.mjs";
-import { parseMaxConcurrent, ShedTaskRunner } from "../shed-tasks.mjs";
+import { DEFAULT_ANTIGRAVITY_MODEL, SHED_ANTIGRAVITY_MODEL_ENV, parseMaxConcurrent, ShedTaskRunner } from "../shed-tasks.mjs";
 import { createShedMcpServer, SHED_TOOL_NAMES } from "../shed-tools.mjs";
 
 const OWNERS = "saariuslystoned,saari-co,dinkuskit";
@@ -725,7 +725,7 @@ test("independent lane caps: 5 antigravity running still lets muse start; 6th is
   await runner.whenIdle();
 });
 
-test("shed_task_run tool input schema exposes headBranch and harness", () => {
+test("shed_task_run tool input schema exposes headBranch, harness, and model", () => {
   const fakeRunner = { runTask: () => {}, status: () => {}, cancel: () => {} };
   const server = createShedMcpServer(fakeRunner, { label: "test" });
   const tool = server._registeredTools["shed_task_run"];
@@ -733,4 +733,129 @@ test("shed_task_run tool input schema exposes headBranch and harness", () => {
   const shape = tool.inputSchema.shape;
   assert.ok(shape.headBranch, "headBranch must be present in input schema");
   assert.ok(shape.harness, "harness must be present in input schema");
+  assert.ok(shape.model, "model must be present in input schema");
+});
+
+test("circular-JSON crash fix: start() keeps broker off task record; map entry removed after finish", async () => {
+  const broker = fakeBroker();
+  broker.timer = setTimeout(() => {}, 60_000);
+  broker.circularRef = broker;
+
+  const { runner, reposRoot } = shedFixture(undefined, { broker });
+  await runner.init();
+
+  try {
+    const started = await runner.runTask(RUN, CALLER);
+    assert.equal(started.status, "running");
+    assert.ok(started.taskId);
+
+    assert.equal(runner.taskBrokers.get(started.taskId), broker);
+    const inMemoryTask = runner.tasks.get(started.taskId);
+    assert.equal(inMemoryTask.broker, undefined);
+
+    const taskRecordPath = path.join(reposRoot, ".saarius-shed", "tasks", `${started.taskId}.json`);
+    const writtenJson = readFileSync(taskRecordPath, "utf8");
+    const parsed = JSON.parse(writtenJson);
+    assert.equal(parsed.broker, undefined);
+    assert.equal(parsed.taskId, started.taskId);
+    assert.equal(parsed.status, "running");
+
+    broker.finish();
+    await runner.whenIdle();
+
+    assert.equal(runner.taskBrokers.has(started.taskId), false);
+
+    const finalParsed = JSON.parse(readFileSync(taskRecordPath, "utf8"));
+    assert.equal(finalParsed.broker, undefined);
+    assert.equal(finalParsed.status, "pr_opened");
+  } finally {
+    clearTimeout(broker.timer);
+  }
+});
+
+test("model selection: default used when unset, sent to broker, and recorded", async () => {
+  assert.equal(DEFAULT_ANTIGRAVITY_MODEL, "gemini-4-argon-medium");
+  const { runner, broker, reposRoot } = shedFixture();
+  await runner.init();
+
+  const started = await runner.runTask(RUN, CALLER);
+  assert.equal(started.status, "running");
+  assert.equal(started.model, DEFAULT_ANTIGRAVITY_MODEL);
+
+  const delegateCall = broker.calls.find((c) => c.name === "delegate");
+  assert.ok(delegateCall, "delegate should be called");
+  assert.equal(delegateCall.input.model, DEFAULT_ANTIGRAVITY_MODEL);
+
+  const status = await runner.status({ taskId: started.taskId });
+  assert.equal(status.model, DEFAULT_ANTIGRAVITY_MODEL);
+
+  const taskRecordPath = path.join(reposRoot, ".saarius-shed", "tasks", `${started.taskId}.json`);
+  const record = JSON.parse(readFileSync(taskRecordPath, "utf8"));
+  assert.equal(record.model, DEFAULT_ANTIGRAVITY_MODEL);
+
+  broker.finish();
+  await runner.whenIdle();
+});
+
+test("model selection: env and config overrides win, request override wins, model persisted in record", async () => {
+  const envModel = "test-env-model-override";
+  const { runner: envRunner, broker: envBroker, reposRoot: envRoot } = shedFixture(undefined, {
+    env: { [SHED_ANTIGRAVITY_MODEL_ENV]: envModel },
+  });
+  await envRunner.init();
+  const envStarted = await envRunner.runTask(RUN, CALLER);
+  assert.equal(envStarted.model, envModel);
+  assert.equal(envBroker.calls.find((c) => c.name === "delegate")?.input.model, envModel);
+  const envRecord = JSON.parse(readFileSync(path.join(envRoot, ".saarius-shed", "tasks", `${envStarted.taskId}.json`), "utf8"));
+  assert.equal(envRecord.model, envModel);
+  envBroker.finish();
+  await envRunner.whenIdle();
+
+  const configModel = "test-config-model-override";
+  const { runner: configRunner, broker: configBroker, reposRoot: configRoot } = shedFixture(undefined, {
+    env: { [SHED_ANTIGRAVITY_MODEL_ENV]: "should-be-shadowed" },
+    runnerOptions: { antigravityModel: configModel },
+  });
+  await configRunner.init();
+  const configStarted = await configRunner.runTask(RUN, CALLER);
+  assert.equal(configStarted.model, configModel);
+  assert.equal(configBroker.calls.find((c) => c.name === "delegate")?.input.model, configModel);
+  const configRecord = JSON.parse(readFileSync(path.join(configRoot, ".saarius-shed", "tasks", `${configStarted.taskId}.json`), "utf8"));
+  assert.equal(configRecord.model, configModel);
+
+  configBroker.finish();
+  await configRunner.whenIdle();
+
+  // 3. Request-level override wins over runner config
+  const requestModel = "test-request-model-override";
+  const { runner: reqRunner, broker: reqBroker, reposRoot: reqRoot } = shedFixture(undefined, {
+    runnerOptions: { antigravityModel: configModel },
+  });
+  await reqRunner.init();
+  const reqStarted = await reqRunner.runTask({ ...RUN, model: requestModel }, CALLER);
+  assert.equal(reqStarted.model, requestModel);
+  assert.equal(reqBroker.calls.find((c) => c.name === "delegate")?.input.model, requestModel);
+  const reqRecord = JSON.parse(readFileSync(path.join(reqRoot, ".saarius-shed", "tasks", `${reqStarted.taskId}.json`), "utf8"));
+  assert.equal(reqRecord.model, requestModel);
+  reqBroker.finish();
+  await reqRunner.whenIdle();
+});
+
+test("runTask propagates rejections from start() instead of resolving with an error value", async () => {
+  const { runner, broker } = shedFixture();
+  await runner.init();
+
+  const originalStart = runner.start.bind(runner);
+  runner.start = async (task) => {
+    runner.releaseActive(task.taskId, task);
+    throw new Error("start failed explicitly");
+  };
+
+  await assert.rejects(runner.runTask(RUN, CALLER), /start failed explicitly/);
+
+  runner.start = originalStart;
+  const normal = await runner.runTask(RUN, CALLER);
+  assert.equal(normal.status, "running");
+  broker.finish();
+  await runner.whenIdle();
 });

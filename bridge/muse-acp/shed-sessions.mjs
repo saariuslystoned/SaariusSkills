@@ -97,6 +97,7 @@ export function buildView({ sessionId, task, transcript }) {
       ? {
           taskId: task.taskId,
           status: task.status,
+          model: task.model ?? null,
           repo: task.repo,
           forge: task.forge,
           baseBranch: task.baseBranch,
@@ -177,6 +178,7 @@ ol{list-style:none;padding:0}li{margin:10px 0}.h{font-weight:600}.h time{float:r
 <p><span class="badge">${escapeHtml(t.status ?? "unknown")}${view.live ? " · live" : ""}</span> <code>${escapeHtml(view.sessionId)}</code> · read-only</p>
 <table>
 ${row("Task", `<code>${escapeHtml(t.taskId)}</code>`)}
+${t.model ? row("Model", `<code>${escapeHtml(t.model)}</code>`) : ""}
 ${row("Repo", escapeHtml(`${t.forge ?? "github"}:${t.repo ?? ""}`))}
 ${row("Branch", `<code>${escapeHtml(t.branch)}</code> ← <code>${escapeHtml(t.baseBranch)}</code>`)}
 ${row("Requested by", escapeHtml(t.requestedBy))}
