@@ -43,6 +43,7 @@ export function createShedMcpServer(runner, caller) {
         forge: z.enum(["github", "origin"]).optional().describe("Where the repo lives; default github"),
         title: z.string().optional().describe("Draft PR title"),
         harness: z.enum(["antigravity", "muse"]).optional().describe("Execution harness (antigravity or muse; default antigravity)"),
+        model: z.string().optional().describe("Requested model ID override for the harness"),
       },
     },
     (args) => call(() => runner.runTask(args, caller)),
@@ -54,16 +55,16 @@ export function createShedMcpServer(runner, caller) {
       description: "Read one shed task by taskId (status, branch, draft PR URL, session_id / session_url for the read-only viewer, redacted summary). Omit taskId to get shed state: idle / available / busy, running count, cap, and every running task (taskId, repo, branch, requestedBy, startedAt).",
       inputSchema: { taskId: z.string().optional() },
     },
-    (args) => call(() => runner.status(args ?? {})),
+    (args) => call(() => runner.status(args)),
   );
 
   server.registerTool(
     "shed_task_cancel",
     {
-      description: "Cancel a running shed task by taskId. No PR is opened for a cancelled task.",
+      description: "Cancel one running shed task by taskId. Cancels any in-flight ACP agent job, rescues uncommitted edits to refs/shed/keep/<taskId>, tears down the task worktree, and marks the task cancelled. Safe to call multiple times.",
       inputSchema: { taskId: z.string() },
     },
-    (args) => call(() => runner.cancel(args ?? {})),
+    (args) => call(() => runner.cancel(args)),
   );
 
   return server;
