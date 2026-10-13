@@ -153,7 +153,7 @@ function runnerFixture(broker, opts = {}) {
   return { runner, reposRoot };
 }
 const RUN = { owner: "saari-co", repo: "site", task: "Fix the README typo", requested_by: "grok-bot" };
-const settle = () => new Promise((r) => setTimeout(r, 50));
+const settle = (ms = 50) => new Promise((r) => setTimeout(r, ms));
 
 test("shed_task_run returns session_id and session_url in its first response; transcript persists after finish", async () => {
   const broker = viewerBroker();
@@ -174,7 +174,7 @@ test("shed_task_run returns session_id and session_url in its first response; tr
   assert.equal(status.session_url, started.session_url);
   assert.equal((await runner.status({})).tasks[0].session_id, SID);
   broker.finish();
-  await settle();
+  for (let i = 0; i < 100 && runner.transcripts.size > 0; i++) await settle(10);
   // Finished: served from disk, no live process or in-memory transcript.
   assert.equal(runner.transcripts.size, 0);
   const fresh = runnerFixture(viewerBroker(), { stateDir: path.join(reposRoot, ".saarius-shed") }).runner;
@@ -208,7 +208,7 @@ test("a stalled session/new returns without session fields; status exposes them 
   assert.equal(later.session_id, SID);
   assert.equal(later.session_url, `https://shed.sm0ky.dev/s/${SID}`);
   broker.finish();
-  await settle();
+  for (let i = 0; i < 100 && runner.transcripts.size > 0; i++) await settle(10);
 });
 
 test("session base URL is configurable and must be https", () => {

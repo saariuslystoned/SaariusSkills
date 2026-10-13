@@ -545,13 +545,13 @@ export class ShedTaskRunner {
     } else if (task.worktree) {
       await rm(task.worktree, { recursive: true, force: true }).catch(() => {});
     }
-    this.active.delete(task.taskId);
     await this.record(task, event);
     clearTimeout(this.flushTimers.get(task.taskId));
     this.flushTimers.delete(task.taskId);
     await this.flushSession(task).catch(() => {});
     if (task.jobId) this.jobTasks.delete(task.jobId);
     this.transcripts.delete(task.taskId);
+    this.active.delete(task.taskId);
   }
 
   async status({ taskId } = {}) {
