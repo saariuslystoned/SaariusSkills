@@ -15,6 +15,62 @@ export const MAX_TRANSCRIPT_ENTRIES = 2_000;
 export const MAX_ENTRY_CHARS = 20_000;
 const TERMINAL = new Set(["pr_opened", "pushed", "no_changes", "failed", "cancelled", "unavailable"]);
 
+export const KNOWN_HARNESSES = Object.freeze(["antigravity", "muse", "grok-build", "cursor"]);
+export const DEFAULT_HARNESS = "antigravity";
+export const UNKNOWN_HARNESS = "unknown";
+
+export function normalizeHarness(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return UNKNOWN_HARNESS;
+  const s = raw.trim().toLowerCase();
+  if (KNOWN_HARNESSES.includes(s)) return s;
+  if (s === "antigravity-acp") return "antigravity";
+  if (s === "muse-acp") return "muse";
+  if (s === "grok-acp" || s === "grok") return "grok-build";
+  if (s === "cursor-acp") return "cursor";
+  return UNKNOWN_HARNESS;
+}
+
+export function resolveViewerHarness(rawHarness) {
+  if (rawHarness === undefined || rawHarness === null) {
+    // Existing records on CP-1 saved without the field were all Antigravity.
+    return DEFAULT_HARNESS;
+  }
+  return normalizeHarness(rawHarness);
+}
+
+export const HARNESS_INFO = Object.freeze({
+  antigravity: {
+    key: "antigravity",
+    name: "Antigravity",
+    badgeClass: "harness-antigravity",
+    svg: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1.5l-5 6h3.5v7h3v-7H13L8 1.5z"/></svg>',
+  },
+  muse: {
+    key: "muse",
+    name: "Muse",
+    badgeClass: "harness-muse",
+    svg: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M12 2v7.18A2.5 2.5 0 1 0 11 11.5V5H6v5.18A2.5 2.5 0 1 0 5 12.5V2h7z"/></svg>',
+  },
+  "grok-build": {
+    key: "grok-build",
+    name: "Grok Build",
+    badgeClass: "harness-grok",
+    svg: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1a7 7 0 1 0 7 7h-2.5A4.5 4.5 0 1 1 8 3.5c1.2 0 2.3.5 3.1 1.3L13 3A7 7 0 0 0 8 1zm1 5v3h4V6H9z"/></svg>',
+  },
+  cursor: {
+    key: "cursor",
+    name: "Cursor",
+    badgeClass: "harness-cursor",
+    svg: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 2l10 5.5-5 1.5-1.5 5L3 2z"/></svg>',
+  },
+  unknown: {
+    key: "unknown",
+    name: "Unknown",
+    badgeClass: "harness-neutral harness-unknown",
+    svg: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8" cy="8" r="2"/></svg>',
+  },
+});
+
 export function isSessionId(value) {
   return typeof value === "string" && SESSION_ID_PATTERN.test(value);
 }
@@ -89,9 +145,11 @@ export function isTerminalTaskStatus(status) {
 }
 
 // The one shape both /s/<id> and /s/<id>.json render from. Always redacted.
-export function buildView({ sessionId, task, transcript }) {
+export function buildView({ sessionId, task, transcript, harness }) {
+  const resolvedHarness = resolveViewerHarness(harness ?? task?.harness);
   return redactDeep({
     sessionId,
+    harness: resolvedHarness,
     live: !isTerminalTaskStatus(task?.status),
     task: task
       ? {
@@ -122,7 +180,13 @@ export async function saveSession(dir, sessionId, record) {
   if (!isSessionId(sessionId)) throw new Error("invalid session id");
   const file = path.join(dir, `${sessionId}.json`);
   const tmp = `${file}.${randomBytes(4).toString("hex")}.tmp`;
-  await writeFile(tmp, JSON.stringify(redactDeep(record)), { mode: 0o600 });
+  const toSave = {
+    sessionId,
+    ...(record?.harness !== undefined ? { harness: normalizeHarness(record.harness) } : {}),
+    task: record?.task ?? null,
+    transcript: record?.transcript ?? createTranscript(),
+  };
+  await writeFile(tmp, JSON.stringify(redactDeep(toSave), null, 2), { mode: 0o600 });
   await rename(tmp, file);
 }
 
@@ -139,6 +203,12 @@ const escapeHtml = (value) =>
   String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
 
 const safeHref = (value) => (typeof value === "string" && /^https:\/\/[^\s"'<>]+$/.test(value) ? value : null);
+
+export function renderHarnessBadge(rawHarness) {
+  const harness = resolveViewerHarness(rawHarness);
+  const info = HARNESS_INFO[harness] ?? HARNESS_INFO.unknown;
+  return `<span class="badge harness-badge ${info.badgeClass}">${info.svg} ${escapeHtml(info.name)}</span>`;
+}
 
 export function renderSessionHtml(view, { nonce }) {
   const t = view.task ?? {};
@@ -159,6 +229,7 @@ export function renderSessionHtml(view, { nonce }) {
   const poll = view.live
     ? `<script nonce="${nonce}">(()=>{const v=${JSON.stringify(view.version).replace(/</g, "\\u003c")};const tick=async()=>{try{const r=await fetch(location.pathname+".json",{cache:"no-store",credentials:"same-origin"});if(r.ok){const j=await r.json();if(j.version!==v){location.reload();return;}}}catch{}setTimeout(tick,3000)};setTimeout(tick,3000)})();</script>`
     : "";
+  const harnessBadge = renderHarnessBadge(view.harness);
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
@@ -172,8 +243,15 @@ pre{white-space:pre-wrap;word-break:break-word;background:#fff;border:1px solid 
 ol{list-style:none;padding:0}li{margin:10px 0}.h{font-weight:600}.h time{float:right;color:#888;font-weight:400;font-size:12px}
 .k,.s{font-weight:400;font-size:12px;background:#eee;border-radius:4px;padding:1px 6px}.thought pre{color:#666;font-style:italic}
 .badge{display:inline-block;padding:2px 8px;border-radius:10px;background:${view.live ? "#fff3cd" : "#e2f0d9"}}
+.harness-badge{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:500;padding:2px 8px;border-radius:10px;vertical-align:middle;margin-left:6px;line-height:16px}
+.harness-badge svg{width:14px;height:14px;fill:currentColor;flex-shrink:0}
+.harness-antigravity{background:#e8f0fe;color:#1967d2;border:1px solid #c2d7fa}
+.harness-muse{background:#fce8e6;color:#c5221f;border:1px solid #fad2cf}
+.harness-grok{background:#f3e8fd;color:#7627bb;border:1px solid #e1cbf7}
+.harness-cursor{background:#e6f4ea;color:#137333;border:1px solid #ceead6}
+.harness-neutral{background:#f1f3f4;color:#5f6368;border:1px solid #dadce0}
 </style></head><body>
-<h1>Shed session</h1>
+<h1>Shed session ${harnessBadge}</h1>
 <p><span class="badge">${escapeHtml(t.status ?? "unknown")}${view.live ? " · live" : ""}</span> <code>${escapeHtml(view.sessionId)}</code> · read-only</p>
 <table>
 ${row("Task", `<code>${escapeHtml(t.taskId)}</code>`)}

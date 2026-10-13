@@ -4,7 +4,7 @@ import { appendFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promis
 import path from "node:path";
 import { promisify } from "node:util";
 import { BridgeError, MAX_PROMPT_CHARS, redactSensitive } from "./broker.mjs";
-import { appendEvent, buildView, createTranscript, isSessionId, loadSession, resolveSessionBaseUrl, saveSession, sessionUrl } from "./shed-sessions.mjs";
+import { appendEvent, buildView, createTranscript, isSessionId, loadSession, normalizeHarness, resolveSessionBaseUrl, saveSession, sessionUrl } from "./shed-sessions.mjs";
 import { createRepoOwnerGuard, parseOptionalOwners, parseRepoOwners, REMOTE_ORIGIN_OWNERS_ENV, REMOTE_REPO_OWNERS_ENV } from "./repo-allowlist.mjs";
 
 const execFile = promisify(execFileCallback);
@@ -18,6 +18,7 @@ export const REMOTE_REPOS_ROOT_ENV = "SAARIUS_ACP_REMOTE_REPOS_ROOT";
 export const MAX_CONCURRENT_ENV = "SAARIUS_ACP_REMOTE_MAX_CONCURRENT";
 export const MAX_CONCURRENT_LIMIT = 16;
 export const SHED_STATE_DIR_ENV = "SAARIUS_ACP_SHED_STATE_DIR";
+export const SAARIUS_ACP_HARNESS_ENV = "SAARIUS_ACP_HARNESS";
 export const BRANCH_PREFIX = "shed/";
 // headBranch may only continue branches the shed (shed/<taskId>) or a Codex
 // lane (codex/<name>) owns; never main/master/baseBranch or the repo default.
@@ -80,10 +81,11 @@ async function defaultRun(command, args, { cwd, timeoutMs = 120_000 } = {}) {
 }
 
 export class ShedTaskRunner {
-  constructor({ broker, env = process.env, run = defaultRun, maxConcurrent, owners, originOwners, reposRoot, stateDir, guard, log, now = () => new Date(), sessionWaitMs = SESSION_WAIT_MS, sessionBaseUrl } = {}) {
+  constructor({ broker, env = process.env, run = defaultRun, maxConcurrent, owners, originOwners, reposRoot, stateDir, guard, log, now = () => new Date(), sessionWaitMs = SESSION_WAIT_MS, sessionBaseUrl, harness } = {}) {
     this.broker = broker;
     this.run = run;
     this.now = now;
+    this.harness = normalizeHarness(harness ?? env[SAARIUS_ACP_HARNESS_ENV] ?? env.SAARIUS_ACP_HARNESS ?? broker?.harness ?? broker?.agent ?? "antigravity");
     this.owners = owners ? new Set([...owners].map((o) => o.toLowerCase())) : parseRepoOwners(env[REMOTE_REPO_OWNERS_ENV]);
     this.originOwners = originOwners ? new Set([...originOwners].map((o) => o.toLowerCase())) : parseOptionalOwners(env[REMOTE_ORIGIN_OWNERS_ENV], REMOTE_ORIGIN_OWNERS_ENV);
     this.reposRoot = reposRoot ?? env[REMOTE_REPOS_ROOT_ENV]?.trim();
@@ -147,7 +149,8 @@ export class ShedTaskRunner {
     if (!isSessionId(task.sessionId)) return;
     const transcript = this.transcripts.get(task.taskId);
     if (!transcript) return;
-    await saveSession(this.sessionsDir, task.sessionId, { sessionId: task.sessionId, task: this.publicTask(task), transcript });
+    const harness = normalizeHarness(task.harness ?? this.harness);
+    await saveSession(this.sessionsDir, task.sessionId, { sessionId: task.sessionId, harness, task: this.publicTask(task), transcript });
   }
 
   // Read-only lookup for GET /s/<sessionId>[.json]. Returns null when unknown.
@@ -155,12 +158,12 @@ export class ShedTaskRunner {
     if (!isSessionId(sessionId)) return null;
     for (const task of this.tasks.values()) {
       if (task.sessionId === sessionId && this.transcripts.has(task.taskId)) {
-        return buildView({ sessionId, task: this.publicTask(task), transcript: this.transcripts.get(task.taskId) });
+        return buildView({ sessionId, harness: task.harness ?? this.harness, task: this.publicTask(task), transcript: this.transcripts.get(task.taskId) });
       }
     }
     const stored = await loadSession(this.sessionsDir, sessionId);
     if (!stored || stored.sessionId !== sessionId) return null;
-    return buildView({ sessionId, task: stored.task, transcript: stored.transcript });
+    return buildView({ sessionId, harness: stored.harness, task: stored.task, transcript: stored.transcript });
   }
 
   // Oldest running task id, kept for callers that read the single-task field.
@@ -316,6 +319,7 @@ export class ShedTaskRunner {
     const task = {
       taskId,
       status: "starting",
+      harness: this.harness,
       ...request,
       task: undefined,
       branch: request.headBranch ?? `${BRANCH_PREFIX}${taskId}`,
