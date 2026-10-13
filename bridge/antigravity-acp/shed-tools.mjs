@@ -32,16 +32,17 @@ export function createShedMcpServer(runner, caller) {
     "shed_task_run",
     {
       description:
-        "Run one coding task with official Antigravity ACP on the owner's AI Shed, in an allowlisted GitHub repo, on a new shed/<taskId> branch, then open a draft PR (or continue an existing PR branch via headBranch). Up to the shed's concurrency cap of tasks run at once, each in its own worktree: returns status \"busy\" (with running count and cap) when the cap is reached so the caller can queue and retry, error BRANCH_BUSY when the same repo+headBranch already has a running task, and \"unavailable\" when the shed cannot run Antigravity right now, so callers can fall back. When the ACP session starts within ~10s the response includes session_id and session_url (a read-only viewer page for the owner); otherwise sessionPending is true and shed_task_status returns them once ready. Never put secrets in any field.",
+        "Run one coding task with official Antigravity or Muse ACP on the owner's AI Shed, in an allowlisted GitHub repo, on a new shed/<taskId> branch, then open a draft PR (or continue an existing PR branch via headBranch). Up to the shed's concurrency cap of tasks run at once per harness, each in its own worktree: returns status \"busy\" (naming which harness is full, with running count and cap) when the cap is reached so the caller can queue and retry, error BRANCH_BUSY when the same repo+headBranch already has a running task, and \"unavailable\" when the shed cannot run the agent right now, so callers can fall back. When the ACP session starts within ~10s the response includes session_id and session_url (a read-only viewer page for the owner); otherwise sessionPending is true and shed_task_status returns them once ready. Never put secrets in any field.",
       inputSchema: {
         owner: z.string().describe("GitHub owner; must be on the shed allowlist"),
         repo: z.string().describe("GitHub repository name, already cloned on the shed"),
         task: z.string().describe("Plain-language coding task"),
         requested_by: z.string().describe("Name of the bot or agent that asked for this task, for the audit log"),
         baseBranch: z.string().optional().describe("Branch to start from; default main"),
-        headBranch: z.string().optional().describe("Existing PR head branch to continue on; pushed fast-forward only (fails if the remote moved), no new PR"),
+        headBranch: z.string().optional().describe("Existing PR head branch to continue on (existing shed/ or codex/ branch, fast-forward only); pushed fast-forward only (fails if the remote moved), no new PR"),
         forge: z.enum(["github", "origin"]).optional().describe("Where the repo lives; default github"),
         title: z.string().optional().describe("Draft PR title"),
+        harness: z.enum(["antigravity", "muse"]).optional().describe("Execution harness (antigravity or muse; default antigravity)"),
       },
     },
     (args) => call(() => runner.runTask(args, caller)),

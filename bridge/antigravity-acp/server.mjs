@@ -12,13 +12,19 @@ const transportMode = resolveTransport({ argv: process.argv.slice(2), env: proce
 const broker = await new AntigravityAcpBroker().init();
 
 let closeHost = async () => {};
+let museBroker;
 if (transportMode === "http") {
   // Remote shed: Streamable HTTP on loopback only, published by the
   // operator's Cloudflare Tunnel + Access. Only the narrow shed_task_* tools
   // are served; broker contracts (pinned runtime, oauth-personal, no API-key
   // fallback, permission mode from this process env) are unchanged.
+  const { MuseAcpBroker } = await import("../muse-acp/broker.mjs");
+  museBroker = await new MuseAcpBroker().init();
   const authenticate = createAccessAuthenticator({ env: process.env });
-  const runner = await new ShedTaskRunner({ broker, env: process.env }).init();
+  const runner = await new ShedTaskRunner({
+    brokers: { antigravity: broker, muse: museBroker },
+    env: process.env,
+  }).init();
   const host = await startRemoteShedHost({
     env: process.env,
     bridge: "antigravity-acp",
@@ -36,7 +42,7 @@ if (transportMode === "http") {
 
 const shutdown = async () => {
   await closeHost();
-  await broker.close();
+  await Promise.allSettled([broker.close(), museBroker?.close?.()]);
   process.exit(0);
 };
 process.once("SIGINT", shutdown);

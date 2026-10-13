@@ -10,13 +10,17 @@ import { createRepoOwnerGuard, parseOptionalOwners, parseRepoOwners, REMOTE_ORIG
 const execFile = promisify(execFileCallback);
 
 // Remote-shed task runner. The remote endpoint exposes only these narrow
-// operations (run / status / cancel); there is no general exec tool. Up to
-// SAARIUS_ACP_REMOTE_MAX_CONCURRENT tasks (default 1) run at once, each in its
-// own git worktree; over the cap a caller gets "busy" and queues or falls back.
+// operations (run / status / cancel); there is no general exec tool.
+// Lane caps are counted per harness (default 5 for antigravity and 5 for muse);
+// each task runs in its own git worktree. Over a harness cap a caller gets
+// "busy" naming the full harness and queues or falls back.
 // The bridge itself keeps no queue.
 export const REMOTE_REPOS_ROOT_ENV = "SAARIUS_ACP_REMOTE_REPOS_ROOT";
 export const MAX_CONCURRENT_ENV = "SAARIUS_ACP_REMOTE_MAX_CONCURRENT";
 export const MAX_CONCURRENT_LIMIT = 16;
+export const DEFAULT_HARNESS_CONCURRENCY = 5;
+export const SHED_HARNESSES = Object.freeze(["antigravity", "muse"]);
+export const DEFAULT_SHED_HARNESS = "antigravity";
 export const SHED_STATE_DIR_ENV = "SAARIUS_ACP_SHED_STATE_DIR";
 export const SAARIUS_ACP_HARNESS_ENV = "SAARIUS_ACP_HARNESS";
 export const BRANCH_PREFIX = "shed/";
@@ -59,6 +63,33 @@ export function parseMaxConcurrent(value) {
   return n;
 }
 
+export function resolveHarnessCaps(maxConcurrent, env = process.env) {
+  let antigravity = DEFAULT_HARNESS_CONCURRENCY;
+  let muse = DEFAULT_HARNESS_CONCURRENCY;
+
+  if (typeof maxConcurrent === "number") {
+    const cap = parseMaxConcurrent(maxConcurrent);
+    antigravity = cap;
+    muse = cap;
+  } else if (typeof maxConcurrent === "object" && maxConcurrent !== null) {
+    if (maxConcurrent.antigravity !== undefined) antigravity = parseMaxConcurrent(maxConcurrent.antigravity);
+    if (maxConcurrent.muse !== undefined) muse = parseMaxConcurrent(maxConcurrent.muse);
+  } else if (env[MAX_CONCURRENT_ENV] !== undefined && env[MAX_CONCURRENT_ENV] !== null && String(env[MAX_CONCURRENT_ENV]).trim() !== "") {
+    const cap = parseMaxConcurrent(env[MAX_CONCURRENT_ENV]);
+    antigravity = cap;
+    muse = cap;
+  }
+
+  if (env.SAARIUS_ACP_REMOTE_MAX_CONCURRENT_ANTIGRAVITY !== undefined && String(env.SAARIUS_ACP_REMOTE_MAX_CONCURRENT_ANTIGRAVITY).trim() !== "") {
+    antigravity = parseMaxConcurrent(env.SAARIUS_ACP_REMOTE_MAX_CONCURRENT_ANTIGRAVITY);
+  }
+  if (env.SAARIUS_ACP_REMOTE_MAX_CONCURRENT_MUSE !== undefined && String(env.SAARIUS_ACP_REMOTE_MAX_CONCURRENT_MUSE).trim() !== "") {
+    muse = parseMaxConcurrent(env.SAARIUS_ACP_REMOTE_MAX_CONCURRENT_MUSE);
+  }
+
+  return { antigravity, muse };
+}
+
 function assertNoSecrets(value, field) {
   if (SECRET_INPUT_PATTERN.test(value)) {
     throw new ShedTaskError("SECRET_REFUSED", `${field} looks like it contains a secret; remote tasks must never carry secrets`);
@@ -81,8 +112,38 @@ async function defaultRun(command, args, { cwd, timeoutMs = 120_000 } = {}) {
 }
 
 export class ShedTaskRunner {
-  constructor({ broker, env = process.env, run = defaultRun, maxConcurrent, owners, originOwners, reposRoot, stateDir, guard, log, now = () => new Date(), sessionWaitMs = SESSION_WAIT_MS, sessionBaseUrl, harness } = {}) {
+  constructor({
+    broker,
+    brokers,
+    env = process.env,
+    run = defaultRun,
+    maxConcurrent,
+    owners,
+    originOwners,
+    reposRoot,
+    stateDir,
+    guard,
+    log,
+    now = () => new Date(),
+    sessionWaitMs = SESSION_WAIT_MS,
+    sessionBaseUrl,
+    harness,
+  } = {}) {
     this.broker = broker;
+    this.brokers = new Map();
+    if (brokers) {
+      if (brokers instanceof Map) {
+        for (const [k, v] of brokers.entries()) this.brokers.set(normalizeHarness(k), v);
+      } else {
+        for (const [k, v] of Object.entries(brokers)) this.brokers.set(normalizeHarness(k), v);
+      }
+    }
+    if (broker) {
+      const h = normalizeHarness(broker.harness ?? broker.agent ?? "antigravity");
+      if (!this.brokers.has(h)) this.brokers.set(h, broker);
+      if (!this.brokers.has("antigravity")) this.brokers.set("antigravity", broker);
+    }
+    this.unsubscribers = [];
     this.run = run;
     this.now = now;
     this.harness = normalizeHarness(harness ?? env[SAARIUS_ACP_HARNESS_ENV] ?? env.SAARIUS_ACP_HARNESS ?? broker?.harness ?? broker?.agent ?? "antigravity");
@@ -96,7 +157,7 @@ export class ShedTaskRunner {
     this.guard = guard ?? createRepoOwnerGuard({ owners: this.owners, originOwners: this.originOwners });
     this.log = log ?? ((record) => appendFile(path.join(this.stateDir, "tasks.jsonl"), `${JSON.stringify(record)}\n`));
     this.tasks = new Map();
-    this.maxConcurrent = maxConcurrent !== undefined ? parseMaxConcurrent(maxConcurrent) : parseMaxConcurrent(env[MAX_CONCURRENT_ENV]);
+    this.maxConcurrent = resolveHarnessCaps(maxConcurrent, env);
     // taskId -> task for every task holding a slot (starting through finish).
     this.active = new Map();
     this.idleWaiters = new Set();
@@ -112,7 +173,38 @@ export class ShedTaskRunner {
     this.jobTasks = new Map();
     this.pendingEvents = new Map();
     this.flushTimers = new Map();
-    this.broker?.addEventObserver?.((jobId, event) => this.onAgentEvent(jobId, event));
+    for (const b of this.brokers.values()) {
+      this.wireBrokerEvents(b);
+    }
+  }
+
+  wireBrokerEvents(broker) {
+    if (broker && typeof broker.addEventObserver === "function") {
+      const unsub = broker.addEventObserver((jobId, event) => this.onAgentEvent(jobId, event));
+      if (typeof unsub === "function") this.unsubscribers.push(unsub);
+    }
+  }
+
+  async getBroker(harness) {
+    const h = normalizeHarness(harness ?? this.harness);
+    let broker = this.brokers.get(h);
+    if (!broker && h === "muse") {
+      try {
+        const { MuseAcpBroker } = await import("../muse-acp/broker.mjs");
+        broker = await new MuseAcpBroker().init();
+        this.brokers.set("muse", broker);
+        this.wireBrokerEvents(broker);
+      } catch (err) {
+        throw new ShedTaskError("BROKER_UNAVAILABLE", `Muse broker could not be initialized: ${err.message}`);
+      }
+    }
+    if (!broker && h === "antigravity") {
+      broker = this.broker;
+    }
+    if (!broker) {
+      throw new ShedTaskError("BROKER_UNAVAILABLE", `No broker available for harness "${harness}"`);
+    }
+    return broker;
   }
 
   onAgentEvent(jobId, event) {
@@ -155,7 +247,6 @@ export class ShedTaskRunner {
     await saveSession(this.sessionsDir, task.sessionId, { sessionId: task.sessionId, harness, task: this.publicTask(task), transcript });
   }
 
-  // Read-only lookup for GET /s/<sessionId>[.json]. Returns null when unknown.
   async viewSession(sessionId) {
     if (!isSessionId(sessionId)) return null;
     for (const task of this.tasks.values()) {
@@ -165,12 +256,34 @@ export class ShedTaskRunner {
     }
     const stored = await loadSession(this.sessionsDir, sessionId);
     if (!stored || stored.sessionId !== sessionId) return null;
-    return buildView({ sessionId, harness: stored.harness, task: stored.task, transcript: stored.transcript });
+    return buildView({ sessionId, harness: stored.harness ?? stored.task?.harness, task: stored.task, transcript: stored.transcript });
   }
 
   // Oldest running task id, kept for callers that read the single-task field.
   get activeTaskId() {
     return this.active.keys().next().value ?? null;
+  }
+
+  activeTaskIdForHarness(harness) {
+    const h = harness ? normalizeHarness(harness) : undefined;
+    for (const [taskId, task] of this.active.entries()) {
+      if (!h || (task.harness ?? this.harness) === h) return taskId;
+    }
+    return null;
+  }
+
+  maxConcurrentFor(harness) {
+    const h = normalizeHarness(harness ?? this.harness);
+    return this.maxConcurrent[h] ?? DEFAULT_HARNESS_CONCURRENCY;
+  }
+
+  activeCountForHarness(harness) {
+    const h = normalizeHarness(harness ?? this.harness);
+    let count = 0;
+    for (const task of this.active.values()) {
+      if ((task.harness ?? this.harness) === h) count += 1;
+    }
+    return count;
   }
 
   withRepoLock(repoDir, fn) {
@@ -203,6 +316,7 @@ export class ShedTaskRunner {
       taskId: task.taskId,
       caller: task.caller,
       requestedBy: task.requestedBy,
+      harness: task.harness ?? this.harness,
       repo: `${task.owner}/${task.repo}`,
       forge: task.forge,
       branch: task.branch,
@@ -217,6 +331,7 @@ export class ShedTaskRunner {
     const out = {
       taskId: task.taskId,
       status: task.status,
+      harness: task.harness ?? this.harness,
       repo: `${task.owner}/${task.repo}`,
       forge: task.forge,
       baseBranch: task.baseBranch,
@@ -243,6 +358,7 @@ export class ShedTaskRunner {
     return {
       taskId: task.taskId,
       status: task.status,
+      harness: task.harness ?? this.harness,
       repo: `${task.owner}/${task.repo}`,
       forge: task.forge,
       branch: task.branch,
@@ -253,20 +369,46 @@ export class ShedTaskRunner {
   }
 
   // status: "idle" (nothing running), "available" (running < cap), "busy" (at cap).
-  shedState() {
+  shedState(targetHarness) {
+    if (targetHarness) {
+      const h = normalizeHarness(targetHarness);
+      const harnessTasks = [...this.active.values()]
+        .filter((t) => (t.harness ?? this.harness) === h)
+        .map((t) => this.runningSummary(t));
+      const running = harnessTasks.length;
+      const maxConcurrent = this.maxConcurrentFor(h);
+      const out = {
+        status: running === 0 ? "idle" : running >= maxConcurrent ? "busy" : "available",
+        harness: h,
+        running,
+        maxConcurrent,
+        tasks: harnessTasks,
+      };
+      const activeId = this.activeTaskIdForHarness(h);
+      if (activeId) out.activeTaskId = activeId;
+      if (out.status === "busy") {
+        out.message = `The shed is at its concurrency cap for ${h} (${running}/${maxConcurrent} tasks running); queue and retry later, or fall back.`;
+      }
+      return out;
+    }
+
     const running = this.active.size;
+    const defaultCap = this.maxConcurrentFor(this.harness);
+    const defaultRunning = this.activeCountForHarness(this.harness);
     const out = {
-      status: running === 0 ? "idle" : running >= this.maxConcurrent ? "busy" : "available",
+      status: running === 0 ? "idle" : defaultRunning >= defaultCap ? "busy" : "available",
       running,
-      maxConcurrent: this.maxConcurrent,
+      maxConcurrent: defaultCap,
       tasks: [...this.active.values()].map((task) => this.runningSummary(task)),
     };
     if (running > 0) out.activeTaskId = this.activeTaskId;
-    if (out.status === "busy") out.message = `The shed is at its concurrency cap (${running}/${this.maxConcurrent} tasks running); queue and retry later, or fall back.`;
+    if (out.status === "busy") {
+      out.message = `The shed is at its concurrency cap (${running}/${defaultCap} tasks running); queue and retry later, or fall back.`;
+    }
     return out;
   }
 
-  validate({ owner, repo, task, baseBranch, headBranch, forge, title, requested_by }) {
+  validate({ owner, repo, task, baseBranch, headBranch, forge, title, requested_by, harness }) {
     const safeForge = forge ?? "github";
     if (!FORGES.includes(safeForge)) throw new ShedTaskError("FORGE_INVALID", "forge must be github or origin");
     const allowedOwners = safeForge === "origin" ? this.originOwners : this.owners;
@@ -293,15 +435,24 @@ export class ShedTaskRunner {
     if (typeof requested_by !== "string" || !LABEL_PATTERN.test(requested_by)) {
       throw new ShedTaskError("REQUESTED_BY_REQUIRED", "requested_by must name the bot that asked (letters, digits, _ . @ -)");
     }
+    const rawHarness = harness === undefined || harness === null ? DEFAULT_SHED_HARNESS : harness;
+    if (typeof rawHarness !== "string" || !SHED_HARNESSES.includes(rawHarness.trim().toLowerCase())) {
+      throw new ShedTaskError("HARNESS_INVALID", `harness must be one of: ${SHED_HARNESSES.join(", ")}`);
+    }
+    const safeHarness = rawHarness.trim().toLowerCase();
     const safeTitle = typeof title === "string" && title.trim() ? title.trim().slice(0, TITLE_MAX) : undefined;
     assertNoSecrets(task, "task");
     if (safeTitle) assertNoSecrets(safeTitle, "title");
-    return { owner: owner.toLowerCase(), repo, forge: safeForge, task, baseBranch: base, headBranch, title: safeTitle, requestedBy: requested_by };
+    return { owner: owner.toLowerCase(), repo, forge: safeForge, task, baseBranch: base, headBranch, title: safeTitle, requestedBy: requested_by, harness: safeHarness };
   }
 
   async runTask(input, caller) {
-    if (this.active.size >= this.maxConcurrent) return this.shedState();
     const request = this.validate(input ?? {});
+    const harness = request.harness;
+    const runningForHarness = this.activeCountForHarness(harness);
+    const capForHarness = this.maxConcurrentFor(harness);
+    if (runningForHarness >= capForHarness) return this.shedState(harness);
+
     const repoDir = path.join(this.reposRoot, request.owner, request.repo);
     // Everything below up to the slot reservation is synchronous, so two
     // concurrent calls can never both take the last slot or the same branch.
@@ -321,10 +472,11 @@ export class ShedTaskRunner {
     const task = {
       taskId,
       status: "starting",
-      harness: this.harness,
+      harness: request.harness,
       ...request,
       task: undefined,
       branch: request.headBranch ?? `${BRANCH_PREFIX}${taskId}`,
+      mode: request.headBranch ? "existing_branch" : "new_branch",
       caller: caller?.label ?? "unknown",
       createdAt: this.now().toISOString(),
       worktree: path.join(this.stateDir, "worktrees", taskId),
@@ -352,8 +504,11 @@ export class ShedTaskRunner {
 
   async start(task, request, repoDir) {
     const { taskId } = task;
+    let broker;
     try {
       await this.record(task, "accepted");
+      broker = await this.getBroker(task.harness);
+      task.broker = broker;
       const startRef = request.headBranch ?? request.baseBranch;
       // Each task gets its own worktree under <stateDir>/worktrees/<taskId>.
       await this.withRepoLock(repoDir, async () => {
@@ -374,7 +529,7 @@ export class ShedTaskRunner {
       if (isCancelled(task)) return this.cancelBeforeRun(task);
       await this.guard(task.worktree);
       if (isCancelled(task)) return this.cancelBeforeRun(task);
-      const submitted = await this.broker.delegate({
+      const submitted = await broker.delegate({
         workspace: task.worktree,
         prompt: `${SHED_INSTRUCTIONS}\n\nTask:\n${request.task}`,
         hostConversationId: taskId,
@@ -384,7 +539,7 @@ export class ShedTaskRunner {
       this.bindJob(task, submitted.jobId);
       if (isCancelled(task)) {
         // Cancel landed while delegate() was in flight: stop the job, keep cancelling.
-        await this.broker.cancel({ jobId: task.jobId, reason: "cancelled by remote caller" }).catch(() => {});
+        await broker.cancel({ jobId: task.jobId, reason: "cancelled by remote caller" }).catch(() => {});
         await this.record(task, "cancel_requested");
       } else {
         task.status = "running";
@@ -392,7 +547,7 @@ export class ShedTaskRunner {
       }
     } catch (error) {
       if (isCancelled(task)) return this.cancelBeforeRun(task);
-      const unavailable = /READINESS|OAUTH|RUNTIME|AUTH|SETUP/i.test(error?.code ?? "");
+      const unavailable = /READINESS|OAUTH|RUNTIME|AUTH|SETUP|BROKER_UNAVAILABLE/i.test(error?.code ?? "");
       task.status = unavailable ? "unavailable" : "failed";
       task.error = { code: error?.code ?? "TASK_START_FAILED", message: clean(error?.message, 300) };
       await this.finish(task, "start_failed");
@@ -436,10 +591,11 @@ export class ShedTaskRunner {
   }
 
   async watch(task) {
+    const broker = task.broker ?? (await this.getBroker(task.harness));
     let job;
     for (;;) {
-      job = await this.broker.result({ jobId: task.jobId, waitMs: POLL_WAIT_MS });
-      if (job.complete || (job.taskComplete && (!this.broker?.active?.has?.(task.jobId) || job.cleanup?.status === "uncertain"))) break;
+      job = await broker.result({ jobId: task.jobId, waitMs: POLL_WAIT_MS });
+      if (job.complete || (job.taskComplete && (!broker?.active?.has?.(task.jobId) || job.cleanup?.status === "uncertain"))) break;
     }
     task.summary = clean(job.handoff);
     const transcript = this.transcripts.get(task.taskId);
@@ -532,6 +688,7 @@ export class ShedTaskRunner {
   }
 
   async finish(task, event) {
+    task.finishedAt = this.now().toISOString();
     let hasUncommitted = false;
     if (task.repoDir && task.worktree && !["pushed", "pr_opened"].includes(task.status)) {
       try {
@@ -586,6 +743,7 @@ export class ShedTaskRunner {
     if (task.jobId) this.jobTasks.delete(task.jobId);
     this.transcripts.delete(task.taskId);
     this.releaseActive(task.taskId, task);
+    return this.publicTask(task);
   }
 
   releaseActive(taskId, task) {
@@ -644,7 +802,10 @@ export class ShedTaskRunner {
     }
     task.status = "cancelling";
     await this.record(task, "cancel_requested");
-    if (task.jobId) await this.broker.cancel({ jobId: task.jobId, reason: "cancelled by remote caller" });
+    if (task.jobId) {
+      const broker = task.broker ?? (await this.getBroker(task.harness));
+      await broker.cancel({ jobId: task.jobId, reason: "cancelled by remote caller" }).catch(() => {});
+    }
     return { ...this.publicTask(task), cancellationRequested: true };
   }
 }
