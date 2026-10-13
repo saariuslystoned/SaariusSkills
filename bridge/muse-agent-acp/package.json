@@ -1,0 +1,21 @@
+{
+  "name": "@saarius-skills/muse-agent-acp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ACP agent that translates ACP to Muse Session Protocol (MSP) over `muse serve` stdio.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "bin": {
+    "muse-agent-acp": "server.mjs"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check ../muse-acp/adapter/msp-client.mjs && node --check ../muse-acp/adapter/translate.mjs && node --check ../muse-acp/adapter/server.mjs && node --check server.mjs && npm test"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "1.5.1"
+  }
+}

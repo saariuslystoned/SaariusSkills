@@ -439,7 +439,7 @@ export class ShedTaskRunner {
     let job;
     for (;;) {
       job = await this.broker.result({ jobId: task.jobId, waitMs: POLL_WAIT_MS });
-      if (job.complete) break;
+      if (job.complete || (job.taskComplete && (!this.broker?.active?.has?.(task.jobId) || job.cleanup?.status === "uncertain"))) break;
     }
     task.summary = clean(job.handoff);
     const transcript = this.transcripts.get(task.taskId);
@@ -532,24 +532,52 @@ export class ShedTaskRunner {
   }
 
   async finish(task, event) {
-    if (task.repoDir && task.worktree && task.startSha && !["pushed", "pr_opened"].includes(task.status)) {
-      // Keep any unpushed agent commits reachable after the worktree goes away.
+    let hasUncommitted = false;
+    if (task.repoDir && task.worktree && !["pushed", "pr_opened"].includes(task.status)) {
       try {
-        const head = await this.run("git", ["rev-parse", "HEAD"], { cwd: task.worktree });
-        if (head && head !== task.startSha) await this.run("git", ["update-ref", `refs/shed/keep/${task.taskId}`, head], { cwd: task.worktree });
+        const dirty = await this.run("git", ["status", "--porcelain"], { cwd: task.worktree });
+        if (dirty && dirty.trim().length > 0) {
+          try {
+            await this.run("git", ["add", "-A"], { cwd: task.worktree });
+            await this.run("git", [
+              "commit",
+              "--quiet",
+              "--no-verify",
+              "-m",
+              `Rescue uncommitted changes for task ${task.taskId}`,
+            ], { cwd: task.worktree });
+          } catch {
+            hasUncommitted = true;
+          }
+        }
       } catch {
-        // best effort
+        hasUncommitted = true;
+      }
+      if (task.startSha) {
+        // Keep any unpushed agent commits reachable after the worktree goes away.
+        try {
+          const head = await this.run("git", ["rev-parse", "HEAD"], { cwd: task.worktree });
+          if (head && head !== task.startSha) {
+            await this.run("git", ["update-ref", `refs/shed/keep/${task.taskId}`, head], { cwd: task.worktree });
+          }
+        } catch {
+          // best effort
+        }
       }
     }
     if (task.repoDir && task.worktree) {
-      // Remove the worktree; the branch (and its PR) stay.
-      await this.withRepoLock(task.repoDir, () =>
-        this.run("git", ["worktree", "remove", "--force", task.worktree], { cwd: task.repoDir })
-          .catch(() => rm(task.worktree, { recursive: true, force: true }))
-          .then(() => this.run("git", ["worktree", "prune"], { cwd: task.repoDir }).catch(() => {})),
-      ).catch(() => {});
+      if (!hasUncommitted) {
+        // Remove the worktree; the branch (and its PR) stay.
+        await this.withRepoLock(task.repoDir, () =>
+          this.run("git", ["worktree", "remove", "--force", task.worktree], { cwd: task.repoDir })
+            .catch(() => rm(task.worktree, { recursive: true, force: true }))
+            .then(() => this.run("git", ["worktree", "prune"], { cwd: task.repoDir }).catch(() => {})),
+        ).catch(() => {});
+      }
     } else if (task.worktree) {
-      await rm(task.worktree, { recursive: true, force: true }).catch(() => {});
+      if (!hasUncommitted) {
+        await rm(task.worktree, { recursive: true, force: true }).catch(() => {});
+      }
     }
     await this.record(task, event);
     clearTimeout(this.flushTimers.get(task.taskId));

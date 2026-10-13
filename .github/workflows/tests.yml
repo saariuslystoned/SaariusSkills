@@ -73,19 +73,21 @@ jobs:
             bridge/antigravity-acp/package-lock.json
             bridge/cursor-acp/package-lock.json
             bridge/grok-acp/package-lock.json
+            bridge/muse-acp/package-lock.json
 
       - name: Install all bridge dependencies from lockfiles
         run: |
-          for bridge in antigravity-acp cursor-acp grok-acp; do
+          for bridge in antigravity-acp cursor-acp grok-acp muse-acp; do
             npm ci --ignore-scripts --no-audit --no-fund --prefix "bridge/$bridge"
           done
 
       - name: Run provider-free bridge tests
         run: |
           failed=0
-          for bridge in antigravity-acp cursor-acp grok-acp; do
+          for bridge in antigravity-acp cursor-acp grok-acp muse-acp; do
             npm test --prefix "bridge/$bridge" || failed=1
           done
+          node --test bridge/muse-agent-acp/test/*.test.mjs || failed=1
           if [ "$failed" -ne 0 ]; then
             exit 1
           fi

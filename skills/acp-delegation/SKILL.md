@@ -1,18 +1,18 @@
 ---
 name: acp-delegation
-description: Route generic requests to use the SaariusSkills ACP plugin or delegate through ACP. Discover Grok CLI, Cursor, and Antigravity native tools, select a suitable harness, verify effective permissions, and submit a bounded task. Use a lane skill directly for an already selected harness.
+description: Route generic requests to use the SaariusSkills ACP plugin or delegate through ACP. Discover Grok CLI, Cursor, Antigravity, and Muse native tools, select a suitable harness, verify effective permissions, and submit a bounded task. Use a lane skill directly for an already selected harness.
 ---
 
 # SaariusSkills ACP delegation
 
 Use this entry point when the user has not selected a worker harness. The
-plugin supports three native MCP lanes; a preference is not an exclusivity rule.
+plugin supports four native MCP lanes; a preference is not an exclusivity rule.
 The parent owns task scope, result verification, and external-action gates.
 This workflow concerns native plugin lanes, not Puppet's ACP transport roadmap.
 
 ## Discover and select
 
-Search the available and deferred native tool catalog for all three families
+Search the available and deferred native tool catalog for all four families
 before declaring a route unavailable or writing a restricted handoff:
 
 | Worker harness | Native readiness tool | Selected lane contract |
@@ -20,10 +20,11 @@ before declaring a route unavailable or writing a restricted handoff:
 | Grok CLI (`grok agent stdio`) | `grok_acp_readiness` | [Grok](../grok-acp-delegation/SKILL.md) |
 | Cursor (`cursor-agent acp`) | `cursor_acp_readiness` | [Cursor](../cursor-acp-delegation/SKILL.md) |
 | Google Antigravity ACP | `antigravity_acp_readiness` | [Antigravity](../antigravity-acp-delegation/SKILL.md) |
+| Muse (`muse serve` via `muse-agent-acp`) | `muse_acp_readiness` | [Muse](../muse-acp-delegation/SKILL.md) |
 
 Names may include server/plugin prefixes. Discoverability is not readiness.
-Codex and Claude Code package all three servers; Cursor's host package includes
-Grok and Antigravity and omits the Cursor worker lane. Check live tools anyway;
+Codex and Claude Code package all four servers; Cursor's host package includes
+Grok, Antigravity, and Muse and omits the Cursor worker lane. Check live tools anyway;
 do not assume every host has the same inventory.
 
 Honor an explicit harness and any prohibition on substitution. Read only the
@@ -51,7 +52,11 @@ for unique advertised bases; ensure cleanupReady before switching jobs).
 Native Grok is a separate lane. Omitting its `model` prefers advertised
 `grok-4.7`, then `grok-4.6`, then `grok-4.5`. An explicit Grok model stays
 exact, and `fallbackModels` replaces only those Grok alternatives. Native Grok
-cannot run Luna; Luna remains a Cursor model.
+cannot run Luna; Luna remains a Cursor model. Muse is a separate lane again:
+it hard-codes no model id, so omitting `model` means host default (the
+session's current MSP model, no `session/set_model`), `fallbackModels` is an
+ordered preference list, and an explicit model must be advertised by the
+host's MSP catalog.
 
 ## Establish task readiness
 
