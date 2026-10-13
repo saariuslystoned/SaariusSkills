@@ -483,7 +483,7 @@ test("up to the cap tasks run at once; over the cap returns busy with the runnin
   }
   const cancelled = await runner.cancel({ taskId: started[1].taskId });
   assert.equal(cancelled.cancellationRequested, true);
-  await settle();
+  await runner.whenTask(started[1].taskId);
   assert.equal((await runner.status({ taskId: started[1].taskId })).status, "cancelled");
   const after = await runner.status({});
   assert.equal(after.status, "available");
@@ -491,7 +491,7 @@ test("up to the cap tasks run at once; over the cap returns busy with the runnin
   const again = await runner.runTask({ ...RUN, task: "t5" }, CALLER);
   assert.equal(again.status, "running");
   for (const id of broker.jobs.keys()) broker.finish(id);
-  await settle();
+  await runner.whenIdle();
   assert.equal((await runner.status({})).status, "idle");
 });
 
@@ -510,11 +510,11 @@ test("a second task on the same repo+headBranch is refused while the first runs"
   const otherRepo = await runner.runTask({ ...RUN, owner: "smoky", repo: "motors", forge: "origin", headBranch: "codex/x" }, CALLER);
   assert.equal(otherRepo.status, "running");
   for (const id of broker.jobs.keys()) broker.finish(id, "cancelled");
-  await settle();
+  await runner.whenIdle();
   const freed = await runner.runTask({ ...RUN, task: "later", headBranch: "codex/x" }, CALLER);
   assert.equal(freed.status, "running");
   for (const id of broker.jobs.keys()) broker.finish(id, "cancelled");
-  await settle();
+  await runner.whenIdle();
 });
 
 test("real git: concurrent tasks get isolated worktrees, push their own branches, and clean up", async () => {
@@ -551,7 +551,7 @@ test("real git: concurrent tasks get isolated worktrees, push their own branches
   assert.ok(started.every((t) => t.status === "running"), JSON.stringify(started));
   assert.equal(sh(["worktree", "list", "--porcelain"], clone).split("\n").filter((l) => l.startsWith("worktree ")).length, 6);
   for (const id of broker.jobs.keys()) broker.finish(id);
-  for (let i = 0; i < 100 && (await runner.status({})).status !== "idle"; i++) await settle();
+  await runner.whenIdle();
   for (const t of started) {
     const final = await runner.status({ taskId: t.taskId });
     assert.equal(final.status, "pr_opened", JSON.stringify(final));
@@ -562,4 +562,37 @@ test("real git: concurrent tasks get isolated worktrees, push their own branches
   assert.equal(sh(["worktree", "list", "--porcelain"], clone).split("\n").filter((l) => l.startsWith("worktree ")).length, 1);
   assert.deepEqual(readdirSync(path.join(reposRoot, ".saarius-shed", "worktrees")), []);
   assert.ok(!existsSync(path.join(reposRoot, ".saarius-shed", "worktrees", started[0].taskId)));
+});
+
+
+test("whenIdle and whenTask provide explicit completion signals", async () => {
+  const broker = multiBroker();
+  const { runner } = shedFixture(undefined, { broker, env: { SAARIUS_ACP_REMOTE_MAX_CONCURRENT: "2" } });
+  await runner.init();
+  await runner.whenIdle();
+  const t1 = await runner.runTask({ ...RUN, task: "one" }, CALLER);
+  const t2 = await runner.runTask({ ...RUN, task: "two" }, CALLER);
+  assert.equal(t1.status, "running");
+  assert.equal(t2.status, "running");
+
+  let t1Done = false;
+  const t1Promise = runner.whenTask(t1.taskId).then((res) => {
+    t1Done = true;
+    return res;
+  });
+
+  const firstJobId = broker.jobs.keys().next().value;
+  broker.finish(firstJobId);
+  const t1Result = await t1Promise;
+  assert.equal(t1Done, true);
+  assert.equal(t1Result.taskId, t1.taskId);
+  assert.equal(t1Result.status, "pr_opened");
+  assert.equal((await runner.status({})).status, "available");
+
+  const t1Immediate = await runner.whenTask(t1.taskId);
+  assert.equal(t1Immediate.status, "pr_opened");
+
+  for (const id of broker.jobs.keys()) broker.finish(id);
+  await runner.whenIdle();
+  assert.deepEqual(await runner.status({}), { status: "idle", running: 0, maxConcurrent: 2, tasks: [] });
 });

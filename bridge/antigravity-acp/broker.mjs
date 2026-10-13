@@ -663,6 +663,14 @@ export class AntigravityAcpBroker {
     this.heartbeatTimer = null;
   }
 
+  get harness() {
+    return "antigravity";
+  }
+
+  get agent() {
+    return "antigravity";
+  }
+
   ownerIdentity() {
     return { brokerId: this.brokerId, pid: this.pid, startTime: this.startTime };
   }

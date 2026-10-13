@@ -7,7 +7,19 @@ import path from "node:path";
 import test from "node:test";
 import { createAccessAuthenticator, createViewerAuthenticator, resolveViewerConfig } from "../access-auth.mjs";
 import { startRemoteShedHost } from "../http-host.mjs";
-import { appendEvent, buildView, createTranscript, isSessionId, renderSessionHtml } from "../shed-sessions.mjs";
+import {
+  appendEvent,
+  buildView,
+  createTranscript,
+  HARNESS_INFO,
+  harnessFaviconDataUri,
+  isSessionId,
+  loadSession,
+  normalizeHarness,
+  renderSessionHtml,
+  resolveViewerHarness,
+  saveSession,
+} from "../shed-sessions.mjs";
 import { ShedTaskRunner } from "../shed-tasks.mjs";
 import { redactDeep, redactText } from "../viewer-redact.mjs";
 
@@ -56,7 +68,7 @@ test("redaction removes known secret shapes and keeps ordinary text", () => {
     ["-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAA\n-----END OPENSSH PRIVATE KEY-----", "b3BlbnNzaC1rZXktdjEAAAA"],
     ["-----BEGIN RSA PRIVATE KEY-----\nMIIEtruncated", "MIIEtruncated"],
     ["export API_KEY=abc123", "abc123"],
-    ["DB_PASSWORD=\"hunter2\"", "hunter2"],
+    ['DB_PASSWORD="hunter2"', "hunter2"],
     ["MY_SECRET: s3cret", "s3cret"],
     ["STRIPE_TOKEN=tok_live_x", "tok_live_x"],
     ["https://user:pa55@github.com/x.git", "pa55"],
@@ -107,6 +119,167 @@ test("transcript folds deltas and tool updates; view and HTML are redacted and e
   const done = renderSessionHtml(buildView({ sessionId: SID, task: { status: "pr_opened", prUrl: "https://github.com/o/r/pull/1" }, transcript: t }), { nonce: "n" });
   assert.ok(!done.includes("<script"), "finished sessions do not poll");
   assert.match(done, /href="https:\/\/github.com\/o\/r\/pull\/1"/);
+});
+
+// ---------- harness badge tests ----------
+test("record with harness=muse renders the Muse badge", () => {
+  const view = buildView({
+    sessionId: SID,
+    harness: "muse",
+    task: { taskId: "shed-1", status: "completed", repo: "o/r" },
+    transcript: createTranscript(),
+  });
+  assert.equal(view.harness, "muse");
+  const html = renderSessionHtml(view, { nonce: "n" });
+  assert.match(html, /class="badge harness-badge harness-muse"/);
+  assert.match(html, /Muse/);
+  assert.match(html, /<svg /);
+  const museUri = harnessFaviconDataUri("muse");
+  assert.match(html, new RegExp(`<link rel="icon" href="${museUri.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}">`));
+  assert.ok(!html.includes("http://"), "no remote assets");
+  assert.ok(!html.includes("https://"), "no remote assets in badge");
+});
+
+test("record without the field renders Antigravity", () => {
+  // Existing records on CP-1 saved without the harness field
+  const view = buildView({
+    sessionId: SID,
+    task: { taskId: "shed-1", status: "completed", repo: "o/r" },
+    transcript: createTranscript(),
+  });
+  assert.equal(view.harness, "antigravity");
+  const html = renderSessionHtml(view, { nonce: "n" });
+  assert.match(html, /class="badge harness-badge harness-antigravity"/);
+  assert.match(html, /Antigravity/);
+  assert.match(html, /<svg /);
+  const agyUri = harnessFaviconDataUri("antigravity");
+  assert.match(html, new RegExp(`<link rel="icon" href="${agyUri.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}">`));
+});
+
+test("unknown value renders a neutral badge", () => {
+  const view = buildView({
+    sessionId: SID,
+    harness: "unknown",
+    task: { taskId: "shed-1", status: "completed", repo: "o/r" },
+    transcript: createTranscript(),
+  });
+  assert.equal(view.harness, "unknown");
+  const html = renderSessionHtml(view, { nonce: "n" });
+  assert.match(html, /class="badge harness-badge harness-neutral/);
+  const unknownUri = harnessFaviconDataUri("unknown");
+  assert.match(html, new RegExp(`<link rel="icon" href="${unknownUri.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}">`));
+
+  // Unrecognized harness strings also render a neutral badge
+  const customView = buildView({
+    sessionId: SID,
+    harness: "unregistered-runner-lane",
+    task: { taskId: "shed-1", status: "completed", repo: "o/r" },
+    transcript: createTranscript(),
+  });
+  assert.equal(customView.harness, "unknown");
+  const customHtml = renderSessionHtml(customView, { nonce: "n" });
+  assert.match(customHtml, /class="badge harness-badge harness-neutral/);
+  assert.match(customHtml, new RegExp(`<link rel="icon" href="${unknownUri.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}">`));
+});
+
+test("session viewer favicon link uses harness logo data URI", () => {
+  const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  // 1. Muse session
+  const museView = buildView({
+    sessionId: SID,
+    harness: "muse",
+    task: { taskId: "shed-1", status: "completed", repo: "o/r" },
+    transcript: createTranscript(),
+  });
+  const museHtml = renderSessionHtml(museView, { nonce: "n" });
+  const museUri = harnessFaviconDataUri("muse");
+  assert.ok(museUri.startsWith("data:image/svg+xml,"));
+  assert.match(museHtml, new RegExp(`<link rel="icon" href="${escapeRegExp(museUri)}">`));
+  assert.equal(decodeURIComponent(museUri.slice("data:image/svg+xml,".length)), HARNESS_INFO.muse.svg);
+
+  // 2. Historical (unset) session defaults to Antigravity
+  const historicalView = buildView({
+    sessionId: SID,
+    task: { taskId: "shed-1", status: "completed", repo: "o/r" },
+    transcript: createTranscript(),
+  });
+  const historicalHtml = renderSessionHtml(historicalView, { nonce: "n" });
+  const agyUri = harnessFaviconDataUri("antigravity");
+  assert.ok(agyUri.startsWith("data:image/svg+xml,"));
+  assert.match(historicalHtml, new RegExp(`<link rel="icon" href="${escapeRegExp(agyUri)}">`));
+  assert.equal(decodeURIComponent(agyUri.slice("data:image/svg+xml,".length)), HARNESS_INFO.antigravity.svg);
+
+  // Raw view without harness property directly also defaults to Antigravity
+  const rawHistoricalHtml = renderSessionHtml({ sessionId: SID, task: {} }, { nonce: "n" });
+  assert.match(rawHistoricalHtml, new RegExp(`<link rel="icon" href="${escapeRegExp(agyUri)}">`));
+
+  // 3. Unknown harness uses neutral unknown icon
+  const unknownView = buildView({
+    sessionId: SID,
+    harness: "unregistered-runner-lane",
+    task: { taskId: "shed-1", status: "completed", repo: "o/r" },
+    transcript: createTranscript(),
+  });
+  const unknownHtml = renderSessionHtml(unknownView, { nonce: "n" });
+  const unknownUri = harnessFaviconDataUri("unregistered-runner-lane");
+  assert.ok(unknownUri.startsWith("data:image/svg+xml,"));
+  assert.match(unknownHtml, new RegExp(`<link rel="icon" href="${escapeRegExp(unknownUri)}">`));
+  assert.equal(decodeURIComponent(unknownUri.slice("data:image/svg+xml,".length)), HARNESS_INFO.unknown.svg);
+
+  // Also check grok-build and cursor
+  const grokUri = harnessFaviconDataUri("grok-build");
+  assert.equal(decodeURIComponent(grokUri.slice("data:image/svg+xml,".length)), HARNESS_INFO["grok-build"].svg);
+  const cursorUri = harnessFaviconDataUri("cursor");
+  assert.equal(decodeURIComponent(cursorUri.slice("data:image/svg+xml,".length)), HARNESS_INFO.cursor.svg);
+
+  // No external URLs or remote assets in favicon link
+  for (const html of [museHtml, historicalHtml, rawHistoricalHtml, unknownHtml]) {
+    const match = html.match(/<link rel="icon"[^>]+>/);
+    assert.ok(match, "favicon link tag exists in HTML");
+    assert.ok(match[0].includes("href=\"data:image/svg+xml,"));
+    assert.ok(!match[0].includes("http://"));
+    assert.ok(!match[0].includes("https://"));
+  }
+});
+
+test("harness normalization and persistence in session records", async () => {
+  assert.equal(normalizeHarness("antigravity"), "antigravity");
+  assert.equal(normalizeHarness("MUSE"), "muse");
+  assert.equal(normalizeHarness("grok-build"), "grok-build");
+  assert.equal(normalizeHarness("grok"), "grok-build");
+  assert.equal(normalizeHarness("cursor"), "cursor");
+  assert.equal(normalizeHarness("something-else"), "unknown");
+  assert.equal(normalizeHarness(null), "unknown");
+
+  assert.equal(resolveViewerHarness(undefined), "antigravity");
+  assert.equal(resolveViewerHarness(null), "antigravity");
+  assert.equal(resolveViewerHarness("muse"), "muse");
+  assert.equal(resolveViewerHarness("other"), "unknown");
+
+  const dir = mkdtempSync(path.join(tmpdir(), "shed-session-record-"));
+  await saveSession(dir, SID, {
+    sessionId: SID,
+    harness: "muse",
+    task: { taskId: "t1", status: "completed" },
+    transcript: createTranscript(),
+  });
+  const loaded = await loadSession(dir, SID);
+  assert.equal(loaded.harness, "muse");
+
+  // Record saved without harness field (historical session on CP-1)
+  const legacyDir = mkdtempSync(path.join(tmpdir(), "shed-session-legacy-"));
+  await saveSession(legacyDir, SID, {
+    sessionId: SID,
+    task: { taskId: "t1", status: "completed" },
+    transcript: createTranscript(),
+  });
+  const legacyLoaded = await loadSession(legacyDir, SID);
+  assert.equal(legacyLoaded.harness, undefined);
+  const legacyView = buildView(legacyLoaded);
+  assert.equal(legacyView.harness, "antigravity");
+  const legacyHtml = renderSessionHtml(legacyView, { nonce: "n" });
+  assert.match(legacyHtml, /Antigravity/);
 });
 
 test("session id validation is strict UUID", () => {
@@ -169,6 +342,7 @@ test("shed_task_run returns session_id and session_url in its first response; tr
   assert.equal(live.live, true);
   assert.equal(live.prompt, "Fix the README typo");
   assert.equal(live.entries.length, 2);
+  assert.equal(live.harness, "antigravity");
   assert.ok(!JSON.stringify(live).includes("leakme"));
   const status = await runner.status({ taskId: started.taskId });
   assert.equal(status.session_url, started.session_url);
@@ -183,11 +357,14 @@ test("shed_task_run returns session_id and session_url in its first response; tr
   assert.equal(stored.task.status, "pr_opened");
   assert.equal(stored.task.prUrl, "https://github.com/saari-co/site/pull/7");
   assert.equal(stored.entries.length, 2);
+  assert.equal(stored.harness, "antigravity");
   assert.match(stored.result, /Changed README/);
   assert.ok(!JSON.stringify(stored).includes("AKIAIOSFODNN7EXAMPLE"));
   assert.ok(!JSON.stringify(stored).includes("leakme"));
   const files = readdirSync(path.join(reposRoot, ".saarius-shed", "sessions"));
   assert.deepEqual(files, [`${SID}.json`]);
+  const storedRaw = JSON.parse(readFileSync(path.join(reposRoot, ".saarius-shed", "sessions", `${SID}.json`), "utf8"));
+  assert.equal(storedRaw.harness, "antigravity");
   // task record never carries the prompt
   assert.ok(!readFileSync(path.join(reposRoot, ".saarius-shed", "tasks", `${started.taskId}.json`), "utf8").includes("README typo"));
   assert.equal(await fresh.viewSession("../../etc/passwd"), null);
