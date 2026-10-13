@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { redactDeep, redactText } from "./viewer-redact.mjs";
+import { formatAge } from "./broker.mjs";
 
 // Read-only session viewer support for remote-shed tasks. The runner keeps a
 // bounded, redacted transcript per ACP session (prompt, agent messages,
@@ -89,10 +90,26 @@ export function isTerminalTaskStatus(status) {
 }
 
 // The one shape both /s/<id> and /s/<id>.json render from. Always redacted.
-export function buildView({ sessionId, task, transcript }) {
+export function buildView({ sessionId, task, transcript, now = new Date() }) {
+  const latestEvent = task?.latestEvent ?? null;
+  let latestEventAge = null;
+  let latestEventAgeMs = null;
+  if (latestEvent) {
+    const at = latestEvent.timestamp ?? latestEvent.at;
+    const atMs = at ? new Date(at).getTime() : null;
+    if (atMs && Number.isFinite(atMs)) {
+      const nowDate = now instanceof Date ? now : new Date(now);
+      latestEventAgeMs = Math.max(0, nowDate.getTime() - atMs);
+      latestEventAge = formatAge(latestEventAgeMs);
+    }
+  }
+
   return redactDeep({
     sessionId,
     live: !isTerminalTaskStatus(task?.status),
+    latestEvent,
+    latestEventAge,
+    latestEventAgeMs,
     task: task
       ? {
           taskId: task.taskId,
@@ -107,6 +124,9 @@ export function buildView({ sessionId, task, transcript }) {
           createdAt: task.createdAt,
           updatedAt: task.updatedAt,
           error: task.error ?? null,
+          latestEvent,
+          latestEventAge,
+          latestEventAgeMs,
         }
       : null,
     prompt: transcript?.prompt ?? "",
@@ -184,6 +204,7 @@ ${row("PR", pr ? `<a href="${escapeHtml(pr)}" rel="noopener noreferrer">${escape
 ${t.headSha ? row("Head", `<code>${escapeHtml(t.headSha)}</code>`) : ""}
 ${row("Started", escapeHtml(t.createdAt))}
 ${row("Updated", escapeHtml(t.updatedAt))}
+${view.latestEvent || view.task?.latestEvent ? row("Latest event", `${escapeHtml((view.latestEvent || view.task.latestEvent).event || (view.latestEvent || view.task.latestEvent).type || "event")}${(view.latestEvent || view.task.latestEvent).tool ? ` (${escapeHtml((view.latestEvent || view.task.latestEvent).tool)})` : ""}${(view.latestEvent || view.task.latestEvent).summary ? `: ${escapeHtml((view.latestEvent || view.task.latestEvent).summary)}` : ""}${view.latestEventAge ? ` <time>(${escapeHtml(view.latestEventAge)})</time>` : ""}`) : ""}
 ${t.error ? row("Error", escapeHtml(`${t.error.code}: ${t.error.message ?? ""}`)) : ""}
 </table>
 <h2>Prompt</h2><pre>${escapeHtml(view.prompt)}</pre>

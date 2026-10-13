@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { appendFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { BridgeError, MAX_PROMPT_CHARS, redactSensitive } from "./broker.mjs";
+import { BridgeError, MAX_PROMPT_CHARS, redactSensitive, formatAge, summarizeToolCall } from "./broker.mjs";
 import { appendEvent, buildView, createTranscript, isSessionId, loadSession, resolveSessionBaseUrl, saveSession, sessionUrl } from "./shed-sessions.mjs";
 import { createRepoOwnerGuard, parseOptionalOwners, parseRepoOwners, REMOTE_ORIGIN_OWNERS_ENV, REMOTE_REPO_OWNERS_ENV } from "./repo-allowlist.mjs";
 
@@ -120,16 +120,62 @@ export class ShedTaskRunner {
       this.pendingEvents.set(jobId, pending);
       return;
     }
+    const at = this.now().toISOString();
+    if (event?.type === "job_event") {
+      task.latestEvent = {
+        event: event.event,
+        timestamp: event.timestamp || at,
+        at: event.timestamp || at,
+        ...event.details,
+      };
+      task.updatedAt = task.latestEvent.timestamp;
+    } else if (event?.type === "tool_call") {
+      const toolInfo = summarizeToolCall(event);
+      const isFinished = event.status === "completed" || event.status === "failed" || event.status === "error";
+      task.latestEvent = {
+        event: isFinished ? "tool_call_finished" : "tool_call_started",
+        tool: toolInfo.tool,
+        summary: toolInfo.summary,
+        status: event.status,
+        timestamp: at,
+        at,
+      };
+      task.updatedAt = at;
+    }
     const transcript = this.transcripts.get(task.taskId);
     if (!transcript) return;
-    appendEvent(transcript, event, this.now().toISOString());
+    appendEvent(transcript, event, at);
     this.scheduleFlush(task);
   }
 
   bindJob(task, jobId) {
+    task.jobId = jobId;
     this.jobTasks.set(jobId, task);
     const transcript = this.transcripts.get(task.taskId);
-    for (const { event, at } of this.pendingEvents.get(jobId) ?? []) if (transcript) appendEvent(transcript, event, at);
+    for (const { event, at } of this.pendingEvents.get(jobId) ?? []) {
+      if (event?.type === "job_event") {
+        task.latestEvent = {
+          event: event.event,
+          timestamp: event.timestamp || at,
+          at: event.timestamp || at,
+          ...event.details,
+        };
+        task.updatedAt = task.latestEvent.timestamp;
+      } else if (event?.type === "tool_call") {
+        const toolInfo = summarizeToolCall(event);
+        const isFinished = event.status === "completed" || event.status === "failed" || event.status === "error";
+        task.latestEvent = {
+          event: isFinished ? "tool_call_finished" : "tool_call_started",
+          tool: toolInfo.tool,
+          summary: toolInfo.summary,
+          status: event.status,
+          timestamp: at,
+          at,
+        };
+        task.updatedAt = at;
+      }
+      if (transcript) appendEvent(transcript, event, at);
+    }
     this.pendingEvents.delete(jobId);
   }
 
@@ -188,8 +234,14 @@ export class ShedTaskRunner {
     return this;
   }
 
-  async record(task, event) {
+  async record(task, event, details = {}) {
     task.updatedAt = this.now().toISOString();
+    task.latestEvent = {
+      event,
+      timestamp: task.updatedAt,
+      at: task.updatedAt,
+      ...details,
+    };
     await writeFile(path.join(this.stateDir, "tasks", `${task.taskId}.json`), JSON.stringify(task, null, 2));
     // Audit line: who ran what, where. Never the task text or any secret.
     await this.log({
@@ -231,11 +283,21 @@ export class ShedTaskRunner {
     }
     if (task.summary) out.summary = task.summary;
     if (task.error) out.error = task.error;
+    if (task.latestEvent) {
+      out.latestEvent = task.latestEvent;
+      const at = task.latestEvent.timestamp ?? task.latestEvent.at;
+      const atMs = at ? new Date(at).getTime() : null;
+      if (atMs && Number.isFinite(atMs)) {
+        const ageMs = Math.max(0, this.now().getTime() - atMs);
+        out.latestEventAgeMs = ageMs;
+        out.latestEventAge = formatAge(ageMs);
+      }
+    }
     return out;
   }
 
   runningSummary(task) {
-    return {
+    const summary = {
       taskId: task.taskId,
       status: task.status,
       repo: `${task.owner}/${task.repo}`,
@@ -245,6 +307,17 @@ export class ShedTaskRunner {
       startedAt: task.createdAt,
       ...(task.sessionId ? { session_id: task.sessionId, session_url: sessionUrl(this.sessionBaseUrl, task.sessionId) } : {}),
     };
+    if (task.latestEvent) {
+      summary.latestEvent = task.latestEvent;
+      const at = task.latestEvent.timestamp ?? task.latestEvent.at;
+      const atMs = at ? new Date(at).getTime() : null;
+      if (atMs && Number.isFinite(atMs)) {
+        const ageMs = Math.max(0, this.now().getTime() - atMs);
+        summary.latestEventAgeMs = ageMs;
+        summary.latestEventAge = formatAge(ageMs);
+      }
+    }
+    return summary;
   }
 
   // status: "idle" (nothing running), "available" (running < cap), "busy" (at cap).

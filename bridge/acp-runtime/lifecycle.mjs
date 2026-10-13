@@ -172,5 +172,23 @@ export function brokerProcessLifecycle(broker) {
       await captureJobWorkers(broker, job, { sessionKey: job.sessionKey });
       await broker.saveJob(job);
     },
+    async onExit(exit) {
+      broker.processLifecycleTracker.processLifecycle.onExit(exit);
+      if (exit.scope?.kind !== "runtime-session") return;
+      if (!/^(antigravity|cursor|grok)-acp:[0-9a-f-]{36}$/i.test(exit.scope.sessionKey ?? "")) return;
+      const jobId = exit.scope.sessionKey.split(":").at(-1);
+      if (!/^[0-9a-f-]{36}$/i.test(jobId ?? "")) return;
+      try {
+        const job = await broker.getJob(jobId);
+        if (typeof broker.recordWorkerExited === "function") {
+          await broker.recordWorkerExited(job, {
+            exitSignal: exit.signal ?? null,
+            signal: exit.signal ?? null,
+            exitCode: exit.exitCode ?? null,
+            pid: exit.pid,
+          });
+        }
+      } catch {}
+    },
   };
 }
