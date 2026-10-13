@@ -22,6 +22,12 @@ Keep practice-label and returning-merchant checks as separate cases. Neither rep
 - Identify the deployed store and each hosted service independently: source revision, artifact/package digest, deployment/version identity, and observed configuration. An installed version label or merged commit is insufficient attestation.
 - Keep credential values, cookies, tokens, private emails and private account details out of agent context and public artifacts. Use approved credential consumers; record safe identity aliases and redacted evidence.
 
+## Optional mailbox evidence
+
+For an assigned merchant-email check, use the operator's [gogcli runbook](https://github.com/saari-co/x-api/blob/3c0f444968ddbfbce5130c70e13edb2a209cd610/docs/operations/dinkuskit-e2e-gogcli.md). This is a pinned proposal in [pending runbook PR](https://github.com/saari-co/x-api/pull/711), not a claim that it has landed; repository access is required. If inaccessible, obtain an approved operator runbook rather than guessing account or authentication setup.
+
+Use the run's approved client/account and bounded read-only query. Broader provider OAuth grants do not authorize sends or mailbox/settings changes. Keep private runtime identities, mail contents and authentication material out of this reusable skill and public proof. Mailbox setup or an email match does not certify the merchant flow; a missing message remains an observation scoped to its query and time.
+
 ## Run and close
 
 Record prerequisites before mutations. Execute only the authorized case, capture each user-visible transition, and join order, payment, shipment, PDF and tracking evidence using stable sanitized aliases. Missing evidence is `UNVERIFIED`, not an inferred pass.
