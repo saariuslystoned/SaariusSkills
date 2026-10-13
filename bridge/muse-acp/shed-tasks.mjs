@@ -336,7 +336,6 @@ export class ShedTaskRunner {
     let timer;
     const stalled = new Promise((resolve) => {
       timer = setTimeout(() => resolve({ ...this.publicTask(task), sessionPending: true, message: "ACP session is still starting; read session_id / session_url from shed_task_status" }), this.sessionWaitMs);
-      timer.unref?.();
     });
     try {
       return await Promise.race([started, stalled]);
@@ -574,13 +573,13 @@ export class ShedTaskRunner {
         await rm(task.worktree, { recursive: true, force: true }).catch(() => {});
       }
     }
-    this.active.delete(task.taskId);
     await this.record(task, event);
     clearTimeout(this.flushTimers.get(task.taskId));
     this.flushTimers.delete(task.taskId);
     await this.flushSession(task).catch(() => {});
     if (task.jobId) this.jobTasks.delete(task.jobId);
     this.transcripts.delete(task.taskId);
+    this.active.delete(task.taskId);
   }
 
   async status({ taskId } = {}) {
