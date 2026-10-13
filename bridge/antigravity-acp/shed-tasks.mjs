@@ -99,6 +99,8 @@ export class ShedTaskRunner {
     this.maxConcurrent = maxConcurrent !== undefined ? parseMaxConcurrent(maxConcurrent) : parseMaxConcurrent(env[MAX_CONCURRENT_ENV]);
     // taskId -> task for every task holding a slot (starting through finish).
     this.active = new Map();
+    this.idleWaiters = new Set();
+    this.taskWaiters = new Map();
     // Per-clone promise chain so fetch / worktree add / remove on one repo never race on git locks.
     this.repoLocks = new Map();
     // Session viewer: redacted transcripts keyed by taskId, persisted under
@@ -331,7 +333,7 @@ export class ShedTaskRunner {
     try {
       if (!(await stat(repoDir)).isDirectory()) throw new Error("not a directory");
     } catch {
-      this.active.delete(taskId);
+      this.releaseActive(taskId, task);
       return { status: "unavailable", reason: "REPO_NOT_ON_SHED", message: `${request.owner}/${request.repo} is not cloned under the shed repos root` };
     }
     this.tasks.set(taskId, task);
@@ -555,7 +557,40 @@ export class ShedTaskRunner {
     await this.flushSession(task).catch(() => {});
     if (task.jobId) this.jobTasks.delete(task.jobId);
     this.transcripts.delete(task.taskId);
-    this.active.delete(task.taskId);
+    this.releaseActive(task.taskId, task);
+  }
+
+  releaseActive(taskId, task) {
+    this.active.delete(taskId);
+    const waiters = this.taskWaiters.get(taskId);
+    if (waiters) {
+      this.taskWaiters.delete(taskId);
+      for (const resolve of waiters) resolve(this.status({ taskId }));
+    }
+    if (this.active.size === 0 && this.idleWaiters.size > 0) {
+      const idle = [...this.idleWaiters];
+      this.idleWaiters.clear();
+      for (const resolve of idle) resolve();
+    }
+  }
+
+  async whenTask(taskId) {
+    if (!this.active.has(taskId)) return this.status({ taskId });
+    return new Promise((resolve) => {
+      let waiters = this.taskWaiters.get(taskId);
+      if (!waiters) {
+        waiters = new Set();
+        this.taskWaiters.set(taskId, waiters);
+      }
+      waiters.add(resolve);
+    });
+  }
+
+  whenIdle() {
+    if (this.active.size === 0) return Promise.resolve();
+    return new Promise((resolve) => {
+      this.idleWaiters.add(resolve);
+    });
   }
 
   async status({ taskId } = {}) {
