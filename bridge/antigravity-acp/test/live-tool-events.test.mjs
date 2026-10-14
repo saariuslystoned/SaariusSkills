@@ -143,3 +143,53 @@ test("live tool-call events: shell commands show in events.jsonl and status whil
     await rm(workspace, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
+
+test("live tool-call events: started tool is finalized when the worker dies mid-turn", { timeout: 30_000 }, async () => {
+  const stateRoot = await mkdtemp(path.join(tmpdir(), "agy-tool-fail-state-"));
+  const workspace = await mkdtemp(path.join(tmpdir(), "agy-tool-fail-ws-"));
+
+  const broker = new AntigravityAcpBroker({
+    stateRoot,
+    defaultWorkspace: workspace,
+    defaultHostConversationId: "conv-tool-fail",
+    runtimeServer: TOOL_PEER,
+    helperPath: process.execPath,
+    readAuthPolicy: async () => ({
+      settingsPresent: true,
+      authType: "oauth-personal",
+      overageState: "never",
+    }),
+    processEnv: {
+      PATH: process.env.PATH,
+      TMPDIR: stateRoot,
+    },
+  });
+
+  try {
+    const delegateResult = await broker.delegate({
+      workspace,
+      model: "gemini-3.8-flash-high",
+      prompt: "FAIL_AFTER_TOOL_START please",
+    });
+    const jobId = delegateResult.jobId;
+
+    const result = await broker.result({ jobId, waitMs: 15_000 });
+    assert.notEqual(result.status, "completed");
+    assert.notEqual(result.status, "running");
+
+    const eventsPath = path.join(stateRoot, "runs", jobId, "events.jsonl");
+    const eventsRaw = await readFile(eventsPath, "utf8");
+    const events = eventsRaw.trim().split("\n").map((line) => JSON.parse(line));
+    const started = events.filter((e) => e.event === "tool_call_started");
+    const finished = events.filter((e) => e.event === "tool_call_finished");
+    assert.equal(started.length, 1, "expected one tool_call_started");
+    assert.equal(finished.length, 1, "started tool must be finalized on turn rejection");
+    assert.equal(finished[0].details.toolCallId, started[0].details.toolCallId);
+    assert.equal(finished[0].details.exitStatus, "interrupted");
+  } finally {
+    await broker.close();
+    await new Promise((r) => setTimeout(r, 100));
+    await rm(stateRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(workspace, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});

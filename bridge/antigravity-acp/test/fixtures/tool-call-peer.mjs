@@ -71,6 +71,11 @@ rl.on("line", async (line) => {
 
     await sleep(60);
 
+    if (JSON.stringify(params ?? {}).includes("FAIL_AFTER_TOOL_START")) {
+      // Die mid-turn so the runtime turn rejects after tool_call_started.
+      process.exit(3);
+    }
+
     // 2. Tool call 1 finished
     notify("session/update", {
       sessionId,

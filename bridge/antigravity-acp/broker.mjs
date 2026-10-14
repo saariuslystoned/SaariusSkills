@@ -1739,6 +1739,22 @@ export class AntigravityAcpBroker {
     }
   }
 
+  async finalizeActiveToolCalls(job, activeToolCalls) {
+    for (const [id, started] of activeToolCalls) {
+      const finishedAt = Date.now();
+      const durationMs = Math.max(0, finishedAt - started.startedAt);
+      await this.recordEvent(job, "tool_call_finished", {
+        toolCallId: id,
+        tool: started.tool,
+        summary: started.summary,
+        duration: durationMs / 1000,
+        durationMs,
+        exitStatus: job.cancelRequested ? "cancelled" : "interrupted",
+      }).catch(() => {});
+    }
+    activeToolCalls.clear();
+  }
+
   async runJob(job, taskPrompt, requestedModel, prepared = {}) {
     let handle = prepared.handle;
     let turn;
@@ -1822,31 +1838,25 @@ export class AntigravityAcpBroker {
           job.lastEventTag = event.tag;
         }
       });
-      const result = await turn.result.catch((err) => {
-        if (job.cancelRequested) return { status: "cancelled", stopReason: job.cancelReason ?? "cancelled" };
-        throw err;
-      });
-      await eventsPromise.catch(() => {});
-      if (!job.cancelRequested) {
-        const persisted = await this.getJob(job.jobId).catch(() => null);
-        if (persisted?.cancelRequested) {
-          job.cancelRequested = true;
-          job.cancelReason = persisted.cancelReason;
+      let result;
+      try {
+        result = await turn.result.catch((err) => {
+          if (job.cancelRequested) return { status: "cancelled", stopReason: job.cancelReason ?? "cancelled" };
+          throw err;
+        });
+      } finally {
+        // Finalize started tool calls on every path: a rejected turn must not
+        // leave tool_call_started records permanently unclosed.
+        await eventsPromise.catch(() => {});
+        if (!job.cancelRequested) {
+          const persisted = await this.getJob(job.jobId).catch(() => null);
+          if (persisted?.cancelRequested) {
+            job.cancelRequested = true;
+            job.cancelReason = persisted.cancelReason;
+          }
         }
+        await this.finalizeActiveToolCalls(job, activeToolCalls);
       }
-      for (const [id, started] of activeToolCalls) {
-        const finishedAt = Date.now();
-        const durationMs = Math.max(0, finishedAt - started.startedAt);
-        await this.recordEvent(job, "tool_call_finished", {
-          toolCallId: id,
-          tool: started.tool,
-          summary: started.summary,
-          duration: durationMs / 1000,
-          durationMs,
-          exitStatus: job.cancelRequested ? "cancelled" : "interrupted",
-        }).catch(() => {});
-      }
-      activeToolCalls.clear();
       job.eventCount = eventCount;
       job.toolCallCount = toolCallCount;
       job.updatedAt = this.now();
