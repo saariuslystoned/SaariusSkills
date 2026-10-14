@@ -80,7 +80,9 @@ export function acpPermissionOptions(choices) {
 // Pick the fail-closed choice when the ACP client cancels a permission prompt.
 export function denyChoiceId(choices) {
   const deny = (choices ?? []).find(
-    (c) => typeof c?.decision === "string" && (c.decision === "denied" || c.decision.startsWith("denied")),
+    (c) =>
+      typeof c?.decision === "string" &&
+      (c.decision === "denied" || c.decision.startsWith("denied") || c.decision === "abort"),
   );
   return deny?.choiceId ?? null;
 }
