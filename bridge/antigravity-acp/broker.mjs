@@ -2139,7 +2139,11 @@ export class AntigravityAcpBroker {
   enqueueJobWrite(jobId, write) {
     const previous = this.jobWriteQueues.get(jobId) ?? Promise.resolve();
     const next = previous.catch(() => {}).then(write);
-    this.jobWriteQueues.set(jobId, next.catch(() => {}));
+    const tracked = next.catch(() => {});
+    this.jobWriteQueues.set(jobId, tracked);
+    tracked.then(() => {
+      if (this.jobWriteQueues.get(jobId) === tracked) this.jobWriteQueues.delete(jobId);
+    });
     return next;
   }
 

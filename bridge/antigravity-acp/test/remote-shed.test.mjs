@@ -233,7 +233,14 @@ test("a task runs on a new branch and ends in a draft PR; audit log names caller
   assert.ok(!flat.some((c) => /--force(?!\s+\S*worktrees)|merge/.test(c.replace(/git worktree remove --force \S+/, ""))));
   assert.ok(logs.every((line) => line.caller === "acp-runner" && line.requestedBy === "acp-runner"));
   assert.ok(!JSON.stringify(logs).includes("README typo"));
-  assert.equal((await runner.status({})).status, "idle");
+  // The task is pr_opened before async cleanup clears the active slot; poll
+  // briefly instead of assuming cleanup finished within settle().
+  let shedStatus = (await runner.status({})).status;
+  for (let attempt = 0; attempt < 100 && shedStatus !== "idle"; attempt += 1) {
+    await settle();
+    shedStatus = (await runner.status({})).status;
+  }
+  assert.equal(shedStatus, "idle");
 });
 
 test("input validation: allowlist, requested_by, secrets, and unavailable repos", async () => {

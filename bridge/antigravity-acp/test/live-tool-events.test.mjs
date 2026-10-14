@@ -234,6 +234,8 @@ test("latestEvent persistence is serialized with terminal job saves", { timeout:
     assert.equal(persisted.status, "cancelled", "terminal status must not be resurrected by latestEvent write");
     assert.equal(persisted.cancelRequested, true);
     assert.equal(persisted.latestEvent?.event, "tool_call_started");
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(broker.jobWriteQueues.has("race-job-1"), false, "settled job write queue must be released");
   } finally {
     await broker.close();
     await new Promise((r) => setTimeout(r, 100));
