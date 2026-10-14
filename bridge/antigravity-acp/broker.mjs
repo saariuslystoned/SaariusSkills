@@ -8,7 +8,7 @@ import { accessSync, constants } from "node:fs";
 import { access, appendFile, link, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
-import { execFile as execFileCallback } from "node:child_process";
+import { execFile as execFileCallback, spawnSync } from "node:child_process";
 import { promisify } from "node:util";
 import { createAcpRuntime, createAgentRegistry } from "acpx/runtime";
 import {
@@ -305,6 +305,263 @@ export function redactSensitive(value) {
   return text;
 }
 
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export const REDACTION_RULES = [
+  // PEM private keys (RSA, EC, OPENSSH, ENCRYPTED, ...), including truncated blocks.
+  [/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/g, "[redacted private key]"],
+  // Cloudflare Access service-token headers / fields.
+  [/\b(cf-access-client-secret|cf_access_client_secret|access[_-]?client[_-]?secret|client[_-]?secret)(["']?\s*[:=]\s*["']?)[^\s"',;]+/gi, "$1$2[redacted]"],
+  [/\b(cf-access-client-id|cf_access_client_id)(["']?\s*[:=]\s*["']?)[^\s"',;]+/gi, "$1$2[redacted]"],
+  [/\b(cf-access-jwt-assertion|cf_authorization)(["']?\s*[:=]\s*["']?)[^\s"',;]+/gi, "$1$2[redacted]"],
+  // Cloudflare API tokens / global key passed as headers or env.
+  [/\b(x-auth-key|x-auth-user-service-key)(["']?\s*[:=]\s*["']?)[^\s"',;]+/gi, "$1$2[redacted]"],
+  [/\b((?:CLOUDFLARE|CF)_[A-Z0-9_]*(?:TOKEN|KEY|SECRET)[A-Z0-9_]*)(["']?\s*[:=]\s*["']?)[^\s"',;]+/g, "$1$2[redacted]"],
+  // Authorization headers of any scheme.
+  [/\b(authorization|proxy-authorization)(["']?\s*[:=]\s*["']?)(?:Bearer|Basic|token|Bot)\s+[^\s"',;]+/gi, "$1$2[redacted]"],
+  [/\bBearer\s+[A-Za-z0-9._~+/=-]{6,}/gi, "Bearer [redacted]"],
+  // GitHub tokens (classic + fine-grained) and similar vendor-prefixed tokens.
+  [/\bgithub_pat_[A-Za-z0-9_]{20,}/g, "[redacted github token]"],
+  [/\bgh[pousr]_[A-Za-z0-9]{20,}/g, "[redacted github token]"],
+  [/\b(?:sk|rk|pk)-(?:live-|test-|proj-|ant-)?[A-Za-z0-9_-]{16,}/g, "[redacted token]"],
+  [/\bxox[abprs]-[A-Za-z0-9-]{10,}/g, "[redacted token]"],
+  [/\bAIza[0-9A-Za-z_-]{30,}/g, "[redacted token]"],
+  // AWS access key ids and secret keys.
+  [/\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA)[0-9A-Z]{16}\b/g, "[redacted aws key id]"],
+  [/\b(aws_secret_access_key|aws_session_token|secretaccesskey)(["']?\s*[:=]\s*["']?)[^\s"',;]+/gi, "$1$2[redacted]"],
+  // JWTs (Access assertions, OAuth id tokens).
+  [/\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, "[redacted jwt]"],
+  // Credentials embedded in URLs.
+  [/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/gi, "$1[redacted]@"],
+  // Generic env / config lines: FOO_KEY=..., API_TOKEN: ..., DB_PASSWORD="...".
+  [/\b((?:export\s+)?(?:[A-Za-z0-9]+[_-])*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|PASS|CREDENTIALS?|APIKEY|PRIVATE_KEY)(?:[_-][A-Za-z0-9]+)*)(["']?[ \t]*[:=][ \t]*["']?)(?!\[redacted)[^\s"',;]+/gi, "$1$2[redacted]"],
+];
+
+export function redactText(value) {
+  let text = String(value ?? "");
+  for (const [pattern, replacement] of REDACTION_RULES) text = text.replace(pattern, replacement);
+  return redactSensitive(text);
+}
+
+export function formatAge(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return "0s";
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+export function summarizeToolCall(event) {
+  const tool = event?.title || event?.tool || event?.name || event?.kind || "tool_call";
+  let summary = "";
+  const rawInput = event?.rawInput ?? event?.input;
+  if (typeof rawInput === "string") {
+    summary = rawInput;
+  } else if (rawInput && typeof rawInput === "object") {
+    if (typeof rawInput.command === "string") {
+      summary = rawInput.command;
+      if (Array.isArray(rawInput.args)) summary += ` ${rawInput.args.join(" ")}`;
+    } else if (typeof rawInput.cmd === "string") {
+      summary = rawInput.cmd;
+    } else if (typeof rawInput.query === "string") {
+      summary = rawInput.query;
+    } else if (typeof rawInput.path === "string" || typeof rawInput.file === "string") {
+      summary = rawInput.path ?? rawInput.file;
+    } else {
+      try {
+        summary = JSON.stringify(rawInput);
+      } catch {
+        summary = String(rawInput);
+      }
+    }
+  } else if (typeof event?.text === "string" && event.text) {
+    const colonIdx = event.text.indexOf(":");
+    summary = colonIdx >= 0 ? event.text.slice(colonIdx + 1).trim() : event.text;
+  } else if (typeof event?.summary === "string") {
+    summary = event.summary;
+  }
+  const redacted = redactText(summary).replace(/\s+/g, " ").trim();
+  const bounded = redacted.length > 200 ? `${redacted.slice(0, 199)}…` : redacted;
+  return { tool, summary: bounded };
+}
+
+let python3AvailableCache;
+function defaultHasPython3() {
+  if (python3AvailableCache === undefined) {
+    try {
+      const probe = spawnSync("python3", ["--version"], { stdio: "ignore" });
+      python3AvailableCache = !probe.error && probe.status === 0;
+    } catch {
+      python3AvailableCache = false;
+    }
+  }
+  return python3AvailableCache;
+}
+
+export function wrapWorkerInProcessGroup(command, args = [], {
+  platform = process.platform,
+  hasPython3 = defaultHasPython3,
+} = {}) {
+  // Windows has no POSIX process groups, and hosts without python3 must still
+  // launch: fall back to the direct command. Termination compensates by
+  // killing captured descendants (POSIX) or taskkill /T (Windows).
+  if (platform === "win32" || !hasPython3()) {
+    return [command, ...(args ?? [])];
+  }
+  return [
+    "python3",
+    "-c",
+    "import os, sys; os.setpgrp(); os.execvp(sys.argv[1], sys.argv[1:])",
+    command,
+    ...(args ?? []),
+  ];
+}
+
+async function defaultDescendantsOf(rootPid) {
+  try {
+    const { stdout } = await execFile("ps", ["-eo", "pid=,ppid="], {
+      timeout: 5_000,
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    const childrenByParent = new Map();
+    for (const line of String(stdout).split("\n")) {
+      const [child, parent] = line.trim().split(/\s+/).map(Number);
+      if (!Number.isInteger(child) || !Number.isInteger(parent)) continue;
+      if (!childrenByParent.has(parent)) childrenByParent.set(parent, []);
+      childrenByParent.get(parent).push(child);
+    }
+    const descendants = [];
+    const queue = [rootPid];
+    const seen = new Set([rootPid]);
+    while (queue.length > 0) {
+      for (const child of childrenByParent.get(queue.shift()) ?? []) {
+        if (seen.has(child)) continue;
+        seen.add(child);
+        descendants.push(child);
+        queue.push(child);
+      }
+    }
+    return descendants;
+  } catch {
+    return [];
+  }
+}
+
+async function defaultTaskkill(target, force) {
+  await execFile("taskkill", ["/PID", String(target), "/T", ...(force ? ["/F"] : [])], {
+    timeout: 10_000,
+  });
+}
+
+export async function terminateProcessGroup(pid, {
+  signal = "SIGTERM",
+  escalateSignal = "SIGKILL",
+  graceMs = 10_000,
+  pollMs = 50,
+  platform = process.platform,
+  kill = (target, sig) => process.kill(target, sig),
+  descendantsOf = defaultDescendantsOf,
+  taskkill = defaultTaskkill,
+} = {}) {
+  if (!Number.isInteger(pid) || pid <= 0) return { exited: true, signal: null };
+
+  // Negative-pid group signals are POSIX-only; on Windows address the worker
+  // process itself or every probe/signal fails before any fallback runs.
+  const groupTarget = platform === "win32" ? pid : -pid;
+  // Capture descendants before signaling the parent: once it exits, children
+  // are reparented and can no longer be found. This covers launches that had
+  // no process group (win32 / no-python3 fallback), so cancellation never
+  // reports complete while spawned child work keeps running.
+  const descendants = platform === "win32"
+    ? []
+    : (await descendantsOf(pid).catch(() => []))
+        .filter((child) => Number.isInteger(child) && child > 0 && child !== pid);
+
+  const probe = (target) => {
+    try {
+      kill(target, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const isAlive = () => {
+    try {
+      kill(groupTarget, 0);
+      return true;
+    } catch (e) {
+      if (e.code === "ESRCH" && groupTarget !== pid && probe(pid)) return true;
+    }
+    return descendants.some((child) => probe(child));
+  };
+
+  const send = async (sig) => {
+    let sent = false;
+    if (platform === "win32") {
+      try {
+        await taskkill(pid, sig === escalateSignal);
+        sent = true;
+      } catch {
+        try {
+          kill(pid, sig);
+          sent = true;
+        } catch {}
+      }
+      return sent;
+    }
+    try {
+      kill(groupTarget, sig);
+      sent = true;
+    } catch (e) {
+      if (e.code === "ESRCH" && groupTarget !== pid) {
+        try {
+          kill(pid, sig);
+          sent = true;
+        } catch {}
+      }
+    }
+    for (const child of descendants) {
+      try {
+        kill(child, sig);
+        sent = true;
+      } catch {}
+    }
+    return sent;
+  };
+
+  if (!isAlive()) return { exited: true, signal: null };
+
+  await send(signal);
+  let effectiveSignal = signal;
+
+  const deadline = Date.now() + graceMs;
+  while (Date.now() < deadline) {
+    await sleep(pollMs);
+    if (!isAlive()) {
+      return { exited: true, signal: effectiveSignal };
+    }
+  }
+
+  // If still alive after graceMs, escalate to SIGKILL
+  if (isAlive()) {
+    effectiveSignal = escalateSignal;
+    await send(escalateSignal);
+    const killDeadline = Date.now() + 5_000;
+    while (Date.now() < killDeadline) {
+      await sleep(pollMs);
+      if (!isAlive()) {
+        return { exited: true, signal: effectiveSignal };
+      }
+    }
+  }
+
+  return { exited: !isAlive(), signal: effectiveSignal };
+}
+
 export function safeMessage(value, maxChars = 320) {
   const text = redactSensitive(value).replace(/\s+/g, " ").trim();
   return text.length > maxChars ? `${text.slice(0, maxChars - 1)}…` : text;
@@ -568,8 +825,12 @@ export function createDefaultRuntime({
   processEnv = process.env,
   processLifecycle,
 }) {
+  const [workerCommand, ...workerArgs] = wrapWorkerInProcessGroup(
+    launch.command,
+    launch.args ?? [],
+  );
   const registry = createAgentRegistry({
-    overrides: { antigravity: [launch.command, ...launch.args] },
+    overrides: { antigravity: [workerCommand, ...workerArgs] },
   });
   const sessions = new Map();
   const permission = resolveLivePermissionMode(processEnv);
@@ -648,6 +909,7 @@ export class AntigravityAcpBroker {
     // Read-only observers of live ACP turn events (session viewer). An
     // observer can never affect the turn: errors are swallowed.
     this.eventObservers = new Set();
+    this.jobWriteQueues = new Map();
     this.active = new Map();
     this.changeWaiters = new Map();
     this.initPromise = null;
@@ -926,8 +1188,21 @@ export class AntigravityAcpBroker {
 
   async observeJob(jobId) {
     let job = await this.getJob(jobId);
+    const active = this.active.get(jobId);
+    if (active?.job?.latestEvent) {
+      job.latestEvent = active.job.latestEvent;
+    }
     if (!isTerminalStatus(job.status) && !this.active.has(jobId)) {
-      await this.recoverOwnedJobIfEligible(job);
+      if (job.cancelRequested) {
+        job.status = "cancelled";
+        job.handoff = "Antigravity ACP cancelled the active turn.";
+        await this.saveAndRecord(job, "cancelled", {
+          eventCount: job.eventCount ?? 0,
+          toolCallCount: job.toolCallCount ?? 0,
+        }).catch(() => {});
+      } else {
+        await this.recoverOwnedJobIfEligible(job);
+      }
       job = await this.getJob(jobId);
     }
     if (needsCleanupFence(job) && !this.active.has(jobId)) {
@@ -1459,6 +1734,96 @@ export class AntigravityAcpBroker {
     }
   }
 
+  async recordWorkerExited(job, { exitSignal = null, signal = null, exitCode = null, pid = null } = {}) {
+    const effectiveSignal = exitSignal ?? signal ?? null;
+    if (!job.recordedWorkerExits) job.recordedWorkerExits = new Set();
+    const key = `${pid}:${effectiveSignal}:${exitCode}`;
+    if (job.recordedWorkerExits.has(key)) return;
+    job.recordedWorkerExits.add(key);
+    await this.recordEvent(job, "worker_exited", {
+      exitSignal: effectiveSignal,
+      signal: effectiveSignal,
+      ...(exitCode !== null && exitCode !== undefined ? { exitCode } : {}),
+      ...(pid ? { pid } : {}),
+    });
+  }
+
+  async terminateJobProcessGroup(job, { signal = "SIGTERM", graceMs = this.workerExitWaitMs ?? 10_000 } = {}) {
+    const pids = new Set();
+    if (Array.isArray(job.workers)) {
+      for (const w of job.workers) {
+        if (Number.isInteger(w.pid) && w.pid > 0) pids.add(w.pid);
+      }
+    }
+    const tracked = this.processLifecycleTracker?.snapshotOwned?.(job.sessionKey)?.started ?? [];
+    for (const w of tracked) {
+      if (Number.isInteger(w.pid) && w.pid > 0) pids.add(w.pid);
+    }
+    for (const pid of pids) {
+      const result = await terminateProcessGroup(pid, { signal, graceMs });
+      if (result.signal) {
+        await this.recordWorkerExited(job, {
+          exitSignal: result.signal,
+          signal: result.signal,
+          pid,
+        });
+      }
+    }
+  }
+
+  async handleToolCallEvent(job, event, activeToolCalls) {
+    const toolCallId = event.toolCallId || `call-${activeToolCalls.size + 1}`;
+    const { tool, summary } = summarizeToolCall(event);
+    const isFinished = event.status === "completed" || event.status === "failed" || event.status === "error";
+    const isNewToolCall = !activeToolCalls.has(toolCallId);
+
+    if (isNewToolCall) {
+      const startedAt = Date.now();
+      activeToolCalls.set(toolCallId, { tool, summary, startedAt });
+      await this.recordEvent(job, "tool_call_started", {
+        toolCallId,
+        tool,
+        summary,
+      });
+    }
+
+    if (isFinished) {
+      const started = activeToolCalls.get(toolCallId);
+      const finishedAt = Date.now();
+      const durationMs = Math.max(0, finishedAt - (started?.startedAt ?? finishedAt));
+      const duration = durationMs / 1000;
+      const exitStatus = event.rawOutput?.exitCode !== undefined
+        ? event.rawOutput.exitCode
+        : (event.status ?? "completed");
+      await this.recordEvent(job, "tool_call_finished", {
+        toolCallId,
+        tool: tool || started?.tool || "tool",
+        summary: summary || started?.summary || "",
+        duration,
+        durationMs,
+        exitStatus,
+      });
+      activeToolCalls.delete(toolCallId);
+    }
+    return isNewToolCall;
+  }
+
+  async finalizeActiveToolCalls(job, activeToolCalls) {
+    for (const [id, started] of activeToolCalls) {
+      const finishedAt = Date.now();
+      const durationMs = Math.max(0, finishedAt - started.startedAt);
+      await this.recordEvent(job, "tool_call_finished", {
+        toolCallId: id,
+        tool: started.tool,
+        summary: started.summary,
+        duration: durationMs / 1000,
+        durationMs,
+        exitStatus: job.cancelRequested ? "cancelled" : "interrupted",
+      }).catch(() => {});
+    }
+    activeToolCalls.clear();
+  }
+
   async runJob(job, taskPrompt, requestedModel, prepared = {}) {
     let handle = prepared.handle;
     let turn;
@@ -1517,13 +1882,18 @@ export class AntigravityAcpBroker {
           return { action: "cancel" };
         },
       });
-      this.active.set(job.jobId, { promise: this.active.get(job.jobId)?.promise, handle, turn });
+      this.active.set(job.jobId, { promise: this.active.get(job.jobId)?.promise, handle, turn, job });
       await turn.promptStarted;
       await this.recordEvent(job, "prompt_started", { requestId: job.jobId });
 
+      const activeToolCalls = new Map();
       const eventsPromise = this.consumeEvents(turn.events, async (event) => {
         eventCount += 1;
-        if (event?.type === "tool_call") toolCallCount += 1;
+        if (event?.type === "tool_call") {
+          // Start and completion arrive as separate lifecycle updates for the
+          // same toolCallId; count each tool call once, when first seen.
+          if (await this.handleToolCallEvent(job, event, activeToolCalls)) toolCallCount += 1;
+        }
         for (const observer of this.eventObservers) {
           try {
             observer(job.jobId, event);
@@ -1538,12 +1908,33 @@ export class AntigravityAcpBroker {
           job.lastEventTag = event.tag;
         }
       });
-      const result = await turn.result;
-      await eventsPromise;
+      let result;
+      try {
+        result = await turn.result.catch((err) => {
+          if (job.cancelRequested) return { status: "cancelled", stopReason: job.cancelReason ?? "cancelled" };
+          throw err;
+        });
+      } finally {
+        // Finalize started tool calls on every path: a rejected turn must not
+        // leave tool_call_started records permanently unclosed.
+        await eventsPromise.catch(() => {});
+        if (!job.cancelRequested) {
+          const persisted = await this.getJob(job.jobId).catch(() => null);
+          if (persisted?.cancelRequested) {
+            job.cancelRequested = true;
+            job.cancelReason = persisted.cancelReason;
+          }
+        }
+        await this.finalizeActiveToolCalls(job, activeToolCalls);
+      }
       job.eventCount = eventCount;
       job.toolCallCount = toolCallCount;
       job.updatedAt = this.now();
-      if (interaction.question) {
+      if (job.cancelRequested || result?.status === "cancelled") {
+        job.status = "cancelled";
+        job.handoff = "Antigravity ACP cancelled the active turn.";
+        await this.saveAndRecord(job, "cancelled", { eventCount, toolCallCount });
+      } else if (interaction.question) {
         job.status = "needs-input";
         job.error = {
           code: "INPUT_REQUIRED",
@@ -1575,10 +1966,6 @@ export class AntigravityAcpBroker {
           eventCount,
           toolCallCount,
         });
-      } else if (result?.status === "cancelled") {
-        job.status = "cancelled";
-        job.handoff = "Antigravity ACP cancelled the active turn.";
-        await this.saveAndRecord(job, "cancelled", { eventCount, toolCallCount });
       } else {
         const failure = classifyFailure(
           new BridgeError(
@@ -1593,13 +1980,34 @@ export class AntigravityAcpBroker {
         await this.saveAndRecord(job, failure.status, { eventCount, toolCallCount });
       }
     } catch (error) {
-      const failure = classifyFailure(error, interaction);
-      job.status = failure.status;
-      job.error = failure.error;
-      if (failure.question) job.question = failure.question;
-      job.updatedAt = this.now();
-      await this.saveAndRecord(job, failure.status, { eventCount, toolCallCount });
+      if (!job.cancelRequested) {
+        const persisted = await this.getJob(job.jobId).catch(() => null);
+        if (persisted?.cancelRequested) {
+          job.cancelRequested = true;
+          job.cancelReason = persisted.cancelReason;
+        }
+      }
+      if (job.cancelRequested) {
+        job.status = "cancelled";
+        job.handoff = "Antigravity ACP cancelled the active turn.";
+        await this.saveAndRecord(job, "cancelled", { eventCount, toolCallCount });
+      } else {
+        const failure = classifyFailure(error, interaction);
+        if (failure.error?.code === "TIMEOUT") {
+          await this.terminateJobProcessGroup(job).catch(() => {});
+        }
+        job.status = failure.status;
+        job.error = failure.error;
+        if (failure.question) job.question = failure.question;
+        job.updatedAt = this.now();
+        await this.saveAndRecord(job, failure.status, { eventCount, toolCallCount });
+      }
     } finally {
+      if (job.cancelRequested && !isTerminalStatus(job.status)) {
+        job.status = "cancelled";
+        job.handoff = "Antigravity ACP cancelled the active turn.";
+        await this.saveAndRecord(job, "cancelled", { eventCount, toolCallCount });
+      }
       if (handle && isTerminalStatus(job.status)) await this.closeRuntimeSession(job, handle);
       this.notifyChange(job.jobId);
       if (isTerminalStatus(job.status)) this.active.delete(job.jobId);
@@ -1695,8 +2103,28 @@ export class AntigravityAcpBroker {
     const safeReason = reason ? safeMessage(reason, 200) : "cancelled by parent agent";
     job.cancelRequested = true;
     job.cancelReason = safeReason;
+    if (active.job) {
+      active.job.cancelRequested = true;
+      active.job.cancelReason = safeReason;
+    }
     await this.saveAndRecord(job, "cancel_requested", { reason: safeReason });
-    await active.turn.cancel({ reason: safeReason });
+    const turnCancelPromise = active.turn.cancel({ reason: safeReason }).catch(() => {});
+    const killPromise = this.terminateJobProcessGroup(job, { graceMs: this.workerExitWaitMs }).catch(() => {});
+
+    Promise.allSettled([turnCancelPromise, killPromise]).then(async () => {
+      const current = await this.getJob(jobId).catch(() => null);
+      if (current && !isTerminalStatus(current.status)) {
+        current.status = "cancelled";
+        current.cancelRequested = true;
+        current.cancelReason = safeReason;
+        current.handoff = "Antigravity ACP cancelled the active turn.";
+        await this.saveAndRecord(current, "cancelled", {
+          eventCount: current.eventCount ?? 0,
+          toolCallCount: current.toolCallCount ?? 0,
+        }).catch(() => {});
+      }
+    });
+
     return {
       jobId,
       status: "cancellation-requested",
@@ -1705,14 +2133,30 @@ export class AntigravityAcpBroker {
     };
   }
 
+  // Serialize every write to a job's JSON file. Without this, recordEvent's
+  // latestEvent read-modify-write can interleave with a terminal saveJob and
+  // resurrect stale running state over cancellation/completion fields.
+  enqueueJobWrite(jobId, write) {
+    const previous = this.jobWriteQueues.get(jobId) ?? Promise.resolve();
+    const next = previous.catch(() => {}).then(write);
+    const tracked = next.catch(() => {});
+    this.jobWriteQueues.set(jobId, tracked);
+    tracked.then(() => {
+      if (this.jobWriteQueues.get(jobId) === tracked) this.jobWriteQueues.delete(jobId);
+    });
+    return next;
+  }
+
   async saveJob(job) {
     if (job.owner?.brokerId === this.brokerId) await captureJobWorkers(this, job, job.handle);
     if (containsBodyKeys(job)) {
       throw new BridgeError("BODY_PERSISTENCE_FORBIDDEN", "Job state must not retain raw prompt, output, or question bodies");
     }
     job.updatedAt = job.updatedAt ?? this.now();
-    await atomicWrite(path.join(this.jobsRoot, `${job.jobId}.json`), `${JSON.stringify(job, null, 2)}\n`);
-    await this.writeState(job);
+    await this.enqueueJobWrite(job.jobId, async () => {
+      await atomicWrite(path.join(this.jobsRoot, `${job.jobId}.json`), `${JSON.stringify(job, null, 2)}\n`);
+      await this.writeState(job);
+    });
   }
 
   async saveAndRecord(job, status, details = {}) {
@@ -1730,12 +2174,35 @@ export class AntigravityAcpBroker {
       jobId: job.jobId,
       details: redactObject(details),
     };
+    job.latestEvent = {
+      event,
+      timestamp: entry.timestamp,
+      at: entry.timestamp,
+      ...entry.details,
+    };
     await appendFile(job.proof.events, `${JSON.stringify(entry)}\n`, { encoding: "utf8", mode: 0o600 });
     await writeFile(path.join(job.runDir, "heartbeat"), `${entry.timestamp}\n`, {
       encoding: "utf8",
       mode: 0o600,
     });
+    try {
+      await this.enqueueJobWrite(job.jobId, async () => {
+        const jobPath = path.join(this.jobsRoot, `${job.jobId}.json`);
+        const existingRaw = await readFile(jobPath, "utf8").catch(() => null);
+        if (existingRaw) {
+          const parsed = JSON.parse(existingRaw);
+          parsed.latestEvent = job.latestEvent;
+          parsed.updatedAt = entry.timestamp;
+          await atomicWrite(jobPath, `${JSON.stringify(parsed, null, 2)}\n`);
+        }
+      });
+    } catch {}
     if (isTerminalStatus(job.status)) await this.writeProof(job);
+    for (const observer of this.eventObservers) {
+      try {
+        observer(job.jobId, { type: "job_event", ...entry });
+      } catch {}
+    }
   }
 
   async writeState(job) {
@@ -1797,6 +2264,16 @@ export class AntigravityAcpBroker {
     if (job.stopReason) result.stopReason = job.stopReason;
     if (job.cancelRequested) result.cancelRequested = true;
     if (job.question) result.question = job.question;
+    if (job.latestEvent) {
+      result.latestEvent = job.latestEvent;
+      const at = job.latestEvent.timestamp ?? job.latestEvent.at;
+      const atMs = at ? new Date(at).getTime() : null;
+      if (atMs && Number.isFinite(atMs)) {
+        const ageMs = Math.max(0, new Date(this.now()).getTime() - atMs);
+        result.latestEventAgeMs = ageMs;
+        result.latestEventAge = formatAge(ageMs);
+      }
+    }
     return result;
   }
 
