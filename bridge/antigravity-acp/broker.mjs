@@ -308,6 +308,86 @@ export function redactSensitive(value) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+export const REDACTION_RULES = [
+  // PEM private keys (RSA, EC, OPENSSH, ENCRYPTED, ...), including truncated blocks.
+  [/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/g, "[redacted private key]"],
+  // Cloudflare Access service-token headers / fields.
+  [/\b(cf-access-client-secret|cf_access_client_secret|access[_-]?client[_-]?secret|client[_-]?secret)(["']?\s*[:=]\s*["']?)[^\s"',;]+/gi, "$1$2[redacted]"],
+  [/\b(cf-access-client-id|cf_access_client_id)(["']?\s*[:=]\s*["']?)[^\s"',;]+/gi, "$1$2[redacted]"],
+  [/\b(cf-access-jwt-assertion|cf_authorization)(["']?\s*[:=]\s*["']?)[^\s"',;]+/gi, "$1$2[redacted]"],
+  // Cloudflare API tokens / global key passed as headers or env.
+  [/\b(x-auth-key|x-auth-user-service-key)(["']?\s*[:=]\s*["']?)[^\s"',;]+/gi, "$1$2[redacted]"],
+  [/\b((?:CLOUDFLARE|CF)_[A-Z0-9_]*(?:TOKEN|KEY|SECRET)[A-Z0-9_]*)(["']?\s*[:=]\s*["']?)[^\s"',;]+/g, "$1$2[redacted]"],
+  // Authorization headers of any scheme.
+  [/\b(authorization|proxy-authorization)(["']?\s*[:=]\s*["']?)(?:Bearer|Basic|token|Bot)\s+[^\s"',;]+/gi, "$1$2[redacted]"],
+  [/\bBearer\s+[A-Za-z0-9._~+/=-]{6,}/gi, "Bearer [redacted]"],
+  // GitHub tokens (classic + fine-grained) and similar vendor-prefixed tokens.
+  [/\bgithub_pat_[A-Za-z0-9_]{20,}/g, "[redacted github token]"],
+  [/\bgh[pousr]_[A-Za-z0-9]{20,}/g, "[redacted github token]"],
+  [/\b(?:sk|rk|pk)-(?:live-|test-|proj-|ant-)?[A-Za-z0-9_-]{16,}/g, "[redacted token]"],
+  [/\bxox[abprs]-[A-Za-z0-9-]{10,}/g, "[redacted token]"],
+  [/\bAIza[0-9A-Za-z_-]{30,}/g, "[redacted token]"],
+  // AWS access key ids and secret keys.
+  [/\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA)[0-9A-Z]{16}\b/g, "[redacted aws key id]"],
+  [/\b(aws_secret_access_key|aws_session_token|secretaccesskey)(["']?\s*[:=]\s*["']?)[^\s"',;]+/gi, "$1$2[redacted]"],
+  // JWTs (Access assertions, OAuth id tokens).
+  [/\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, "[redacted jwt]"],
+  // Credentials embedded in URLs.
+  [/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/gi, "$1[redacted]@"],
+  // Generic env / config lines: FOO_KEY=..., API_TOKEN: ..., DB_PASSWORD="...".
+  [/\b((?:export\s+)?(?:[A-Za-z0-9]+[_-])*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|PASS|CREDENTIALS?|APIKEY|PRIVATE_KEY)(?:[_-][A-Za-z0-9]+)*)(["']?[ \t]*[:=][ \t]*["']?)(?!\[redacted)[^\s"',;]+/gi, "$1$2[redacted]"],
+];
+
+export function redactText(value) {
+  let text = String(value ?? "");
+  for (const [pattern, replacement] of REDACTION_RULES) text = text.replace(pattern, replacement);
+  return redactSensitive(text);
+}
+
+export function formatAge(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return "0s";
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+export function summarizeToolCall(event) {
+  const tool = event?.title || event?.tool || event?.name || event?.kind || "tool_call";
+  let summary = "";
+  const rawInput = event?.rawInput ?? event?.input;
+  if (typeof rawInput === "string") {
+    summary = rawInput;
+  } else if (rawInput && typeof rawInput === "object") {
+    if (typeof rawInput.command === "string") {
+      summary = rawInput.command;
+      if (Array.isArray(rawInput.args)) summary += ` ${rawInput.args.join(" ")}`;
+    } else if (typeof rawInput.cmd === "string") {
+      summary = rawInput.cmd;
+    } else if (typeof rawInput.query === "string") {
+      summary = rawInput.query;
+    } else if (typeof rawInput.path === "string" || typeof rawInput.file === "string") {
+      summary = rawInput.path ?? rawInput.file;
+    } else {
+      try {
+        summary = JSON.stringify(rawInput);
+      } catch {
+        summary = String(rawInput);
+      }
+    }
+  } else if (typeof event?.text === "string" && event.text) {
+    const colonIdx = event.text.indexOf(":");
+    summary = colonIdx >= 0 ? event.text.slice(colonIdx + 1).trim() : event.text;
+  } else if (typeof event?.summary === "string") {
+    summary = event.summary;
+  }
+  const redacted = redactText(summary).replace(/\s+/g, " ").trim();
+  const bounded = redacted.length > 200 ? `${redacted.slice(0, 199)}…` : redacted;
+  return { tool, summary: bounded };
+}
+
 let python3AvailableCache;
 function defaultHasPython3() {
   if (python3AvailableCache === undefined) {
@@ -829,6 +909,7 @@ export class AntigravityAcpBroker {
     // Read-only observers of live ACP turn events (session viewer). An
     // observer can never affect the turn: errors are swallowed.
     this.eventObservers = new Set();
+    this.jobWriteQueues = new Map();
     this.active = new Map();
     this.changeWaiters = new Map();
     this.initPromise = null;
@@ -1107,6 +1188,10 @@ export class AntigravityAcpBroker {
 
   async observeJob(jobId) {
     let job = await this.getJob(jobId);
+    const active = this.active.get(jobId);
+    if (active?.job?.latestEvent) {
+      job.latestEvent = active.job.latestEvent;
+    }
     if (!isTerminalStatus(job.status) && !this.active.has(jobId)) {
       if (job.cancelRequested) {
         job.status = "cancelled";
@@ -1686,6 +1771,57 @@ export class AntigravityAcpBroker {
     }
   }
 
+  async handleToolCallEvent(job, event, activeToolCalls) {
+    const toolCallId = event.toolCallId || `call-${activeToolCalls.size + 1}`;
+    const { tool, summary } = summarizeToolCall(event);
+    const isFinished = event.status === "completed" || event.status === "failed" || event.status === "error";
+
+    if (!activeToolCalls.has(toolCallId)) {
+      const startedAt = Date.now();
+      activeToolCalls.set(toolCallId, { tool, summary, startedAt });
+      await this.recordEvent(job, "tool_call_started", {
+        toolCallId,
+        tool,
+        summary,
+      });
+    }
+
+    if (isFinished) {
+      const started = activeToolCalls.get(toolCallId);
+      const finishedAt = Date.now();
+      const durationMs = Math.max(0, finishedAt - (started?.startedAt ?? finishedAt));
+      const duration = durationMs / 1000;
+      const exitStatus = event.rawOutput?.exitCode !== undefined
+        ? event.rawOutput.exitCode
+        : (event.status ?? "completed");
+      await this.recordEvent(job, "tool_call_finished", {
+        toolCallId,
+        tool: tool || started?.tool || "tool",
+        summary: summary || started?.summary || "",
+        duration,
+        durationMs,
+        exitStatus,
+      });
+      activeToolCalls.delete(toolCallId);
+    }
+  }
+
+  async finalizeActiveToolCalls(job, activeToolCalls) {
+    for (const [id, started] of activeToolCalls) {
+      const finishedAt = Date.now();
+      const durationMs = Math.max(0, finishedAt - started.startedAt);
+      await this.recordEvent(job, "tool_call_finished", {
+        toolCallId: id,
+        tool: started.tool,
+        summary: started.summary,
+        duration: durationMs / 1000,
+        durationMs,
+        exitStatus: job.cancelRequested ? "cancelled" : "interrupted",
+      }).catch(() => {});
+    }
+    activeToolCalls.clear();
+  }
+
   async runJob(job, taskPrompt, requestedModel, prepared = {}) {
     let handle = prepared.handle;
     let turn;
@@ -1748,9 +1884,13 @@ export class AntigravityAcpBroker {
       await turn.promptStarted;
       await this.recordEvent(job, "prompt_started", { requestId: job.jobId });
 
+      const activeToolCalls = new Map();
       const eventsPromise = this.consumeEvents(turn.events, async (event) => {
         eventCount += 1;
-        if (event?.type === "tool_call") toolCallCount += 1;
+        if (event?.type === "tool_call") {
+          toolCallCount += 1;
+          await this.handleToolCallEvent(job, event, activeToolCalls);
+        }
         for (const observer of this.eventObservers) {
           try {
             observer(job.jobId, event);
@@ -1772,6 +1912,8 @@ export class AntigravityAcpBroker {
           throw err;
         });
       } finally {
+        // Finalize started tool calls on every path: a rejected turn must not
+        // leave tool_call_started records permanently unclosed.
         await eventsPromise.catch(() => {});
         if (!job.cancelRequested) {
           const persisted = await this.getJob(job.jobId).catch(() => null);
@@ -1780,6 +1922,7 @@ export class AntigravityAcpBroker {
             job.cancelReason = persisted.cancelReason;
           }
         }
+        await this.finalizeActiveToolCalls(job, activeToolCalls);
       }
       job.eventCount = eventCount;
       job.toolCallCount = toolCallCount;
@@ -1987,14 +2130,26 @@ export class AntigravityAcpBroker {
     };
   }
 
+  // Serialize every write to a job's JSON file. Without this, recordEvent's
+  // latestEvent read-modify-write can interleave with a terminal saveJob and
+  // resurrect stale running state over cancellation/completion fields.
+  enqueueJobWrite(jobId, write) {
+    const previous = this.jobWriteQueues.get(jobId) ?? Promise.resolve();
+    const next = previous.catch(() => {}).then(write);
+    this.jobWriteQueues.set(jobId, next.catch(() => {}));
+    return next;
+  }
+
   async saveJob(job) {
     if (job.owner?.brokerId === this.brokerId) await captureJobWorkers(this, job, job.handle);
     if (containsBodyKeys(job)) {
       throw new BridgeError("BODY_PERSISTENCE_FORBIDDEN", "Job state must not retain raw prompt, output, or question bodies");
     }
     job.updatedAt = job.updatedAt ?? this.now();
-    await atomicWrite(path.join(this.jobsRoot, `${job.jobId}.json`), `${JSON.stringify(job, null, 2)}\n`);
-    await this.writeState(job);
+    await this.enqueueJobWrite(job.jobId, async () => {
+      await atomicWrite(path.join(this.jobsRoot, `${job.jobId}.json`), `${JSON.stringify(job, null, 2)}\n`);
+      await this.writeState(job);
+    });
   }
 
   async saveAndRecord(job, status, details = {}) {
@@ -2012,12 +2167,35 @@ export class AntigravityAcpBroker {
       jobId: job.jobId,
       details: redactObject(details),
     };
+    job.latestEvent = {
+      event,
+      timestamp: entry.timestamp,
+      at: entry.timestamp,
+      ...entry.details,
+    };
     await appendFile(job.proof.events, `${JSON.stringify(entry)}\n`, { encoding: "utf8", mode: 0o600 });
     await writeFile(path.join(job.runDir, "heartbeat"), `${entry.timestamp}\n`, {
       encoding: "utf8",
       mode: 0o600,
     });
+    try {
+      await this.enqueueJobWrite(job.jobId, async () => {
+        const jobPath = path.join(this.jobsRoot, `${job.jobId}.json`);
+        const existingRaw = await readFile(jobPath, "utf8").catch(() => null);
+        if (existingRaw) {
+          const parsed = JSON.parse(existingRaw);
+          parsed.latestEvent = job.latestEvent;
+          parsed.updatedAt = entry.timestamp;
+          await atomicWrite(jobPath, `${JSON.stringify(parsed, null, 2)}\n`);
+        }
+      });
+    } catch {}
     if (isTerminalStatus(job.status)) await this.writeProof(job);
+    for (const observer of this.eventObservers) {
+      try {
+        observer(job.jobId, { type: "job_event", ...entry });
+      } catch {}
+    }
   }
 
   async writeState(job) {
@@ -2079,6 +2257,16 @@ export class AntigravityAcpBroker {
     if (job.stopReason) result.stopReason = job.stopReason;
     if (job.cancelRequested) result.cancelRequested = true;
     if (job.question) result.question = job.question;
+    if (job.latestEvent) {
+      result.latestEvent = job.latestEvent;
+      const at = job.latestEvent.timestamp ?? job.latestEvent.at;
+      const atMs = at ? new Date(at).getTime() : null;
+      if (atMs && Number.isFinite(atMs)) {
+        const ageMs = Math.max(0, new Date(this.now()).getTime() - atMs);
+        result.latestEventAgeMs = ageMs;
+        result.latestEventAge = formatAge(ageMs);
+      }
+    }
     return result;
   }
 
