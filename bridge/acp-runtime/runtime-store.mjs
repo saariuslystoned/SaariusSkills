@@ -23,8 +23,9 @@ const BRIDGES = Object.freeze({
   "antigravity-acp": Object.freeze({
     files: [
       "server.mjs", "tools.mjs", "shed-tools.mjs", "shed-tasks.mjs", "access-auth.mjs",
-      "http-host.mjs", "shed-sessions.mjs", "viewer-redact.mjs", "repo-allowlist.mjs",
+      "http-host.mjs", "shed-sessions.mjs", "shed-card.mjs", "viewer-redact.mjs", "repo-allowlist.mjs",
       "broker.mjs", "contract.mjs", "host-policy.mjs",
+      "card-assets/antigravity.png", "card-assets/muse.png", "card-assets/generic.png",
     ],
     siblingBridges: ["muse-acp"],
   }),
@@ -35,8 +36,9 @@ const BRIDGES = Object.freeze({
     files: [
       "server.mjs", "tools.mjs", "server-errors.mjs", "broker.mjs", "host-policy.mjs",
       "adapter/server.mjs", "adapter/msp-client.mjs", "adapter/translate.mjs", "shed-tools.mjs",
-      "shed-tasks.mjs", "access-auth.mjs", "http-host.mjs", "shed-sessions.mjs",
+      "shed-tasks.mjs", "access-auth.mjs", "http-host.mjs", "shed-sessions.mjs", "shed-card.mjs",
       "viewer-redact.mjs", "repo-allowlist.mjs",
+      "card-assets/antigravity.png", "card-assets/muse.png", "card-assets/generic.png",
     ],
   }),
 });
@@ -145,6 +147,7 @@ export async function describeSource({ pluginRoot, bridge }) {
     "../acp-runtime/lifecycle.mjs",
     "../acp-runtime/recovery.mjs",
     "../acp-runtime/process-identity.mjs",
+    "../acp-runtime/timeout.mjs",
     ...siblingFiles,
   ];
   const entries = [];

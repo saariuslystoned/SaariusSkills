@@ -5,23 +5,33 @@
       "args": ["bridge/acp-runtime/launcher.mjs", "cursor-acp"],
       "cwd": ".",
       "env": {
-        "CURSOR_AGENT_EXECUTABLE": "/Users/bobbybones/.local/bin/cursor-agent"
+        "CURSOR_AGENT_EXECUTABLE": "/Users/bobbybones/.local/bin/cursor-agent",
+        "SAARIUS_ACP_TIMEOUT_MS": "${SAARIUS_ACP_TIMEOUT_MS:-3600000}"
       }
     },
     "antigravity-acp": {
       "command": "node",
       "args": ["bridge/acp-runtime/launcher.mjs", "antigravity-acp"],
-      "cwd": "."
+      "cwd": ".",
+      "env": {
+        "SAARIUS_ACP_TIMEOUT_MS": "${SAARIUS_ACP_TIMEOUT_MS:-3600000}"
+      }
     },
     "grok-acp": {
       "command": "node",
       "args": ["bridge/acp-runtime/launcher.mjs", "grok-acp"],
-      "cwd": "."
+      "cwd": ".",
+      "env": {
+        "SAARIUS_ACP_TIMEOUT_MS": "${SAARIUS_ACP_TIMEOUT_MS:-3600000}"
+      }
     },
     "muse-acp": {
       "command": "node",
       "args": ["bridge/acp-runtime/launcher.mjs", "muse-acp"],
-      "cwd": "."
+      "cwd": ".",
+      "env": {
+        "SAARIUS_ACP_TIMEOUT_MS": "${SAARIUS_ACP_TIMEOUT_MS:-3600000}"
+      }
     },
     "jev-decision": {
       "command": "node",

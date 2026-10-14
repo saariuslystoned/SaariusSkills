@@ -56,14 +56,16 @@ async function makePluginSnapshot(bridge, { includeLauncher = false } = {}) {
   const sourceRoot = path.join(repoRoot, "bridge", bridge);
   const targetRoot = path.join(pluginRoot, "bridge", bridge);
   await mkdir(targetRoot, { recursive: true });
-  for (const relativePath of ["package.json", "package-lock.json", "server.mjs", ...(bridge === "grok-acp" ? ["server-errors.mjs"] : []), "broker.mjs", "host-policy.mjs", ...(bridge === "antigravity-acp" ? ["contract.mjs", "tools.mjs", "shed-tools.mjs", "shed-tasks.mjs", "access-auth.mjs", "http-host.mjs", "shed-sessions.mjs", "viewer-redact.mjs", "repo-allowlist.mjs"] : [])]) {
-    await cp(path.join(sourceRoot, relativePath), path.join(targetRoot, relativePath));
+  for (const relativePath of ["package.json", "package-lock.json", "server.mjs", ...(bridge === "grok-acp" ? ["server-errors.mjs"] : []), "broker.mjs", "host-policy.mjs", ...(bridge === "antigravity-acp" ? ["contract.mjs", "tools.mjs", "shed-tools.mjs", "shed-tasks.mjs", "access-auth.mjs", "http-host.mjs", "shed-sessions.mjs", "shed-card.mjs", "viewer-redact.mjs", "repo-allowlist.mjs", "card-assets/antigravity.png", "card-assets/muse.png", "card-assets/generic.png"] : [])]) {
+    const dst = path.join(targetRoot, relativePath);
+    await mkdir(path.dirname(dst), { recursive: true });
+    await cp(path.join(sourceRoot, relativePath), dst);
   }
   if (bridge === "antigravity-acp") {
     const museSource = path.join(repoRoot, "bridge", "muse-acp");
     const museTarget = path.join(pluginRoot, "bridge", "muse-acp");
     await mkdir(museTarget, { recursive: true });
-    for (const relativePath of ["package.json", "package-lock.json", "server.mjs", "tools.mjs", "server-errors.mjs", "broker.mjs", "host-policy.mjs", "adapter/server.mjs", "adapter/msp-client.mjs", "adapter/translate.mjs", "shed-tools.mjs", "shed-tasks.mjs", "access-auth.mjs", "http-host.mjs", "shed-sessions.mjs", "viewer-redact.mjs", "repo-allowlist.mjs"]) {
+    for (const relativePath of ["package.json", "package-lock.json", "server.mjs", "tools.mjs", "server-errors.mjs", "broker.mjs", "host-policy.mjs", "adapter/server.mjs", "adapter/msp-client.mjs", "adapter/translate.mjs", "shed-tools.mjs", "shed-tasks.mjs", "access-auth.mjs", "http-host.mjs", "shed-sessions.mjs", "shed-card.mjs", "viewer-redact.mjs", "repo-allowlist.mjs", "card-assets/antigravity.png", "card-assets/muse.png", "card-assets/generic.png"]) {
       const src = path.join(museSource, relativePath);
       const dst = path.join(museTarget, relativePath);
       await mkdir(path.dirname(dst), { recursive: true });
@@ -72,7 +74,7 @@ async function makePluginSnapshot(bridge, { includeLauncher = false } = {}) {
   }
   const sharedRoot = path.join(pluginRoot, "bridge", "acp-runtime");
   await mkdir(sharedRoot, { recursive: true });
-  for (const file of ["lifecycle.mjs", "recovery.mjs", "process-identity.mjs"]) {
+  for (const file of ["lifecycle.mjs", "recovery.mjs", "process-identity.mjs", "timeout.mjs"]) {
     await cp(path.join(repoRoot, "bridge", "acp-runtime", file), path.join(sharedRoot, file));
   }
   if (includeLauncher) {

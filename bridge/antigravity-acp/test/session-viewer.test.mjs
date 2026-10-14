@@ -121,6 +121,27 @@ test("transcript folds deltas and tool updates; view and HTML are redacted and e
   assert.match(done, /href="https:\/\/github.com\/o\/r\/pull\/1"/);
 });
 
+test("session viewer exposes model in task view and renders model row in HTML when present", () => {
+  const t = createTranscript();
+  const viewWithModel = buildView({
+    sessionId: SID,
+    task: { taskId: "shed-m1", status: "running", repo: "o/r", model: "gemini-test-model" },
+    transcript: t,
+  });
+  assert.equal(viewWithModel.task.model, "gemini-test-model");
+  const htmlWithModel = renderSessionHtml(viewWithModel, { nonce: "n" });
+  assert.match(htmlWithModel, /<th>Model<\/th><td><code>gemini-test-model<\/code><\/td>/);
+
+  const viewWithoutModel = buildView({
+    sessionId: SID,
+    task: { taskId: "shed-m2", status: "running", repo: "o/r" },
+    transcript: t,
+  });
+  assert.equal(viewWithoutModel.task.model, null);
+  const htmlWithoutModel = renderSessionHtml(viewWithoutModel, { nonce: "n" });
+  assert.ok(!htmlWithoutModel.includes("<th>Model</th>"));
+});
+
 // ---------- harness badge tests ----------
 test("record with harness=muse renders the Muse badge", () => {
   const view = buildView({
@@ -375,7 +396,7 @@ test("a stalled session/new returns without session fields; status exposes them 
   const broker = viewerBroker({ delegateDelayMs: 150 });
   const { runner } = runnerFixture(broker, { sessionWaitMs: 30 });
   await runner.init();
-  const first = await runner.runTask(RUN, {});
+  const first = await runner.runTask(RUN, { label: "acp-runner" });
   assert.equal(first.status, "starting");
   assert.equal(first.sessionPending, true);
   assert.equal(first.session_id, undefined);

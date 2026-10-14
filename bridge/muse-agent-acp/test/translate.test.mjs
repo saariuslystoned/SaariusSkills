@@ -55,6 +55,13 @@ test("approval choices map to ACP option kinds and deny is fail-closed", () => {
     ["allow_once", "allow_always", "reject_once"],
   );
   assert.equal(denyChoiceId(choices), "d1");
+  assert.equal(
+    denyChoiceId([
+      { choiceId: "allow-once", label: "Allow once", decision: "approved", scope: "once" },
+      { choiceId: "abort-turn", label: "Abort", decision: "abort", scope: "once" },
+    ]),
+    "abort-turn",
+  );
   assert.equal(denyChoiceId([{ choiceId: "x", decision: "approved" }]), null);
   assert.deepEqual(acpPermissionOptions(undefined), []);
 });

@@ -50,18 +50,29 @@ export const GROK_REASONING_EFFORTS = Object.freeze(["low", "medium", "high", "x
 // ACP session config option (id "reasoning_effort", category "thought_level").
 const REASONING_OPTION_ID = "reasoning_effort";
 export const ACPX_GROK_AGENT = "grok-build";
-export const MIN_TIMEOUT_MS = 1_000;
-export const DEFAULT_TIMEOUT_MS = 3_600_000;
-export const MAX_TIMEOUT_MS = 14_400_000;
+import {
+  BridgeError,
+  DEFAULT_TIMEOUT_MS,
+  MAX_TIMEOUT_MS,
+  MIN_TIMEOUT_MS,
+  parseTimeout,
+  resolveDefaultTimeoutMs,
+  timeoutMsZod,
+} from "../acp-runtime/timeout.mjs";
+export {
+  BridgeError,
+  DEFAULT_TIMEOUT_MS,
+  MAX_TIMEOUT_MS,
+  MIN_TIMEOUT_MS,
+  parseTimeout,
+  resolveDefaultTimeoutMs,
+  timeoutMsZod,
+};
 // ACpx constructor timeout covers session connect/close, not the job turn.
 // Keep it at the previous 10-minute control-plane budget.
 export const RUNTIME_CONTROL_TIMEOUT_MS = 10 * 60 * 1000;
 export const MAX_PROMPT_CHARS = 20_000;
 export const MAX_STEER_CHARS = 8_000;
-
-export function timeoutMsZod(z) {
-  return z.number().int().min(MIN_TIMEOUT_MS).max(MAX_TIMEOUT_MS).optional();
-}
 
 export function grokModelZod(z) {
   return z.string().min(1).optional();
@@ -88,15 +99,6 @@ const BRIDGE_SYSTEM_PROMPT = [
   "The parent agent owns decisions and independent review; do not broaden the task.",
   "Finish with a concise handoff naming changed files, commit SHA if one exists, tests/proof run, and remaining risks.",
 ].join(" ");
-
-export class BridgeError extends Error {
-  constructor(code, message, details = {}) {
-    super(message);
-    this.name = "BridgeError";
-    this.code = code;
-    this.details = details;
-  }
-}
 
 export function toBridgeError(error) {
   if (error instanceof BridgeError) return error;
@@ -428,17 +430,6 @@ function assertBoundedText(value, field, maxChars) {
     throw new BridgeError("INVALID_INPUT", `${field} exceeds the ${maxChars}-character limit`);
   }
   return value.trim();
-}
-
-function parseTimeout(value) {
-  if (value === undefined) return DEFAULT_TIMEOUT_MS;
-  if (!Number.isInteger(value) || value < MIN_TIMEOUT_MS || value > MAX_TIMEOUT_MS) {
-    throw new BridgeError(
-      "INVALID_INPUT",
-      `timeoutMs must be an integer between ${MIN_TIMEOUT_MS} and ${MAX_TIMEOUT_MS}`,
-    );
-  }
-  return value;
 }
 
 function parseWait(value, max = 300_000) {
@@ -832,7 +823,7 @@ export class GrokAcpBroker {
       ? options.reasoningEffort
       : resolveReasoningEffort(this.processEnv);
     this.defaultWorkspace = options.defaultWorkspace ?? process.cwd();
-    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.timeoutMs = options.timeoutMs ?? resolveDefaultTimeoutMs(options.processEnv ?? process.env);
     this.runtimeControlTimeoutMs = options.runtimeControlTimeoutMs ?? RUNTIME_CONTROL_TIMEOUT_MS;
     this.execFile = options.execFile ?? execFile;
     this.idFactory = options.idFactory ?? randomUUID;

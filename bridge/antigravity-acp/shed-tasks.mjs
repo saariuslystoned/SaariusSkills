@@ -10,7 +10,7 @@ import { createRepoOwnerGuard, parseOptionalOwners, parseRepoOwners, REMOTE_ORIG
 const execFile = promisify(execFileCallback);
 
 // Remote-shed task runner. The remote endpoint exposes only these narrow
-// operations (run / status / cancel); there is no general exec tool.
+// operations (run / status / cancel / steer / result); there is no general exec tool.
 // Lane caps are counted per harness (default 5 for antigravity and 5 for muse);
 // each task runs in its own git worktree. Over a harness cap a caller gets
 // "busy" naming the full harness and queues or falls back.
@@ -21,6 +21,29 @@ export const MAX_CONCURRENT_LIMIT = 16;
 export const DEFAULT_HARNESS_CONCURRENCY = 5;
 export const SHED_HARNESSES = Object.freeze(["antigravity", "muse"]);
 export const DEFAULT_SHED_HARNESS = "antigravity";
+export const DEFAULT_ANTIGRAVITY_MODEL = "gemini-4-argon-medium";
+export const SHED_ANTIGRAVITY_MODEL_ENV = "SHED_ANTIGRAVITY_MODEL";
+export const DEFAULT_ANTIGRAVITY_ADVERTISED_MODELS = Object.freeze([
+  DEFAULT_ANTIGRAVITY_MODEL,
+  "gemini-3.8-flash-high",
+  "gemini-3.1-pro",
+  "gemini-3-flash",
+]);
+export const DEFAULT_MUSE_ADVERTISED_MODELS = Object.freeze([
+  "claude-sonnet-4-6",
+  "claude-opus-4-6",
+  "gpt-5.4",
+  "gemini-3.1-pro",
+  "fixture-a",
+  "fixture-b",
+  "fixture-c",
+  "fixture-fast",
+]);
+export const DEFAULT_ADVERTISED_MODELS = Object.freeze({
+  antigravity: DEFAULT_ANTIGRAVITY_ADVERTISED_MODELS,
+  muse: DEFAULT_MUSE_ADVERTISED_MODELS,
+});
+export const STEER_MAX = 8_000;
 export const SHED_STATE_DIR_ENV = "SAARIUS_ACP_SHED_STATE_DIR";
 export const SAARIUS_ACP_HARNESS_ENV = "SAARIUS_ACP_HARNESS";
 export const BRANCH_PREFIX = "shed/";
@@ -28,6 +51,14 @@ export const BRANCH_PREFIX = "shed/";
 // lane (codex/<name>) owns; never main/master/baseBranch or the repo default.
 export const HEAD_BRANCH_PREFIXES = Object.freeze([BRANCH_PREFIX, "codex/"]);
 const PROTECTED_BRANCHES = new Set(["main", "master", "head"]);
+const TERMINAL_TASK_STATUSES = new Set([
+  "pr_opened",
+  "pushed",
+  "no_changes",
+  "cancelled",
+  "failed",
+  "unavailable",
+]);
 const isCancelled = (task) => task.status === "cancelling" || task.status === "cancelled";
 export const FORGES = Object.freeze(["github", "origin"]);
 const REPO_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
@@ -63,6 +94,14 @@ export function parseMaxConcurrent(value) {
   return n;
 }
 
+export function resolveAntigravityModel({ antigravityModel, model } = {}, env = process.env) {
+  const explicit = antigravityModel ?? model;
+  if (typeof explicit === "string" && explicit.trim()) return explicit.trim();
+  const fromEnv = env?.[SHED_ANTIGRAVITY_MODEL_ENV] ?? env?.SAARIUS_ACP_ANTIGRAVITY_MODEL;
+  if (typeof fromEnv === "string" && fromEnv.trim()) return fromEnv.trim();
+  return DEFAULT_ANTIGRAVITY_MODEL;
+}
+
 export function resolveHarnessCaps(maxConcurrent, env = process.env) {
   let antigravity = DEFAULT_HARNESS_CONCURRENCY;
   let muse = DEFAULT_HARNESS_CONCURRENCY;
@@ -94,6 +133,25 @@ function assertNoSecrets(value, field) {
   if (SECRET_INPUT_PATTERN.test(value)) {
     throw new ShedTaskError("SECRET_REFUSED", `${field} looks like it contains a secret; remote tasks must never carry secrets`);
   }
+}
+
+function assertCaller(caller) {
+  if (
+    !caller ||
+    typeof caller !== "object" ||
+    typeof caller.label !== "string" ||
+    !LABEL_PATTERN.test(caller.label.trim())
+  ) {
+    throw new ShedTaskError("ACCESS_DENIED", "Valid Access caller identity is required");
+  }
+  return { ...caller, label: caller.label.trim() };
+}
+
+function validateRequestedBy(requested_by) {
+  if (typeof requested_by !== "string" || !LABEL_PATTERN.test(requested_by)) {
+    throw new ShedTaskError("REQUESTED_BY_REQUIRED", "requested_by must name the bot that asked (letters, digits, _ . @ -)");
+  }
+  return requested_by;
 }
 
 const clean = (value, max = 2_400) => {
@@ -128,7 +186,14 @@ export class ShedTaskRunner {
     sessionWaitMs = SESSION_WAIT_MS,
     sessionBaseUrl,
     harness,
+    antigravityModel,
+    model,
+    advertisedModels,
   } = {}) {
+    this.env = env;
+    this.antigravityModel = resolveAntigravityModel({ antigravityModel, model }, env);
+    this.model = this.antigravityModel;
+    this.advertisedModels = advertisedModels ?? null;
     this.broker = broker;
     this.brokers = new Map();
     if (brokers) {
@@ -173,6 +238,7 @@ export class ShedTaskRunner {
     this.jobTasks = new Map();
     this.pendingEvents = new Map();
     this.flushTimers = new Map();
+    this.taskBrokers = new Map();
     for (const b of this.brokers.values()) {
       this.wireBrokerEvents(b);
     }
@@ -205,6 +271,50 @@ export class ShedTaskRunner {
       throw new ShedTaskError("BROKER_UNAVAILABLE", `No broker available for harness "${harness}"`);
     }
     return broker;
+  }
+
+  async getAdvertisedModels(harness, broker) {
+    const h = normalizeHarness(harness ?? this.harness);
+    const normalize = (list) =>
+      [...new Set([...list].filter((m) => typeof m === "string" && m.trim()).map((m) => m.trim()))];
+    if (Array.isArray(this.advertisedModels) || this.advertisedModels instanceof Set) {
+      return normalize(this.advertisedModels);
+    }
+    if (
+      this.advertisedModels &&
+      typeof this.advertisedModels === "object" &&
+      (Array.isArray(this.advertisedModels[h]) || this.advertisedModels[h] instanceof Set)
+    ) {
+      return normalize(this.advertisedModels[h]);
+    }
+    if (typeof broker?.getAdvertisedModels === "function") {
+      const dynamic = await broker.getAdvertisedModels();
+      if (Array.isArray(dynamic) || dynamic instanceof Set) return normalize(dynamic);
+    }
+    if (typeof broker?.listModels === "function") {
+      const dynamic = await broker.listModels();
+      if (Array.isArray(dynamic) || dynamic instanceof Set) return normalize(dynamic);
+    }
+    if (Array.isArray(broker?.advertisedModels) || broker?.advertisedModels instanceof Set) {
+      return normalize(broker.advertisedModels);
+    }
+    if (Array.isArray(broker?.availableModelIds) || broker?.availableModelIds instanceof Set) {
+      return normalize(broker.availableModelIds);
+    }
+    if (Array.isArray(broker?.models?.availableModelIds)) {
+      return normalize(broker.models.availableModelIds);
+    }
+    if (Array.isArray(broker?.models)) {
+      return normalize(broker.models);
+    }
+    if (typeof broker?.verifyModel === "function") {
+      return null;
+    }
+    const defaults = [...(DEFAULT_ADVERTISED_MODELS[h] ?? [])];
+    if (h === "antigravity" && this.antigravityModel) {
+      defaults.push(this.antigravityModel);
+    }
+    return normalize(defaults);
   }
 
   onAgentEvent(jobId, event) {
@@ -369,6 +479,7 @@ export class ShedTaskRunner {
       caller: task.caller,
       requestedBy: task.requestedBy,
       harness: task.harness ?? this.harness,
+      model: task.model ?? null,
       repo: `${task.owner}/${task.repo}`,
       forge: task.forge,
       branch: task.branch,
@@ -393,6 +504,7 @@ export class ShedTaskRunner {
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
     };
+    if (task.model) out.model = task.model;
     if (task.startSha) out.startSha = task.startSha;
     if (task.headSha) out.headSha = task.headSha;
     if (task.commitsAhead !== undefined) out.commitsAhead = task.commitsAhead;
@@ -421,6 +533,7 @@ export class ShedTaskRunner {
       taskId: task.taskId,
       status: task.status,
       harness: task.harness ?? this.harness,
+      ...(task.model ? { model: task.model } : {}),
       repo: `${task.owner}/${task.repo}`,
       forge: task.forge,
       branch: task.branch,
@@ -481,7 +594,7 @@ export class ShedTaskRunner {
     return out;
   }
 
-  validate({ owner, repo, task, baseBranch, headBranch, forge, title, requested_by, harness }) {
+  validate({ owner, repo, task, baseBranch, headBranch, forge, title, requested_by, harness, model }) {
     const safeForge = forge ?? "github";
     if (!FORGES.includes(safeForge)) throw new ShedTaskError("FORGE_INVALID", "forge must be github or origin");
     const allowedOwners = safeForge === "origin" ? this.originOwners : this.owners;
@@ -505,23 +618,82 @@ export class ShedTaskRunner {
     )) {
       throw new ShedTaskError("HEAD_BRANCH_INVALID", `headBranch must be an existing shed-owned branch (${HEAD_BRANCH_PREFIXES.join(", ")}) different from baseBranch, main, master, and the repo default branch`);
     }
-    if (typeof requested_by !== "string" || !LABEL_PATTERN.test(requested_by)) {
-      throw new ShedTaskError("REQUESTED_BY_REQUIRED", "requested_by must name the bot that asked (letters, digits, _ . @ -)");
-    }
+    validateRequestedBy(requested_by);
     const rawHarness = harness === undefined || harness === null ? DEFAULT_SHED_HARNESS : harness;
     if (typeof rawHarness !== "string" || !SHED_HARNESSES.includes(rawHarness.trim().toLowerCase())) {
       throw new ShedTaskError("HARNESS_INVALID", `harness must be one of: ${SHED_HARNESSES.join(", ")}`);
     }
     const safeHarness = rawHarness.trim().toLowerCase();
     const safeTitle = typeof title === "string" && title.trim() ? title.trim().slice(0, TITLE_MAX) : undefined;
+    let safeModel;
+    if (model !== undefined) {
+      if (
+        typeof model !== "string" ||
+        !model.trim() ||
+        model !== model.trim() ||
+        model.length > 120 ||
+        model.includes("\u0000")
+      ) {
+        throw new ShedTaskError("MODEL_INVALID", "model must be a non-empty model ID string (max 120 chars)");
+      }
+      assertNoSecrets(model, "model");
+      safeModel = model;
+    }
     assertNoSecrets(task, "task");
     if (safeTitle) assertNoSecrets(safeTitle, "title");
-    return { owner: owner.toLowerCase(), repo, forge: safeForge, task, baseBranch: base, headBranch, title: safeTitle, requestedBy: requested_by, harness: safeHarness };
+    return {
+      owner: owner.toLowerCase(),
+      repo,
+      forge: safeForge,
+      task,
+      baseBranch: base,
+      headBranch,
+      title: safeTitle,
+      requestedBy: requested_by,
+      harness: safeHarness,
+      ...(safeModel ? { model: safeModel } : {}),
+    };
+  }
+
+  validateSteer({ taskId, instruction, requested_by } = {}) {
+    const safeRequestedBy = validateRequestedBy(requested_by);
+    if (typeof taskId !== "string" || !taskId.trim()) {
+      throw new ShedTaskError("TASK_NOT_FOUND", "unknown task");
+    }
+    if (
+      typeof instruction !== "string" ||
+      !instruction.trim() ||
+      instruction.length > STEER_MAX ||
+      instruction.includes("\u0000")
+    ) {
+      throw new ShedTaskError(
+        "INSTRUCTION_INVALID",
+        `instruction must be a non-empty string up to ${STEER_MAX} characters`,
+      );
+    }
+    assertNoSecrets(instruction, "instruction");
+    return {
+      taskId: taskId.trim(),
+      instruction: instruction.trim(),
+      requestedBy: safeRequestedBy,
+    };
   }
 
   async runTask(input, caller) {
+    const verifiedCaller = assertCaller(caller);
     const request = this.validate(input ?? {});
     const harness = request.harness;
+    if (request.model !== undefined) {
+      const brokerForValidation = this.brokers.get(harness) ?? (harness === "antigravity" ? this.broker : undefined);
+      const advertised = await this.getAdvertisedModels(harness, brokerForValidation);
+      if (Array.isArray(advertised) && !advertised.includes(request.model)) {
+        throw new ShedTaskError(
+          "MODEL_INVALID",
+          `Unknown model "${request.model}": not advertised by harness "${harness}" (advertised: ${advertised.join(", ") || "none"})`,
+          { harness, model: request.model, advertisedModels: advertised },
+        );
+      }
+    }
     const runningForHarness = this.activeCountForHarness(harness);
     const capForHarness = this.maxConcurrentFor(harness);
     if (runningForHarness >= capForHarness) return this.shedState(harness);
@@ -542,15 +714,17 @@ export class ShedTaskRunner {
     }
     const stamp = this.now().toISOString().replace(/[-:]/g, "").replace(/\..*$/, "");
     const taskId = `shed-${stamp}-${randomBytes(3).toString("hex")}`;
+    const chosenModel = request.model ?? (request.harness === "antigravity" ? this.antigravityModel : undefined);
     const task = {
       taskId,
       status: "starting",
       harness: request.harness,
       ...request,
+      ...(chosenModel ? { model: chosenModel } : {}),
       task: undefined,
       branch: request.headBranch ?? `${BRANCH_PREFIX}${taskId}`,
       mode: request.headBranch ? "existing_branch" : "new_branch",
-      caller: caller?.label ?? "unknown",
+      caller: verifiedCaller.label,
       createdAt: this.now().toISOString(),
       worktree: path.join(this.stateDir, "worktrees", taskId),
     };
@@ -561,18 +735,27 @@ export class ShedTaskRunner {
       this.releaseActive(taskId, task);
       return { status: "unavailable", reason: "REPO_NOT_ON_SHED", message: `${request.owner}/${request.repo} is not cloned under the shed repos root` };
     }
+
     this.tasks.set(taskId, task);
-    this.transcripts.set(taskId, createTranscript({ prompt: request.task }));
-    const started = this.start(task, request, repoDir);
-    let timer;
-    const stalled = new Promise((resolve) => {
+    const transcript = createTranscript({ prompt: request.task });
+    this.transcripts.set(taskId, transcript);
+
+    const started = new Promise((resolve, reject) => {
+      let timer;
       timer = setTimeout(() => resolve({ ...this.publicTask(task), sessionPending: true, message: "ACP session is still starting; read session_id / session_url from shed_task_status" }), this.sessionWaitMs);
+      this.start(task, request, repoDir).then(
+        (v) => {
+          clearTimeout(timer);
+          resolve(v);
+        },
+        (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+      );
     });
-    try {
-      return await Promise.race([started, stalled]);
-    } finally {
-      clearTimeout(timer);
-    }
+
+    return started;
   }
 
   async start(task, request, repoDir) {
@@ -581,7 +764,17 @@ export class ShedTaskRunner {
     try {
       await this.record(task, "accepted");
       broker = await this.getBroker(task.harness);
-      task.broker = broker;
+      this.taskBrokers.set(taskId, broker);
+      if (request.model !== undefined) {
+        const advertised = await this.getAdvertisedModels(task.harness, broker);
+        if (Array.isArray(advertised) && !advertised.includes(request.model)) {
+          throw new ShedTaskError(
+            "MODEL_INVALID",
+            `Unknown model "${request.model}": not advertised by harness "${task.harness}" (advertised: ${advertised.join(", ") || "none"})`,
+            { harness: task.harness, model: request.model, advertisedModels: advertised },
+          );
+        }
+      }
       const startRef = request.headBranch ?? request.baseBranch;
       // Each task gets its own worktree under <stateDir>/worktrees/<taskId>.
       await this.withRepoLock(repoDir, async () => {
@@ -606,6 +799,7 @@ export class ShedTaskRunner {
         workspace: task.worktree,
         prompt: `${SHED_INSTRUCTIONS}\n\nTask:\n${request.task}`,
         hostConversationId: taskId,
+        ...(task.model ? { model: task.model } : {}),
       });
       task.jobId = submitted.jobId;
       if (isSessionId(submitted.backendSessionId)) task.sessionId = submitted.backendSessionId;
@@ -620,6 +814,15 @@ export class ShedTaskRunner {
       }
     } catch (error) {
       if (isCancelled(task)) return this.cancelBeforeRun(task);
+      if (/^(MODEL_UNAVAILABLE|INVALID_MODEL|MODEL_REQUIRED|MODEL_AMBIGUOUS|MODEL_INVALID)$/i.test(error?.code ?? "")) {
+        await this.finish(task, "start_failed");
+        this.tasks.delete(taskId);
+        throw new ShedTaskError(
+          "MODEL_INVALID",
+          clean(error?.message || `Model is not advertised by harness ${task.harness}`, 300),
+          error?.details ?? { harness: task.harness, model: request.model },
+        );
+      }
       const unavailable = /READINESS|OAUTH|RUNTIME|AUTH|SETUP|BROKER_UNAVAILABLE/i.test(error?.code ?? "");
       task.status = unavailable ? "unavailable" : "failed";
       task.error = { code: error?.code ?? "TASK_START_FAILED", message: clean(error?.message, 300) };
@@ -664,11 +867,14 @@ export class ShedTaskRunner {
   }
 
   async watch(task) {
-    const broker = task.broker ?? (await this.getBroker(task.harness));
+    const broker = this.taskBrokers.get(task.taskId) ?? (await this.getBroker(task.harness));
     let job;
     for (;;) {
       job = await broker.result({ jobId: task.jobId, waitMs: POLL_WAIT_MS });
       if (job.complete || (job.taskComplete && (!broker?.active?.has?.(task.jobId) || job.cleanup?.status === "uncertain"))) break;
+    }
+    if (!task.model && job?.model?.selectedModelId) {
+      task.model = job.model.selectedModelId;
     }
     task.summary = clean(job.handoff);
     const transcript = this.transcripts.get(task.taskId);
@@ -809,18 +1015,23 @@ export class ShedTaskRunner {
         await rm(task.worktree, { recursive: true, force: true }).catch(() => {});
       }
     }
-    await this.record(task, event);
-    clearTimeout(this.flushTimers.get(task.taskId));
-    this.flushTimers.delete(task.taskId);
-    await this.flushSession(task).catch(() => {});
-    if (task.jobId) this.jobTasks.delete(task.jobId);
-    this.transcripts.delete(task.taskId);
-    this.releaseActive(task.taskId, task);
+    try {
+      await this.record(task, event);
+    } finally {
+      clearTimeout(this.flushTimers.get(task.taskId));
+      this.flushTimers.delete(task.taskId);
+      await this.flushSession(task).catch(() => {});
+      if (task.jobId) this.jobTasks.delete(task.jobId);
+      this.transcripts.delete(task.taskId);
+      this.taskBrokers.delete(task.taskId);
+      this.releaseActive(task.taskId, task);
+    }
     return this.publicTask(task);
   }
 
   releaseActive(taskId, task) {
     this.active.delete(taskId);
+    this.taskBrokers.delete(taskId);
     const waiters = this.taskWaiters.get(taskId);
     if (waiters) {
       this.taskWaiters.delete(taskId);
@@ -876,9 +1087,137 @@ export class ShedTaskRunner {
     task.status = "cancelling";
     await this.record(task, "cancel_requested");
     if (task.jobId) {
-      const broker = task.broker ?? (await this.getBroker(task.harness));
+      const broker = this.taskBrokers.get(task.taskId) ?? (await this.getBroker(task.harness));
       await broker.cancel({ jobId: task.jobId, reason: "cancelled by remote caller" }).catch(() => {});
     }
     return { ...this.publicTask(task), cancellationRequested: true };
+  }
+
+  async steer(input = {}, caller) {
+    assertCaller(caller);
+    const { taskId, instruction, requestedBy } = this.validateSteer(input);
+    const task = this.tasks.get(taskId) ?? (await this.load(taskId));
+    if (!this.active.has(taskId) || task.status !== "running" || !task.jobId) {
+      throw new ShedTaskError(
+        "TASK_NOT_RUNNING",
+        `Task ${taskId} is not running (current state: ${task.status}); only running tasks can be steered`,
+        { taskId, status: task.status },
+      );
+    }
+    const broker = this.taskBrokers.get(taskId) ?? (await this.getBroker(task.harness));
+    if (typeof broker?.steer === "function") {
+      try {
+        await broker.steer({
+          jobId: task.jobId,
+          sessionId: task.sessionId,
+          instruction,
+          message: instruction,
+          requestedBy,
+        });
+      } catch (error) {
+        if (error?.code === "STEERING_UNSUPPORTED") {
+          await this.steerViaRuntime(broker, task, instruction);
+        } else {
+          throw error;
+        }
+      }
+    } else if (typeof broker?.steerSession === "function") {
+      await broker.steerSession({
+        jobId: task.jobId,
+        sessionId: task.sessionId,
+        instruction,
+        message: instruction,
+        requestedBy,
+      });
+    } else {
+      await this.steerViaRuntime(broker, task, instruction);
+    }
+    const transcript = this.transcripts.get(taskId);
+    if (transcript) {
+      appendEvent(transcript, { type: "status", tag: "steered", text: instruction }, this.now().toISOString());
+      this.scheduleFlush(task);
+    }
+    await this.record(task, "steered");
+    return {
+      ...this.publicTask(task),
+      steered: true,
+      requestedBy,
+    };
+  }
+
+  async steerViaRuntime(broker, task, instruction) {
+    const active = broker?.active?.get?.(task.jobId);
+    const runtime =
+      broker?.runtime ?? (typeof broker?.ensureRuntime === "function" ? broker.ensureRuntime() : null);
+    if (active?.handle && typeof runtime?.startTurn === "function") {
+      const turn = runtime.startTurn({
+        handle: active.handle,
+        text: instruction,
+        mode: "steer",
+        requestId: `${task.jobId}:steer:${Date.now()}`,
+        timeoutMs: 120_000,
+      });
+      if (turn?.promptStarted) await turn.promptStarted;
+      return;
+    }
+    throw new ShedTaskError(
+      "STEER_UNAVAILABLE",
+      `Unable to steer running task ${task.taskId}: active ACP session does not expose a steer handler`,
+      { taskId: task.taskId },
+    );
+  }
+
+  async result({ taskId } = {}, caller) {
+    assertCaller(caller);
+    if (typeof taskId !== "string" || !taskId.trim()) {
+      throw new ShedTaskError("TASK_NOT_FOUND", "unknown task");
+    }
+    const trimmedId = taskId.trim();
+    const inMem = this.tasks.get(trimmedId);
+    if (this.active.has(trimmedId) || (inMem && !TERMINAL_TASK_STATUSES.has(inMem.status))) {
+      const currentStatus = inMem?.status ?? "running";
+      throw new ShedTaskError(
+        "TASK_NOT_FINISHED",
+        `Task ${trimmedId} is still ${currentStatus} (not finished); wait for completion before calling shed_task_result`,
+        { taskId: trimmedId, status: currentStatus },
+      );
+    }
+    const record = await this.load(trimmedId);
+    if (!TERMINAL_TASK_STATUSES.has(record.status)) {
+      throw new ShedTaskError(
+        "TASK_NOT_FINISHED",
+        `Task ${trimmedId} is still ${record.status} (not finished); wait for completion before calling shed_task_result`,
+        { taskId: trimmedId, status: record.status },
+      );
+    }
+    const sessionId = record.sessionId ?? record.session_id ?? null;
+    const link = record.session_url ?? (sessionId ? sessionUrl(this.sessionBaseUrl, sessionId) ?? null : null);
+    const summary = typeof record.summary === "string" ? clean(record.summary) : null;
+    const harness = record.harness ?? this.harness;
+    const model = record.model ?? (harness === "antigravity" ? this.antigravityModel : null);
+    return {
+      taskId: record.taskId,
+      status: record.status,
+      summary,
+      prUrl: record.prUrl ?? null,
+      headSha: record.headSha ?? null,
+      harness,
+      model,
+      session_id: sessionId,
+      session_url: link,
+      sessionUrl: link,
+      repo: record.repo ?? (record.owner && record.repo ? `${record.owner}/${record.repo}` : undefined),
+      forge: record.forge,
+      branch: record.branch,
+      baseBranch: record.baseBranch,
+      ...(record.headBranch ? { headBranch: record.headBranch } : {}),
+      ...(record.commitsAhead !== undefined ? { commitsAhead: record.commitsAhead } : {}),
+      ...(record.startSha ? { startSha: record.startSha } : {}),
+      ...(record.error ? { error: record.error } : {}),
+      requestedBy: record.requestedBy,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      ...(record.finishedAt ? { finishedAt: record.finishedAt } : {}),
+    };
   }
 }
