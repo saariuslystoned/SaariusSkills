@@ -11,7 +11,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { createAccessAuthenticator, parseRemoteCallers, resolveAccessConfig } from "../access-auth.mjs";
 import { resolveHttpConfig, resolveTransport, startRemoteShedHost } from "../http-host.mjs";
 import { createRepoOwnerGuard, githubOwnerFromRemote, originOwnerFromRemote, parseRepoOwners } from "../repo-allowlist.mjs";
-import { DEFAULT_MUSE_ADVERTISED_MODELS, STEER_MAX, parseMaxConcurrent, ShedTaskRunner } from "../shed-tasks.mjs";
+import { DEFAULT_MUSE_ADVERTISED_MODELS, MUSE_COAUTHOR_ENV, SHED_COMMIT_AUTHOR, STEER_MAX, appendCoAuthorTrailer, museCoAuthorTrailer, parseMaxConcurrent, ShedTaskRunner } from "../shed-tasks.mjs";
 import { createShedMcpServer, SHED_TOOL_NAMES } from "../shed-tools.mjs";
 
 const OWNERS = "saariuslystoned,saari-co,dinkuskit";
@@ -109,6 +109,53 @@ function shedFixture(brokerOptions, { changes = " M README.md", ahead, remoteHea
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+const TEST_MUSE_COAUTHOR = "Muse <123456+muse-bot@users.noreply.github.com>";
+
+test("muse co-author trailer requires MUSE_COAUTHOR, includes model id when known, and keeps the shed author identity", () => {
+  assert.equal(MUSE_COAUTHOR_ENV, "MUSE_COAUTHOR");
+  assert.equal(SHED_COMMIT_AUTHOR, "saariuslystoned <159389674+saariuslystoned@users.noreply.github.com>");
+  assert.equal(museCoAuthorTrailer("claude-sonnet-4-6", {}), "");
+  assert.equal(museCoAuthorTrailer("claude-sonnet-4-6", { MUSE_COAUTHOR: "   " }), "");
+  assert.equal(
+    museCoAuthorTrailer("claude-sonnet-4-6", { MUSE_COAUTHOR: TEST_MUSE_COAUTHOR }),
+    "Co-authored-by: Muse (claude-sonnet-4-6) <123456+muse-bot@users.noreply.github.com>",
+  );
+  assert.equal(
+    museCoAuthorTrailer(undefined, { MUSE_COAUTHOR: TEST_MUSE_COAUTHOR }),
+    "Co-authored-by: Muse <123456+muse-bot@users.noreply.github.com>",
+  );
+  assert.equal(
+    museCoAuthorTrailer("gpt-5.4", { MUSE_COAUTHOR: "123456+muse-bot@users.noreply.github.com" }),
+    "Co-authored-by: Muse (gpt-5.4) <123456+muse-bot@users.noreply.github.com>",
+  );
+});
+
+test("co-author trailer is omitted when MUSE_COAUTHOR is unset and appended once without duplication when set", () => {
+  const base = "Fix typo\n\nRemote-shed task shed-x requested by acp-runner.";
+  assert.equal(appendCoAuthorTrailer(base, { harness: "muse", model: "claude-sonnet-4-6", env: {} }), base);
+  assert.equal(appendCoAuthorTrailer(base, { harness: "muse", model: "claude-sonnet-4-6", env: { MUSE_COAUTHOR: "" } }), base);
+
+  const env = { MUSE_COAUTHOR: TEST_MUSE_COAUTHOR };
+  const once = appendCoAuthorTrailer(base, { harness: "muse", model: "claude-sonnet-4-6", env });
+  assert.match(once, /\n\nCo-authored-by: Muse \(claude-sonnet-4-6\) <123456\+muse-bot@users\.noreply\.github\.com>$/);
+  assert.equal(appendCoAuthorTrailer(once, { harness: "muse", model: "claude-sonnet-4-6", env }), once);
+  const agentAdded = "Fix typo\n\nCo-authored-by: Muse (claude-sonnet-4-6) <123456+muse-bot@users.noreply.github.com>";
+  assert.equal(appendCoAuthorTrailer(agentAdded, { harness: "muse", model: "gpt-5.4", env }), agentAdded);
+  assert.equal((once.match(/Co-authored-by: Muse/g) ?? []).length, 1);
+
+  const noModel = appendCoAuthorTrailer(base, { harness: "muse", env });
+  assert.match(noModel, /\n\nCo-authored-by: Muse <123456\+muse-bot@users\.noreply\.github\.com>$/);
+  assert.equal(appendCoAuthorTrailer(noModel, { harness: "muse", env }), noModel);
+});
+
+test("other harnesses get no co-author trailer even when MUSE_COAUTHOR is set", () => {
+  const msg = "Fix typo";
+  const env = { MUSE_COAUTHOR: TEST_MUSE_COAUTHOR };
+  assert.equal(appendCoAuthorTrailer(msg, { harness: "antigravity", model: "gemini-3.1-pro", env }), msg);
+  assert.equal(appendCoAuthorTrailer(msg, { harness: "cursor", model: "x", env }), msg);
+  assert.equal(appendCoAuthorTrailer(msg, { harness: undefined, model: "x", env }), msg);
+});
+
 const RUN = { owner: "saari-co", repo: "site", task: "Fix the README typo", requested_by: "acp-runner" };
 const CALLER = { label: "acp-runner", clientId: CLIENT_ID };
 
@@ -225,6 +272,41 @@ test("a task runs on a new branch and ends in a draft PR; audit log names caller
   assert.ok(logs.every((line) => line.caller === "acp-runner" && line.requestedBy === "acp-runner"));
   assert.ok(!JSON.stringify(logs).includes("README typo"));
   assert.equal((await runner.status({})).status, "idle");
+});
+
+test("shed commit for a muse task omits trailer when MUSE_COAUTHOR is unset and carries it once when set", async () => {
+  // 1. Default (MUSE_COAUTHOR unset/empty): no trailer in commit or prompt
+  const { runner: unsetRunner, broker: unsetBroker, commands: unsetCommands } = shedFixture(undefined, {
+    env: { MUSE_COAUTHOR: "" },
+  });
+  await unsetRunner.init();
+  const unsetStarted = await unsetRunner.runTask({ ...RUN, model: "claude-sonnet-4-6" }, CALLER);
+  unsetBroker.finish();
+  await settle();
+  assert.equal((await unsetRunner.status({ taskId: unsetStarted.taskId })).status, "pr_opened");
+  const unsetCommit = unsetCommands.find((c) => c[0] === "git" && c[1] === "commit");
+  assert.ok(unsetCommit, "shed should create a commit for the dirty worktree");
+  assert.ok(!unsetCommit.join(" ").includes("Co-authored-by:"), unsetCommit.join(" "));
+  const unsetDelegate = unsetBroker.calls.find((call) => call.name === "delegate").input;
+  assert.ok(!unsetDelegate.prompt.includes("Co-authored-by:"), unsetDelegate.prompt);
+
+  // 2. When MUSE_COAUTHOR is set: trailer included once, author unchanged
+  const { runner, broker, commands } = shedFixture(undefined, {
+    env: { MUSE_COAUTHOR: TEST_MUSE_COAUTHOR },
+  });
+  await runner.init();
+  const started = await runner.runTask({ ...RUN, model: "claude-sonnet-4-6" }, CALLER);
+  broker.finish();
+  await settle();
+  assert.equal((await runner.status({ taskId: started.taskId })).status, "pr_opened");
+  const commit = commands.find((c) => c[0] === "git" && c[1] === "commit");
+  assert.ok(commit, "shed should create a commit for the dirty worktree");
+  const flat = commit.join(" ");
+  assert.ok(flat.includes("Co-authored-by: Muse (claude-sonnet-4-6) <123456+muse-bot@users.noreply.github.com>"), flat);
+  assert.equal((flat.match(/Co-authored-by: Muse/g) ?? []).length, 1);
+  assert.ok(!commit.some((arg) => String(arg).startsWith("--author")), "commit author must stay the shed git identity");
+  const delegate = broker.calls.find((call) => call.name === "delegate").input;
+  assert.ok(delegate.prompt.includes("Co-authored-by: Muse (claude-sonnet-4-6) <123456+muse-bot@users.noreply.github.com>"), delegate.prompt);
 });
 
 test("input validation: allowlist, requested_by, secrets, and unavailable repos", async () => {
