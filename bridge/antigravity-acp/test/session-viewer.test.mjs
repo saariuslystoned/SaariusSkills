@@ -396,7 +396,7 @@ test("a stalled session/new returns without session fields; status exposes them 
   const broker = viewerBroker({ delegateDelayMs: 150 });
   const { runner } = runnerFixture(broker, { sessionWaitMs: 30 });
   await runner.init();
-  const first = await runner.runTask(RUN, {});
+  const first = await runner.runTask(RUN, { label: "acp-runner" });
   assert.equal(first.status, "starting");
   assert.equal(first.sessionPending, true);
   assert.equal(first.session_id, undefined);

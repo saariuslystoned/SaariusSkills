@@ -23,8 +23,8 @@ chat cannot call `antigravity_acp_*`.
 an authenticated Cloudflare Tunnel, for callers on another machine such as a
 Grok Bot cloud box) is documented in
 [references/remote-shed.md](references/remote-shed.md). It exposes only
-`shed_task_run`, `shed_task_status`, and `shed_task_cancel`, not the six tools
-above.
+`shed_task_run`, `shed_task_status`, `shed_task_cancel`, `shed_task_steer`, and
+`shed_task_result`, not the six tools above.
 
 For generic “use the SaariusSkills ACP plugin” requests, start with the
 [ACP entry skill](../acp-delegation/SKILL.md). This lane's preferences and

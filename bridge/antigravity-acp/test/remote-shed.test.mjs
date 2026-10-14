@@ -11,7 +11,15 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { createAccessAuthenticator, parseRemoteCallers, resolveAccessConfig } from "../access-auth.mjs";
 import { resolveHttpConfig, resolveTransport, startRemoteShedHost } from "../http-host.mjs";
 import { createRepoOwnerGuard, githubOwnerFromRemote, originOwnerFromRemote, parseRepoOwners } from "../repo-allowlist.mjs";
-import { DEFAULT_ANTIGRAVITY_MODEL, SHED_ANTIGRAVITY_MODEL_ENV, parseMaxConcurrent, ShedTaskRunner } from "../shed-tasks.mjs";
+import {
+  DEFAULT_ANTIGRAVITY_ADVERTISED_MODELS,
+  DEFAULT_ANTIGRAVITY_MODEL,
+  DEFAULT_MUSE_ADVERTISED_MODELS,
+  SHED_ANTIGRAVITY_MODEL_ENV,
+  STEER_MAX,
+  parseMaxConcurrent,
+  ShedTaskRunner,
+} from "../shed-tasks.mjs";
 import { createShedMcpServer, SHED_TOOL_NAMES } from "../shed-tools.mjs";
 
 const OWNERS = "saariuslystoned,saari-co,dinkuskit";
@@ -45,17 +53,18 @@ function repo(remote) {
   return dir;
 }
 
-function fakeBroker({ delegateError, jobStatus = "completed" } = {}) {
+function fakeBroker({ delegateError, jobStatus = "completed", backendSessionId = "11111111-2222-3333-4444-555555555555", advertisedModels } = {}) {
   const calls = [];
   let release;
   const done = new Promise((resolve) => { release = resolve; });
   return {
     calls,
+    ...(advertisedModels ? { advertisedModels } : {}),
     finish: () => release(),
     async delegate(input) {
       calls.push({ name: "delegate", input });
       if (delegateError) throw delegateError;
-      return { jobId: "job-1" };
+      return { jobId: "job-1", ...(backendSessionId ? { backendSessionId } : {}) };
     },
     async result(input) {
       calls.push({ name: "result", input });
@@ -66,6 +75,10 @@ function fakeBroker({ delegateError, jobStatus = "completed" } = {}) {
       calls.push({ name: "cancel", input });
       release();
       return { status: "cancellation-requested" };
+    },
+    async steer(input) {
+      calls.push({ name: "steer", input });
+      return { steered: true };
     },
   };
 }
@@ -149,7 +162,14 @@ test("Access JWT verification accepts the known service token and refuses everyt
   await refused({ "cf-access-jwt-assertion": jwt({ common_name: "someone-else.access" }) }, "unknown_caller");
 });
 
-test("remote endpoint requires Access and exposes only the three narrow task tools", async () => {
+test("remote endpoint requires Access and exposes only the narrow task tools", async () => {
+  assert.deepEqual(SHED_TOOL_NAMES, [
+    "shed_task_run",
+    "shed_task_status",
+    "shed_task_cancel",
+    "shed_task_steer",
+    "shed_task_result",
+  ]);
   const { runner } = shedFixture();
   await runner.init();
   const host = await startRemoteShedHost({
@@ -424,11 +444,14 @@ test("Origin forge: separate owner allowlist and origin pr create", async () => 
 });
 
 // Broker with one independently released job per delegate call.
-function multiBroker({ onDelegate } = {}) {
+function multiBroker({ onDelegate, advertisedModels } = {}) {
   const jobs = new Map();
+  const steers = [];
   let n = 0;
   return {
     jobs,
+    steers,
+    ...(advertisedModels ? { advertisedModels } : {}),
     async delegate(input) {
       const jobId = `job-${++n}`;
       let release;
@@ -444,6 +467,10 @@ function multiBroker({ onDelegate } = {}) {
     async cancel({ jobId }) {
       jobs.get(jobId).release("cancelled");
       return { status: "cancellation-requested" };
+    },
+    async steer(input) {
+      steers.push(input);
+      return { steered: true };
     },
     finish(jobId, status) { jobs.get(jobId).release(status); },
   };
@@ -725,8 +752,8 @@ test("independent lane caps: 5 antigravity running still lets muse start; 6th is
   await runner.whenIdle();
 });
 
-test("shed_task_run tool input schema exposes headBranch, harness, and model", () => {
-  const fakeRunner = { runTask: () => {}, status: () => {}, cancel: () => {} };
+test("shed_task_run tool input schema exposes headBranch, harness, and model, and steer/result tools are registered", () => {
+  const fakeRunner = { runTask: () => {}, status: () => {}, cancel: () => {}, steer: () => {}, result: () => {} };
   const server = createShedMcpServer(fakeRunner, { label: "test" });
   const tool = server._registeredTools["shed_task_run"];
   assert.ok(tool, "shed_task_run tool must be registered");
@@ -734,6 +761,17 @@ test("shed_task_run tool input schema exposes headBranch, harness, and model", (
   assert.ok(shape.headBranch, "headBranch must be present in input schema");
   assert.ok(shape.harness, "harness must be present in input schema");
   assert.ok(shape.model, "model must be present in input schema");
+  assert.deepEqual(shape.harness.unwrap().options, ["antigravity", "muse"]);
+
+  const steerTool = server._registeredTools["shed_task_steer"];
+  assert.ok(steerTool, "shed_task_steer tool must be registered");
+  assert.ok(steerTool.inputSchema.shape.taskId);
+  assert.ok(steerTool.inputSchema.shape.instruction);
+  assert.ok(steerTool.inputSchema.shape.requested_by);
+
+  const resultTool = server._registeredTools["shed_task_result"];
+  assert.ok(resultTool, "shed_task_result tool must be registered");
+  assert.ok(resultTool.inputSchema.shape.taskId);
 });
 
 test("circular-JSON crash fix: start() keeps broker off task record; map entry removed after finish", async () => {
@@ -829,7 +867,7 @@ test("model selection: env and config overrides win, request override wins, mode
   // 3. Request-level override wins over runner config
   const requestModel = "test-request-model-override";
   const { runner: reqRunner, broker: reqBroker, reposRoot: reqRoot } = shedFixture(undefined, {
-    runnerOptions: { antigravityModel: configModel },
+    runnerOptions: { antigravityModel: configModel, advertisedModels: { antigravity: [configModel, requestModel] } },
   });
   await reqRunner.init();
   const reqStarted = await reqRunner.runTask({ ...RUN, model: requestModel }, CALLER);
@@ -858,4 +896,366 @@ test("runTask propagates rejections from start() instead of resolving with an er
   assert.equal(normal.status, "running");
   broker.finish();
   await runner.whenIdle();
+});
+
+test("shed_task_run validates model against each harness's advertised models and rejects unknown models", async () => {
+  const antiBroker = multiBroker({ advertisedModels: ["gemini-4-argon-medium", "gemini-3.8-flash-high"] });
+  antiBroker.harness = "antigravity";
+  const museBroker = multiBroker({ advertisedModels: ["claude-sonnet-4-6", "gpt-5.4"] });
+  museBroker.harness = "muse";
+
+  const { runner } = shedFixture(undefined, {
+    brokers: { antigravity: antiBroker, muse: museBroker },
+    env: { SAARIUS_ACP_REMOTE_MAX_CONCURRENT: "5" },
+  });
+  await runner.init();
+
+  // Rejects unknown model for antigravity
+  await assert.rejects(
+    runner.runTask({ ...RUN, harness: "antigravity", model: "claude-sonnet-4-6" }, CALLER),
+    (err) =>
+      err.code === "MODEL_INVALID" &&
+      /not advertised by harness "antigravity"/.test(err.message) &&
+      err.details?.harness === "antigravity",
+  );
+
+  // Rejects unknown model for muse
+  await assert.rejects(
+    runner.runTask({ ...RUN, harness: "muse", model: "gemini-4-argon-medium" }, CALLER),
+    (err) =>
+      err.code === "MODEL_INVALID" &&
+      /not advertised by harness "muse"/.test(err.message) &&
+      err.details?.harness === "muse",
+  );
+
+  // Rejects empty/whitespace/secret model strings
+  for (const badModel of ["", "   ", " gemini-4-argon-medium ", "x".repeat(121)]) {
+    await assert.rejects(
+      runner.runTask({ ...RUN, model: badModel }, CALLER),
+      (err) => err.code === "MODEL_INVALID",
+    );
+  }
+  await assert.rejects(
+    runner.runTask({ ...RUN, model: "ghp_abcdefghijklmnopqrstuv" }, CALLER),
+    (err) => err.code === "SECRET_REFUSED",
+  );
+
+  // Accepts advertised models for each harness
+  assert.ok(DEFAULT_ANTIGRAVITY_ADVERTISED_MODELS.includes("gemini-3.8-flash-high"));
+  assert.ok(DEFAULT_MUSE_ADVERTISED_MODELS.includes("claude-sonnet-4-6"));
+  const antiStarted = await runner.runTask({ ...RUN, harness: "antigravity", model: "gemini-3.8-flash-high" }, CALLER);
+  assert.equal(antiStarted.status, "running");
+  assert.equal(antiStarted.model, "gemini-3.8-flash-high");
+
+  const museStarted = await runner.runTask({ ...RUN, harness: "muse", model: "claude-sonnet-4-6" }, CALLER);
+  assert.equal(museStarted.status, "running");
+  assert.equal(museStarted.model, "claude-sonnet-4-6");
+
+  for (const id of antiBroker.jobs.keys()) antiBroker.finish(id);
+  for (const id of museBroker.jobs.keys()) museBroker.finish(id);
+  await runner.whenIdle();
+});
+
+test("shed_task_steer sends follow-up instruction to a running task and validates caller, requested_by, secrets, and state", async () => {
+  const { runner, broker, logs } = shedFixture();
+  await runner.init();
+
+  // Auth refusal on runTask, steer, and result when Access caller is missing or invalid
+  for (const badCaller of [undefined, null, {}, { label: "" }, { label: "invalid caller!" }]) {
+    await assert.rejects(runner.runTask(RUN, badCaller), { code: "ACCESS_DENIED" });
+    await assert.rejects(
+      runner.steer({ taskId: "shed-20261014T000000-abcdef", instruction: "Continue", requested_by: "acp-runner" }, badCaller),
+      { code: "ACCESS_DENIED" },
+    );
+    await assert.rejects(runner.result({ taskId: "shed-20261014T000000-abcdef" }, badCaller), { code: "ACCESS_DENIED" });
+  }
+
+  // Unknown taskId -> TASK_NOT_FOUND
+  await assert.rejects(
+    runner.steer({ taskId: "shed-20261014T000000-deadbe", instruction: "Check tests", requested_by: "acp-runner" }, CALLER),
+    { code: "TASK_NOT_FOUND" },
+  );
+  await assert.rejects(
+    runner.steer({ taskId: "not-a-task-id", instruction: "Check tests", requested_by: "acp-runner" }, CALLER),
+    { code: "TASK_NOT_FOUND" },
+  );
+
+  // Start a task
+  const started = await runner.runTask(RUN, CALLER);
+  assert.equal(started.status, "running");
+
+  // Validate requested_by
+  for (const badReqBy of [undefined, null, "", "   ", "bad space", "bad/slash"]) {
+    await assert.rejects(
+      runner.steer({ taskId: started.taskId, instruction: "Focus on unit tests", requested_by: badReqBy }, CALLER),
+      { code: "REQUESTED_BY_REQUIRED" },
+    );
+  }
+
+  // Validate instruction (non-empty, length cap, string types, null bytes)
+  for (const badInstruction of [undefined, null, 123, "", "   ", "a\u0000b", "x".repeat(STEER_MAX + 1)]) {
+    await assert.rejects(
+      runner.steer({ taskId: started.taskId, instruction: badInstruction, requested_by: "acp-runner" }, CALLER),
+      { code: "INSTRUCTION_INVALID" },
+    );
+  }
+
+  // Secret scanner on instruction -> reject with SECRET_REFUSED
+  for (const secretInstruction of [
+    "Use token ghp_abcdefghijklmnopqrstuv to authenticate",
+    "Here is key sk-1234567890abcdefghij",
+    "Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9",
+    "-----BEGIN RSA PRIVATE KEY-----",
+  ]) {
+    await assert.rejects(
+      runner.steer({ taskId: started.taskId, instruction: secretInstruction, requested_by: "acp-runner" }, CALLER),
+      { code: "SECRET_REFUSED" },
+    );
+  }
+  assert.equal(broker.calls.filter((c) => c.name === "steer").length, 0);
+
+  // Success path: steers running task
+  const steered = await runner.steer(
+    { taskId: started.taskId, instruction: "Also update the unit tests", requested_by: "bot-steerer" },
+    CALLER,
+  );
+  assert.equal(steered.steered, true);
+  assert.equal(steered.taskId, started.taskId);
+  assert.equal(steered.status, "running");
+  assert.equal(steered.requestedBy, "bot-steerer");
+
+  const steerCall = broker.calls.find((c) => c.name === "steer");
+  assert.ok(steerCall, "broker.steer should have been called");
+  assert.equal(steerCall.input.jobId, "job-1");
+  assert.equal(steerCall.input.sessionId, "11111111-2222-3333-4444-555555555555");
+  assert.equal(steerCall.input.instruction, "Also update the unit tests");
+  assert.equal(steerCall.input.requestedBy, "bot-steerer");
+  assert.ok(logs.some((l) => l.event === "steered" && l.taskId === started.taskId));
+  assert.ok(!JSON.stringify(logs).includes("Also update the unit tests"));
+
+  // Finish task, then verify steer refuses finished task with TASK_NOT_RUNNING
+  broker.finish();
+  await runner.whenIdle();
+  await assert.rejects(
+    runner.steer({ taskId: started.taskId, instruction: "Too late", requested_by: "acp-runner" }, CALLER),
+    (err) => err.code === "TASK_NOT_RUNNING" && /pr_opened/.test(err.message),
+  );
+});
+
+test("shed_task_steer refuses cancelled and failed tasks with TASK_NOT_RUNNING and supports runtime fallback", async () => {
+  // 1. Cancelled task refusal
+  const { runner: cancelRunner } = shedFixture({ jobStatus: "cancelled" });
+  await cancelRunner.init();
+  const cTask = await cancelRunner.runTask(RUN, CALLER);
+  await cancelRunner.cancel({ taskId: cTask.taskId });
+  await cancelRunner.whenIdle();
+  await assert.rejects(
+    cancelRunner.steer({ taskId: cTask.taskId, instruction: "After cancel", requested_by: "acp-runner" }, CALLER),
+    (err) => err.code === "TASK_NOT_RUNNING" && /cancelled/.test(err.message),
+  );
+
+  // 2. Failed task refusal
+  const { runner: failRunner, broker: failBroker } = shedFixture({ jobStatus: "failed" });
+  await failRunner.init();
+  const fTask = await failRunner.runTask(RUN, CALLER);
+  failBroker.finish();
+  await failRunner.whenIdle();
+  await assert.rejects(
+    failRunner.steer({ taskId: fTask.taskId, instruction: "After fail", requested_by: "acp-runner" }, CALLER),
+    (err) => err.code === "TASK_NOT_RUNNING" && /failed/.test(err.message),
+  );
+
+  // 3. Fallback to runtime.startTurn when broker.steer throws STEERING_UNSUPPORTED
+  const turnCalls = [];
+  const baseBroker = fakeBroker();
+  const runtimeBroker = {
+    ...baseBroker,
+    active: new Map([["job-1", { handle: { sessionId: "sess-1" } }]]),
+    runtime: {
+      startTurn(args) {
+        turnCalls.push(args);
+        return { promptStarted: Promise.resolve() };
+      },
+    },
+    async steer() {
+      const err = new Error("not supported");
+      err.code = "STEERING_UNSUPPORTED";
+      throw err;
+    },
+  };
+  const { runner: rtRunner } = shedFixture(undefined, { broker: runtimeBroker });
+  await rtRunner.init();
+  const rtTask = await rtRunner.runTask(RUN, CALLER);
+  const steered = await rtRunner.steer({ taskId: rtTask.taskId, instruction: "Fallback steer", requested_by: "acp-runner" }, CALLER);
+  assert.equal(steered.steered, true);
+  assert.equal(turnCalls.length, 1);
+  assert.equal(turnCalls[0].text, "Fallback steer");
+  assert.equal(turnCalls[0].mode, "steer");
+  baseBroker.finish();
+  await rtRunner.whenIdle();
+});
+
+test("shed_task_result returns redacted summary, PR url, head sha, harness, model, and session link from finished task record", async () => {
+  const { runner, broker, reposRoot } = shedFixture(
+    { backendSessionId: "11111111-2222-3333-4444-555555555555" },
+    { runnerOptions: { sessionBaseUrl: "https://shed.sm0ky.dev" } },
+  );
+  await runner.init();
+
+  // Unknown taskId -> TASK_NOT_FOUND
+  await assert.rejects(
+    runner.result({ taskId: "shed-20261014T000000-deadbe" }, CALLER),
+    { code: "TASK_NOT_FOUND" },
+  );
+  await assert.rejects(
+    runner.result({ taskId: "invalid-id" }, CALLER),
+    { code: "TASK_NOT_FOUND" },
+  );
+
+  const started = await runner.runTask({ ...RUN, harness: "antigravity", model: "gemini-3.8-flash-high" }, CALLER);
+  assert.equal(started.status, "running");
+
+  // Running task -> wrong-state error (TASK_NOT_FINISHED)
+  await assert.rejects(
+    runner.result({ taskId: started.taskId }, CALLER),
+    (err) => err.code === "TASK_NOT_FINISHED" && /still running/.test(err.message),
+  );
+
+  // Finish task
+  broker.finish();
+  await runner.whenIdle();
+
+  // Verify reading from persisted task record (even if in-memory map entry is cleared)
+  runner.tasks.delete(started.taskId);
+
+  const res = await runner.result({ taskId: started.taskId }, CALLER);
+  assert.equal(res.taskId, started.taskId);
+  assert.equal(res.status, "pr_opened");
+  assert.equal(res.prUrl, "https://github.com/saari-co/site/pull/7");
+  assert.equal(res.headSha, HEAD);
+  assert.equal(res.harness, "antigravity");
+  assert.equal(res.model, "gemini-3.8-flash-high");
+  assert.equal(res.session_id, "11111111-2222-3333-4444-555555555555");
+  assert.equal(res.session_url, "https://shed.sm0ky.dev/s/11111111-2222-3333-4444-555555555555");
+  assert.equal(res.sessionUrl, "https://shed.sm0ky.dev/s/11111111-2222-3333-4444-555555555555");
+  assert.doesNotMatch(res.summary, /ghp_abcdefghijklmnop/);
+  assert.match(res.summary, /Changed README/);
+
+  // Verify that even if the task record on disk had an unredacted token, result() redacts it on read
+  const recordPath = path.join(reposRoot, ".saarius-shed", "tasks", `${started.taskId}.json`);
+  const diskRecord = JSON.parse(readFileSync(recordPath, "utf8"));
+  diskRecord.summary = "Summary with leaked sk-proj-1234567890abcdefghijklmnop token";
+  writeFileSync(recordPath, JSON.stringify(diskRecord, null, 2));
+
+  const resRedacted = await runner.result({ taskId: started.taskId }, CALLER);
+  assert.doesNotMatch(resRedacted.summary, /sk-proj-1234567890abcdefghijklmnop/);
+  assert.match(resRedacted.summary, /\[redacted/i);
+});
+
+test("MCP HTTP end-to-end: shed_task_steer and shed_task_result over authenticated /mcp", async () => {
+  const { runner, broker } = shedFixture(
+    { backendSessionId: "22222222-3333-4444-5555-666666666666" },
+    { runnerOptions: { sessionBaseUrl: "https://shed.sm0ky.dev" } },
+  );
+  await runner.init();
+  const host = await startRemoteShedHost({
+    env: { SAARIUS_ACP_HTTP_PORT: "0" },
+    bridge: "antigravity-acp",
+    authenticate: authenticator(),
+    createServer: (caller) => createShedMcpServer(runner, caller),
+    log: () => {},
+  });
+  try {
+    const url = new URL(`http://127.0.0.1:${host.port}/mcp`);
+    const client = new Client({ name: "acp-runner", version: "0" });
+    await client.connect(
+      new StreamableHTTPClientTransport(url, {
+        requestInit: { headers: { "cf-access-jwt-assertion": jwt() } },
+      }),
+    );
+
+    // 1. Reject unadvertised model via MCP
+    const badModelCall = await client.callTool({
+      name: "shed_task_run",
+      arguments: { ...RUN, harness: "antigravity", model: "not-a-valid-model" },
+    });
+    assert.equal(badModelCall.isError, true);
+    assert.equal(JSON.parse(badModelCall.content[0].text).error.code, "MODEL_INVALID");
+
+    // 2. Start task with valid advertised model
+    const runCall = await client.callTool({
+      name: "shed_task_run",
+      arguments: { ...RUN, harness: "antigravity", model: "gemini-4-argon-medium" },
+    });
+    assert.ok(!runCall.isError);
+    const started = JSON.parse(runCall.content[0].text);
+    assert.equal(started.status, "running");
+
+    // 3. Calling shed_task_result while still running returns wrong-state error
+    const earlyResult = await client.callTool({
+      name: "shed_task_result",
+      arguments: { taskId: started.taskId },
+    });
+    assert.equal(earlyResult.isError, true);
+    assert.equal(JSON.parse(earlyResult.content[0].text).error.code, "TASK_NOT_FINISHED");
+
+    // 4. Calling shed_task_steer with a secret returns SECRET_REFUSED
+    const secretSteer = await client.callTool({
+      name: "shed_task_steer",
+      arguments: {
+        taskId: started.taskId,
+        instruction: "Use ghp_abcdefghijklmnopqrstuv",
+        requested_by: "acp-runner",
+      },
+    });
+    assert.equal(secretSteer.isError, true);
+    assert.equal(JSON.parse(secretSteer.content[0].text).error.code, "SECRET_REFUSED");
+
+    // 5. Calling shed_task_steer with valid instruction succeeds
+    const okSteer = await client.callTool({
+      name: "shed_task_steer",
+      arguments: {
+        taskId: started.taskId,
+        instruction: "Make sure lint passes",
+        requested_by: "acp-runner",
+      },
+    });
+    assert.ok(!okSteer.isError);
+    assert.equal(JSON.parse(okSteer.content[0].text).steered, true);
+
+    // 6. Finish task and call shed_task_result
+    broker.finish();
+    await runner.whenIdle();
+
+    const finalResult = await client.callTool({
+      name: "shed_task_result",
+      arguments: { taskId: started.taskId },
+    });
+    assert.ok(!finalResult.isError);
+    const parsedResult = JSON.parse(finalResult.content[0].text);
+    assert.equal(parsedResult.taskId, started.taskId);
+    assert.equal(parsedResult.status, "pr_opened");
+    assert.equal(parsedResult.prUrl, "https://github.com/saari-co/site/pull/7");
+    assert.equal(parsedResult.headSha, HEAD);
+    assert.equal(parsedResult.harness, "antigravity");
+    assert.equal(parsedResult.model, "gemini-4-argon-medium");
+    assert.equal(parsedResult.session_url, "https://shed.sm0ky.dev/s/22222222-3333-4444-5555-666666666666");
+    assert.doesNotMatch(parsedResult.summary, /ghp_abcdefghijklmnop/);
+
+    // 7. Steer after finish returns wrong-state error
+    const lateSteer = await client.callTool({
+      name: "shed_task_steer",
+      arguments: {
+        taskId: started.taskId,
+        instruction: "One more thing",
+        requested_by: "acp-runner",
+      },
+    });
+    assert.equal(lateSteer.isError, true);
+    assert.equal(JSON.parse(lateSteer.content[0].text).error.code, "TASK_NOT_RUNNING");
+
+    await client.close();
+  } finally {
+    await host.close();
+  }
 });

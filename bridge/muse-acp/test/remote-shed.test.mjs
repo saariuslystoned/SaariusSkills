@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,7 +11,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { createAccessAuthenticator, parseRemoteCallers, resolveAccessConfig } from "../access-auth.mjs";
 import { resolveHttpConfig, resolveTransport, startRemoteShedHost } from "../http-host.mjs";
 import { createRepoOwnerGuard, githubOwnerFromRemote, originOwnerFromRemote, parseRepoOwners } from "../repo-allowlist.mjs";
-import { parseMaxConcurrent, ShedTaskRunner } from "../shed-tasks.mjs";
+import { DEFAULT_MUSE_ADVERTISED_MODELS, STEER_MAX, parseMaxConcurrent, ShedTaskRunner } from "../shed-tasks.mjs";
 import { createShedMcpServer, SHED_TOOL_NAMES } from "../shed-tools.mjs";
 
 const OWNERS = "saariuslystoned,saari-co,dinkuskit";
@@ -45,17 +45,18 @@ function repo(remote) {
   return dir;
 }
 
-function fakeBroker({ delegateError, jobStatus = "completed" } = {}) {
+function fakeBroker({ delegateError, jobStatus = "completed", backendSessionId = "11111111-2222-3333-4444-555555555555", advertisedModels } = {}) {
   const calls = [];
   let release;
   const done = new Promise((resolve) => { release = resolve; });
   return {
     calls,
+    ...(advertisedModels ? { advertisedModels } : {}),
     finish: () => release(),
     async delegate(input) {
       calls.push({ name: "delegate", input });
       if (delegateError) throw delegateError;
-      return { jobId: "job-1" };
+      return { jobId: "job-1", ...(backendSessionId ? { backendSessionId } : {}) };
     },
     async result(input) {
       calls.push({ name: "result", input });
@@ -66,6 +67,10 @@ function fakeBroker({ delegateError, jobStatus = "completed" } = {}) {
       calls.push({ name: "cancel", input });
       release();
       return { status: "cancellation-requested" };
+    },
+    async steer(input) {
+      calls.push({ name: "steer", input });
+      return { steered: true };
     },
   };
 }
@@ -148,7 +153,14 @@ test("Access JWT verification accepts the known service token and refuses everyt
   await refused({ "cf-access-jwt-assertion": jwt({ common_name: "someone-else.access" }) }, "unknown_caller");
 });
 
-test("remote endpoint requires Access and exposes only the three narrow task tools", async () => {
+test("remote endpoint requires Access and exposes only the narrow task tools", async () => {
+  assert.deepEqual(SHED_TOOL_NAMES, [
+    "shed_task_run",
+    "shed_task_status",
+    "shed_task_cancel",
+    "shed_task_steer",
+    "shed_task_result",
+  ]);
   const { runner } = shedFixture();
   await runner.init();
   const host = await startRemoteShedHost({
@@ -423,11 +435,12 @@ test("Origin forge: separate owner allowlist and origin pr create", async () => 
 });
 
 // Broker with one independently released job per delegate call.
-function multiBroker({ onDelegate } = {}) {
+function multiBroker({ onDelegate, advertisedModels } = {}) {
   const jobs = new Map();
   let n = 0;
   return {
     jobs,
+    ...(advertisedModels ? { advertisedModels } : {}),
     async delegate(input) {
       const jobId = `job-${++n}`;
       let release;
@@ -642,4 +655,93 @@ test("watch loop terminates on terminal state when cleanup is uncertain", async 
   const final = await runner.status({ taskId: started.taskId });
   assert.equal(final.status, "failed");
   assert.equal((await runner.status({})).status, "idle");
+});
+
+test("shed_task_run schema, model validation, shed_task_steer, and shed_task_result in muse-acp", async () => {
+  const fakeRunner = { runTask: () => {}, status: () => {}, cancel: () => {}, steer: () => {}, result: () => {} };
+  const server = createShedMcpServer(fakeRunner, { label: "test" });
+  const runShape = server._registeredTools["shed_task_run"].inputSchema.shape;
+  assert.ok(runShape.harness);
+  assert.ok(runShape.model);
+  assert.deepEqual(runShape.harness.unwrap().options, ["antigravity", "muse"]);
+  assert.ok(server._registeredTools["shed_task_steer"]);
+  assert.ok(server._registeredTools["shed_task_result"]);
+
+  const { runner, broker, reposRoot } = shedFixture(
+    { backendSessionId: "11111111-2222-3333-4444-555555555555" },
+    { runnerOptions: { sessionBaseUrl: "https://shed.sm0ky.dev" } },
+  );
+  await runner.init();
+
+  // Caller auth refusal
+  await assert.rejects(runner.runTask(RUN, undefined), { code: "ACCESS_DENIED" });
+  await assert.rejects(
+    runner.steer({ taskId: "shed-20261014T000000-abcdef", instruction: "x", requested_by: "acp-runner" }, undefined),
+    { code: "ACCESS_DENIED" },
+  );
+  await assert.rejects(runner.result({ taskId: "shed-20261014T000000-abcdef" }, undefined), { code: "ACCESS_DENIED" });
+
+  // Model validation against advertised models
+  assert.ok(DEFAULT_MUSE_ADVERTISED_MODELS.includes("claude-sonnet-4-6"));
+  await assert.rejects(
+    runner.runTask({ ...RUN, harness: "muse", model: "unadvertised-model-xyz" }, CALLER),
+    { code: "MODEL_INVALID" },
+  );
+
+  // Start task with advertised model
+  const started = await runner.runTask({ ...RUN, harness: "muse", model: "claude-sonnet-4-6" }, CALLER);
+  assert.equal(started.status, "running");
+  assert.equal(started.harness, "muse");
+  assert.equal(started.model, "claude-sonnet-4-6");
+
+  // Result while running -> TASK_NOT_FINISHED
+  await assert.rejects(runner.result({ taskId: started.taskId }, CALLER), { code: "TASK_NOT_FINISHED" });
+
+  // Steer validation & secret scanner
+  await assert.rejects(
+    runner.steer({ taskId: started.taskId, instruction: "", requested_by: "acp-runner" }, CALLER),
+    { code: "INSTRUCTION_INVALID" },
+  );
+  await assert.rejects(
+    runner.steer({ taskId: started.taskId, instruction: "x".repeat(STEER_MAX + 1), requested_by: "acp-runner" }, CALLER),
+    { code: "INSTRUCTION_INVALID" },
+  );
+  await assert.rejects(
+    runner.steer({ taskId: started.taskId, instruction: "ok", requested_by: "" }, CALLER),
+    { code: "REQUESTED_BY_REQUIRED" },
+  );
+  await assert.rejects(
+    runner.steer({ taskId: started.taskId, instruction: "secret ghp_abcdefghijklmnopqrstuv", requested_by: "acp-runner" }, CALLER),
+    { code: "SECRET_REFUSED" },
+  );
+
+  // Valid steer
+  const steered = await runner.steer(
+    { taskId: started.taskId, instruction: "Keep changes minimal", requested_by: "acp-runner" },
+    CALLER,
+  );
+  assert.equal(steered.steered, true);
+  assert.equal(broker.calls.find((c) => c.name === "steer")?.input.instruction, "Keep changes minimal");
+
+  // Finish task
+  broker.finish();
+  await settle();
+
+  // Steer after finish -> TASK_NOT_RUNNING
+  await assert.rejects(
+    runner.steer({ taskId: started.taskId, instruction: "Late steer", requested_by: "acp-runner" }, CALLER),
+    { code: "TASK_NOT_RUNNING" },
+  );
+
+  // Result after finish reads from persisted task record
+  const res = await runner.result({ taskId: started.taskId }, CALLER);
+  assert.equal(res.taskId, started.taskId);
+  assert.equal(res.status, "pr_opened");
+  assert.equal(res.prUrl, "https://github.com/saari-co/site/pull/7");
+  assert.equal(res.headSha, HEAD);
+  assert.equal(res.harness, "muse");
+  assert.equal(res.model, "claude-sonnet-4-6");
+  assert.equal(res.session_url, "https://shed.sm0ky.dev/s/11111111-2222-3333-4444-555555555555");
+  assert.doesNotMatch(res.summary, /ghp_abcdefghijklmnop/);
+  assert.ok(existsSync(path.join(reposRoot, ".saarius-shed", "tasks", `${started.taskId}.json`)));
 });
