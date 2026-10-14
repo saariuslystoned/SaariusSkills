@@ -5,7 +5,7 @@ description: Prepare and prove DinkusKit merchant onboarding through a disposabl
 
 # DinkusKit E2E
 
-**Draft — runtime unverified.** This skill defines the intended proof, not a certified automation path. Read [status and promotion criteria](references/status.md) before making capability claims. Read [the run contract](references/run-contract.md) before preparing or executing a run.
+**Draft — full E2E unverified.** Provisioning, TEST payment and the paid order have been observed; hosted fulfillment remains blocked. This skill is not a certified automation path. Read [status and promotion criteria](references/status.md) before making capability claims. Read [the run contract](references/run-contract.md) before preparing or executing a run.
 
 ## Outcome
 
@@ -19,8 +19,11 @@ Keep practice-label and returning-merchant checks as separate cases. Neither rep
 - Confirm Stripe TEST and PB sandbox at each boundary. Stop before live charges, live postage, external sends, production changes or unapproved account/auth changes; obtain the applicable human authorization.
 - Use native EmDash authentication. Cloudflare Access authentication has been observed for an isolated test admin; automated merchant authentication remains unverified. Do not bypass passkeys or change auth policy to make a run pass.
 - Access exceptions must be narrowly scoped to current manifests and explicit authority. Never expose the entire admin surface. Public store-proof access and merchant checkout authorization are distinct checks.
+- Preserve a successful payment and its durable order when return-page confirmation fails. Inspect the existing order before retrying; never infer that an error page means payment failed.
 - Identify the deployed store and each hosted service independently: source revision, artifact/package digest, deployment/version identity, and observed configuration. An installed version label or merged commit is insufficient attestation.
 - Keep credential values, cookies, tokens, private emails and private account details out of agent context and public artifacts. Use approved credential consumers; record safe identity aliases and redacted evidence.
+
+For setup, recovery or a provider refusal, read the run contract’s [boundary recovery guidance](references/run-contract.md#boundary-recovery). It covers key-preserving configuration, installed package qualification and sandbox account ambiguity.
 
 ## Optional mailbox evidence
 

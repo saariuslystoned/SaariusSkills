@@ -1,20 +1,26 @@
 # Status and promotion criteria
 
-As of 2026-10-12 this is an **unverified scaffold**. Historical observations are readiness context, not reusable credentials, a target assignment, or current deployment proof.
+As of **2026-10-14**, this remains a **draft with partial observed runtime proof**. The full E2E, practice-label and returning-merchant cases are not certified. This dated checkpoint reports the assigned isolated run; it does not assign a target or make historical deployment evidence current.
 
-| Capability | Evidence state | Required proof |
+| Capability | Observed checkpoint | Remaining qualification |
 | --- | --- | --- |
-| Isolated EmDash admin authentication | Observed native Cloudflare Access path | Fresh authorized session for the assigned run; automated merchant auth unverified |
-| Registry installation | Commerce 0.1.0 and Payments 0.1.0 observed enabled | Fresh disposable store, Registry installation receipts, package digests and store deployment identity |
-| New merchant connection | UNVERIFIED; Payments observed unconnected | Merchant identity, TEST connection, safe account identity and visible success |
-| Storefront checkout | UNVERIFIED; checkout observed unavailable | Catalog/config authority, authorized checkout, completed Stripe TEST payment |
-| Commerce paid order | UNVERIFIED | Visible paid TEST order joined to that payment |
-| Hosted Ship fulfillment | UNVERIFIED | Exact hosted deployment, PB sandbox shipment and order join |
-| Provider PDF | UNVERIFIED | Provider-origin PDF, safe hash/provenance, rendered visual inspection |
-| Tracking/completed | UNVERIFIED | Matching shipment/tracking evidence and observed terminal state under current sandbox semantics |
+| Isolated store/admin | Registry store deployed; native Cloudflare Access session and exact manifest-derived public path exceptions observed | Reverify assigned host, session, deployment and exceptions for a new run; unattended authentication unverified |
+| Registry installation | Commerce 0.2.2 and Payments 0.2.8 installed; existing runtime identities preserved through updates | Retain exact archive/provenance, discovery, installed-runtime and deployment evidence; version labels alone are insufficient |
+| New merchant connection | Stripe TEST connected account ready after human authentication/MFA/passkey setup | Reverify exact TEST binding for another run; human authentication is not automated sandbox fixture setup |
+| Checkout/payment | One actual Stripe TEST payment for a USD 12 test parcel succeeded | Return-page confirmation failed; investigate separately without repeating payment |
+| Commerce paid order | One durable provider-paid TEST order observed in Processing, joined to the payment as `paid-order-A` | Preserve this order and its key; payment success does not prove fulfillment |
+| Hosted Ship handoff | Ship enabled with explicit approval; nonsecret settings saved without replacing the Store key; top-level Orders page synced the existing order | Hosted order and freshly verified PB sandbox environment establish handoff, not a shipment |
+| PB sandbox shipment | BLOCKED: first service refused as not trackable; qualified Priority Mail/DelCon attempt had an eligible $13.82 sandbox quote, then failed for insufficient funds | No shipment/label saved in the visible UI; provider-side outcome must be qualified before another creation attempt |
+| Provider PDF | UNVERIFIED; no provider PDF created | Provider-origin PDF, hash/provenance and rendered visual inspection |
+| Tracking/completed | UNVERIFIED; no shipment tracking or terminal completion achieved | Join actual tracking and observed completion to `paid-order-A` |
+| TEST shipped email | Specific automatic send to the dedicated test mailbox authorized, but not achieved | Authorization is not delivery proof; no customer send authorized |
 | Practice label | Separate required case; UNVERIFIED | Explicit practice-mode result and provider/runtime provenance |
 | Returning merchant | Separate required case; UNVERIFIED | Existing connection reused with correct identity and successful authorized flow |
 
-Historical readiness found unresolved service deployment identities and a checkout integration gap involving catalog/config authority. Service root/health responses did not resolve either. Read the current source and deployment evidence rather than assuming that a setting fixes the gap. Readiness mitigation work was in progress; no timing or implementation choice is locked here.
+The intended agent-associated PB sandbox account currently displays $400 in test balance (currency code not shown). This does **not** establish ownership of the deployed PB credentials or resolve the deployed account’s insufficient-funds refusal. The historical alternate login is unavailable. A scoped account-alignment plan is prepared but not approved or activated; credential replacement, deployment and funding are not authorized. It affects shared sandbox capability across stores, including rates, labels, owner connections and historical shipment lookup/void. Real-order paths are not proven disabled and may email shoppers; the approved TEST send does not cover them. A proposed privileged diagnostic remains held, without implementation.
 
-Promotion requires all required rows to have fresh, inspectable evidence for the declared versions and environments, adjudicated failures, and a bounded repeatable procedure. Keep source, local-test, deployment and observed-behavior claims distinct. A later version change requires requalification of affected boundaries; retain prior evidence as historical.
+Official Registry release workflows reported `RELEASE_CONFLICT`; separately inspected public archives and provenance tied the packages to the approved release source/run, and Registry discovery and installation were subsequently observed. Do not describe those workflows as successful or infer publication from a workflow label alone.
+
+This checkpoint is based on the coordinator’s selected runtime records, not new runtime execution by the documentation writer. The [sanitized checkpoint proof](../../../proof/dinkuskit-e2e/20261014/PROOF.md) records scope and evidence limits. Private screenshots, raw account/order/provider identifiers and authentication material remain outside this reusable skill.
+
+Promotion requires fresh, inspectable evidence for the complete main flow and both separate cases, adjudicated failures, and a bounded repeatable procedure. Keep prepared, locally tested, deployed and observed claims distinct. Requalify affected boundaries after a version or account change; retain prior evidence as historical.

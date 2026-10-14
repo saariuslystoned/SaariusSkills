@@ -14,6 +14,36 @@ Use an authorized new merchant for the main case, an independently identified re
 
 At every failure, preserve the last successful boundary and stop dependent actions. Use only the current contract's bounded readiness/retry behavior, with an idempotency record before retrying actions that create payments or shipments. Do not substitute mocks or local execution when the case requires the hosted path.
 
+## Boundary recovery
+
+### Browser, authentication and key handoff
+
+Use one browser owner and rediscover the exact assigned Chrome profile/extension after an app restart or connector reset. Numeric browser IDs are not durable identity. Do not substitute another signed-in profile or an untargeted native window. Respect browser redaction; missing account metadata is not permission to bypass it.
+
+Human account login, MFA and passkey bootstrap are separate from public synthetic payment/shipping fixtures. A Store key handoff must name the exact fresh site before the human copies it directly into the intended secret field. Preserve existing keys and orders during repairs; do not rotate or read credentials to diagnose a configuration error.
+
+### Installed checkout and hosted boundary
+
+Verify the actual installed package and real wire response, not only source tests or version labels. Country, selling-country and shipping-country configuration must match the authorized merchant and delivery. Preserve the same checkout binding, capability and idempotency identity during a qualified recovery; missing status confirmation does not authorize a new payment. Inspect the durable Commerce order first.
+
+For Registry publication, qualify official archive digest, release provenance, discovery and installation independently of workflow status. An artifact can require investigation even when a workflow reports a conflict; never bypass the official publisher or blindly repeat a release.
+
+Test template changes at the native Worker boundary. Mocked fetches can miss redirect-mode compatibility, subrequest limits or same-Worker HTTP timeouts. Where the installed EmDash contract provides it, use the public-only local plugin dispatcher with its original-origin, public-route, method and sandbox guards. A private/kernel/native implementation substitute does not prove the hosted public contract. Record the deployed budget; do not turn one run’s limit into a universal setting.
+
+### Existing paid order to Ship
+
+After enabling Ship under applicable authority, regenerate the issued nonsecret checkout settings; do not guess service audience values. Save only those settings and leave the existing secret key field untouched. Verify the installed admin form’s unchanged-secret preservation behavior before relying on it.
+
+Under the observed Commerce contract, reopening the **top-level Orders page** syncs an existing addressed Processing order to Ship; opening its detail alone does not. A shipping link is not proof the service accepted the order. Do not manually complete the order or create a duplicate order to force a handoff. Check the current contract before reusing this procedure after an update.
+
+### PB refusal and automatic email
+
+Before a sandbox label, freshly verify the deployed PB environment and order’s TEST mode. Use an eligible sandbox quote and the qualified trackable service/special-service mapping. A validation refusal or insufficient-funds response is not a label/PDF. Qualify persistence and provider-side uncertainty before any bounded retry; do not blindly retry shipment creation or fund an unverified account.
+
+A Developer Hub balance belongs to the observed account, not necessarily the Worker’s deployed credential bindings. Display name or a configured developer ID alone does not prove credential ownership or TEST postage routing. Use authorized nonsecret provenance; unavailable login access does not authorize account recovery, rebinding, a diagnostic endpoint, or secret inspection. Prepare a concrete scoped remedy and obtain the actual account/deployment authority before executing it.
+
+The observed TEST flow can automatically email the store’s configured reply-to after tracking sync, including background sync; it has no normal per-order skip-email control. Verify that recipient and obtain the applicable send authorization **before creating the label**. Waiting to reopen Orders does not prevent the automatic send. Do not change global email configuration as a workaround. Record authorization separately from observed delivery.
+
 ## Evidence
 
 Maintain a safe join table containing run ID and stable aliases for merchant, store, checkout, payment, Commerce order, shipment, PDF and tracking. Keep raw identifiers only in an approved private proof record when needed; publish a consistent redacted mapping. Never retain auth-bearing URL queries or session data.
