@@ -507,6 +507,14 @@ class PackagingTests(unittest.TestCase):
                 server["env"]["SAARIUS_ACP_PERMISSION_MODE"],
                 "${SAARIUS_ACP_PERMISSION_MODE:-approve-reads}",
             )
+            self.assertEqual(
+                server["env"]["SAARIUS_ACP_TIMEOUT_MS"],
+                "${SAARIUS_ACP_TIMEOUT_MS:-3600000}",
+            )
+            self.assertEqual(
+                root_mcp["mcpServers"][name]["env"]["SAARIUS_ACP_TIMEOUT_MS"],
+                "${SAARIUS_ACP_TIMEOUT_MS:-3600000}",
+            )
             for value in server["env"].values():
                 self.assertTrue(value.startswith("${"), value)
         self.assertNotIn("/Users/", claude_text)
@@ -521,7 +529,7 @@ class PackagingTests(unittest.TestCase):
             self.assertNotIn("approve-all", text, relative)
         # GEMINI_HOME is the antigravity bridge default; a .mcp.json env for it
         # is dead under the Claude Code plugin and redundant under Codex.
-        self.assertNotIn("env", root_mcp["mcpServers"]["antigravity-acp"])
+        self.assertNotIn("GEMINI_HOME", root_mcp["mcpServers"]["antigravity-acp"]["env"])
 
         self.assertEqual(market["name"], "saarius-skills")
         self.assertIn("name", market["owner"])

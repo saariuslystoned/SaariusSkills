@@ -14,6 +14,19 @@ const forwardedArgs = (() => {
 })();
 const pluginRoot = pluginRootFromModule();
 
+function resolveManifestDefaults(env = process.env) {
+  const resolved = { ...env };
+  for (const [key, value] of Object.entries(resolved)) {
+    if (typeof value === "string") {
+      const match = /^\$\{([A-Z0-9_]+):-([^}]*)\}$/.exec(value);
+      if (match && match[1] === key) {
+        resolved[key] = match[2];
+      }
+    }
+  }
+  return resolved;
+}
+
 function fail(error) {
   const details = error instanceof RuntimeStoreError
     ? { code: error.code, message: error.message, details: error.details }
@@ -36,12 +49,13 @@ if (!bridge) {
   fail(new RuntimeStoreError("INVALID_ARGUMENT", "bridge name is required"));
 } else {
   try {
+    const childEnv = resolveManifestDefaults(process.env);
     // The remote-shed HTTP host must run locally; never hop it to another
     // machine (the hop would silently drop --transport http). Fail first.
-    if (forwardedArgs[1] === "http" && typeof process.env[HOP_ARGV_ENV] === "string" && process.env[HOP_ARGV_ENV].trim()) {
+    if (forwardedArgs[1] === "http" && typeof childEnv[HOP_ARGV_ENV] === "string" && childEnv[HOP_ARGV_ENV].trim()) {
       throw new HopError("HTTP_HOP_REFUSED", `--transport http cannot be combined with ${HOP_ARGV_ENV}; unset the hop for the remote-shed host`, { bridge });
     }
-    const hop = resolveHop({ env: process.env, bridge, workerMode });
+    const hop = resolveHop({ env: childEnv, bridge, workerMode });
     if (hop.mode === "hop") {
       process.stderr.write(`${JSON.stringify({
         status: "hop",
@@ -60,7 +74,7 @@ if (!bridge) {
         identity: hop.identity,
       })));
     } else {
-      const ready = await inspectRuntime({ pluginRoot, bridge });
+      const ready = await inspectRuntime({ pluginRoot, bridge, env: childEnv });
       if (ready.state === "missing") {
         // Identity includes the Node version, so a Node upgrade lands here too.
         fail(new RuntimeStoreError("RUNTIME_SETUP_REQUIRED", "persistent bridge runtime is not prepared for this plugin source and Node runtime", {
@@ -81,7 +95,7 @@ if (!bridge) {
           command: process.execPath,
           args: [entry, ...forwardedArgs],
           cwd: process.cwd(),
-          env: process.env,
+          env: childEnv,
         });
         attachChild(child, (error) => fail(new RuntimeStoreError("RUNTIME_LAUNCH_FAILED", "persistent bridge server could not start", {
           cause: error.code,

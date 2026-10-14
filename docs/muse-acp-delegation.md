@@ -89,6 +89,7 @@ pinned acpx runtime against that fake host.
 `timeoutMs` on `muse_acp_delegate` is the wall-clock budget for that one
 ACP turn: 60 minutes when omitted, up to 4 hours when explicitly requested.
 It is not session duration and not `muse_acp_result` `waitMs`.
+Set `SAARIUS_ACP_TIMEOUT_MS` (milliseconds, default `3600000`, integer bounds `1000..14400000`) to override the broker default timeout; invalid values fail closed at broker startup, and a per-call `timeoutMs` override wins.
 
 ## State, proof, and rollback
 
