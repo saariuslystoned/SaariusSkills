@@ -161,7 +161,7 @@ export async function startRemoteShedHost({ env = process.env, createServer: cre
     try {
       const url = new URL(req.url ?? "/", "http://local");
       if (!hostAllowed(req.headers.host, config)) return sendJson(res, 403, rpcError("host not allowed"));
-      if (url.pathname.startsWith(CARD_PREFIX) || url.pathname === "/c") return await handleCard(req, res, url, { viewSession });
+      if (url.pathname.startsWith(CARD_PREFIX) || url.pathname === "/c" || String(req.url ?? "").startsWith(CARD_PREFIX) || /(\.\.|%2e)/i.test(String(req.url ?? ""))) return await handleCard(req, res, url, { viewSession });
       if (url.pathname.startsWith(VIEWER_PREFIX) || url.pathname === "/s") return await handleViewer(req, res, url, { viewerAuthenticate, viewSession });
       if (url.pathname !== MCP_PATH) return sendJson(res, 404, rpcError("not found"));
       let caller;

@@ -158,8 +158,8 @@ async function loadCardAsset(assetName) {
 
 // Existence-oracle policy:
 // 1. Malformed IDs (anything not matching SESSION_ID_PATTERN, raw percent-encoding,
-//    or carrying a query string) return a constant 404 "not found\n" without
-//    reflecting input.
+//    dot-segments, or carrying a query string) return a constant 404 "not found\n"
+//    without reflecting input.
 // 2. Valid UUIDs always return 200 with a card page. If the session ID is
 //    unknown (viewSession returns null or is not configured), the generic
 //    fallback card ("Shed — Unknown", "harness: Unknown, model: unconfirmed",
@@ -178,7 +178,7 @@ export async function handleCard(req, res, url, { viewSession } = {}) {
   }
 
   const rawUrl = String(req.url ?? "");
-  if (url.search || rawUrl.includes("?") || rawUrl.includes("%") || rawUrl !== url.pathname) {
+  if (url.search || rawUrl.includes("?") || rawUrl.includes("%") || rawUrl.includes("..") || rawUrl !== url.pathname) {
     return send(404, "not found\n");
   }
 
