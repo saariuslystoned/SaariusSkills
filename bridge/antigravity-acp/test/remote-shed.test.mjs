@@ -243,6 +243,39 @@ test("a task runs on a new branch and ends in a draft PR; audit log names caller
   assert.equal(shedStatus, "idle");
 });
 
+test("terminal tool updates preserve the started command summary in latestEvent", async () => {
+  const { runner } = shedFixture();
+  await runner.init();
+  const started = {
+    type: "job_event",
+    event: "tool_call_started",
+    timestamp: "2026-10-14T00:00:00.000Z",
+    details: { toolCallId: "call-1", tool: "Bash", summary: "echo hi" },
+  };
+  const completedRaw = {
+    type: "tool_call",
+    toolCallId: "call-1",
+    title: "Bash",
+    status: "completed",
+    rawOutput: { exitCode: 0, output: "ok" },
+  };
+  const task = { taskId: "task-summary-1" };
+  runner.jobTasks.set("job-summary-1", task);
+  runner.onAgentEvent("job-summary-1", started);
+  runner.onAgentEvent("job-summary-1", completedRaw);
+  assert.equal(task.latestEvent.event, "tool_call_finished");
+  assert.equal(task.latestEvent.summary, "echo hi", "completion without rawInput must keep the started summary");
+
+  const pendingTask = { taskId: "task-summary-2" };
+  runner.pendingEvents.set("job-summary-2", [
+    { event: started, at: "2026-10-14T00:00:00.000Z" },
+    { event: completedRaw, at: "2026-10-14T00:00:01.000Z" },
+  ]);
+  runner.bindJob(pendingTask, "job-summary-2");
+  assert.equal(pendingTask.latestEvent.event, "tool_call_finished");
+  assert.equal(pendingTask.latestEvent.summary, "echo hi");
+});
+
 test("input validation: allowlist, requested_by, secrets, and unavailable repos", async () => {
   const { runner } = shedFixture();
   await runner.init();

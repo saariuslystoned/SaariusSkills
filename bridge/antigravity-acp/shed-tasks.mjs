@@ -317,6 +317,22 @@ export class ShedTaskRunner {
     return normalize(defaults);
   }
 
+  applyToolLatestEvent(task, event, at) {
+    const toolInfo = summarizeToolCall(event);
+    const isFinished = event.status === "completed" || event.status === "failed" || event.status === "error";
+    task.latestEvent = {
+      event: isFinished ? "tool_call_finished" : "tool_call_started",
+      tool: toolInfo.tool,
+      // Completion updates often carry only rawOutput; keep the started
+      // call's command summary instead of overwriting it with an empty one.
+      summary: toolInfo.summary || task.latestEvent?.summary || "",
+      status: event.status,
+      timestamp: at,
+      at,
+    };
+    task.updatedAt = at;
+  }
+
   onAgentEvent(jobId, event) {
     const task = this.jobTasks.get(jobId);
     if (!task) {
@@ -336,17 +352,7 @@ export class ShedTaskRunner {
       };
       task.updatedAt = task.latestEvent.timestamp;
     } else if (event?.type === "tool_call") {
-      const toolInfo = summarizeToolCall(event);
-      const isFinished = event.status === "completed" || event.status === "failed" || event.status === "error";
-      task.latestEvent = {
-        event: isFinished ? "tool_call_finished" : "tool_call_started",
-        tool: toolInfo.tool,
-        summary: toolInfo.summary,
-        status: event.status,
-        timestamp: at,
-        at,
-      };
-      task.updatedAt = at;
+      this.applyToolLatestEvent(task, event, at);
     }
     const transcript = this.transcripts.get(task.taskId);
     if (!transcript) return;
@@ -368,17 +374,7 @@ export class ShedTaskRunner {
         };
         task.updatedAt = task.latestEvent.timestamp;
       } else if (event?.type === "tool_call") {
-        const toolInfo = summarizeToolCall(event);
-        const isFinished = event.status === "completed" || event.status === "failed" || event.status === "error";
-        task.latestEvent = {
-          event: isFinished ? "tool_call_finished" : "tool_call_started",
-          tool: toolInfo.tool,
-          summary: toolInfo.summary,
-          status: event.status,
-          timestamp: at,
-          at,
-        };
-        task.updatedAt = at;
+        this.applyToolLatestEvent(task, event, at);
       }
       if (transcript) appendEvent(transcript, event, at);
     }
