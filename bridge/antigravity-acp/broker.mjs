@@ -1775,8 +1775,9 @@ export class AntigravityAcpBroker {
     const toolCallId = event.toolCallId || `call-${activeToolCalls.size + 1}`;
     const { tool, summary } = summarizeToolCall(event);
     const isFinished = event.status === "completed" || event.status === "failed" || event.status === "error";
+    const isNewToolCall = !activeToolCalls.has(toolCallId);
 
-    if (!activeToolCalls.has(toolCallId)) {
+    if (isNewToolCall) {
       const startedAt = Date.now();
       activeToolCalls.set(toolCallId, { tool, summary, startedAt });
       await this.recordEvent(job, "tool_call_started", {
@@ -1804,6 +1805,7 @@ export class AntigravityAcpBroker {
       });
       activeToolCalls.delete(toolCallId);
     }
+    return isNewToolCall;
   }
 
   async finalizeActiveToolCalls(job, activeToolCalls) {
@@ -1888,8 +1890,9 @@ export class AntigravityAcpBroker {
       const eventsPromise = this.consumeEvents(turn.events, async (event) => {
         eventCount += 1;
         if (event?.type === "tool_call") {
-          toolCallCount += 1;
-          await this.handleToolCallEvent(job, event, activeToolCalls);
+          // Start and completion arrive as separate lifecycle updates for the
+          // same toolCallId; count each tool call once, when first seen.
+          if (await this.handleToolCallEvent(job, event, activeToolCalls)) toolCallCount += 1;
         }
         for (const observer of this.eventObservers) {
           try {

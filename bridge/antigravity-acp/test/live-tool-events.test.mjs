@@ -136,6 +136,12 @@ test("live tool-call events: shell commands show in events.jsonl and status whil
     const result = await broker.result({ jobId, waitMs: 5_000 });
     assert.equal(result.status, "completed");
     assert.equal(result.taskComplete, true);
+
+    // Each started/completed pair is one tool call, not two lifecycle updates.
+    const finalEvents = (await readFile(eventsPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    const completedEvent = finalEvents.find((e) => e.event === "completed");
+    assert.ok(completedEvent, "completed event must be recorded");
+    assert.equal(completedEvent.details.toolCallCount, 2, "tool calls must be counted once each");
   } finally {
     await broker.close();
     await new Promise((r) => setTimeout(r, 100));
