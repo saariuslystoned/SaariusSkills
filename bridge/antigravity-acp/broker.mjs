@@ -8,7 +8,7 @@ import { accessSync, constants } from "node:fs";
 import { access, appendFile, link, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
-import { execFile as execFileCallback } from "node:child_process";
+import { execFile as execFileCallback, spawnSync } from "node:child_process";
 import { promisify } from "node:util";
 import { createAcpRuntime, createAgentRegistry } from "acpx/runtime";
 import {
@@ -388,8 +388,27 @@ export function summarizeToolCall(event) {
   return { tool, summary: bounded };
 }
 
-export function wrapWorkerInProcessGroup(command, args = []) {
-  if (process.platform === "win32") {
+let python3AvailableCache;
+function defaultHasPython3() {
+  if (python3AvailableCache === undefined) {
+    try {
+      const probe = spawnSync("python3", ["--version"], { stdio: "ignore" });
+      python3AvailableCache = !probe.error && probe.status === 0;
+    } catch {
+      python3AvailableCache = false;
+    }
+  }
+  return python3AvailableCache;
+}
+
+export function wrapWorkerInProcessGroup(command, args = [], {
+  platform = process.platform,
+  hasPython3 = defaultHasPython3,
+} = {}) {
+  // Windows has no POSIX process groups, and hosts without python3 must still
+  // launch: fall back to the direct command (termination then targets the
+  // single worker process instead of its group).
+  if (platform === "win32" || !hasPython3()) {
     return [command, ...(args ?? [])];
   }
   return [
@@ -406,17 +425,23 @@ export async function terminateProcessGroup(pid, {
   escalateSignal = "SIGKILL",
   graceMs = 10_000,
   pollMs = 50,
+  platform = process.platform,
+  kill = (target, sig) => process.kill(target, sig),
 } = {}) {
   if (!Number.isInteger(pid) || pid <= 0) return { exited: true, signal: null };
 
+  // Negative-pid group signals are POSIX-only; on Windows address the worker
+  // process itself or every probe/signal fails before any fallback runs.
+  const groupTarget = platform === "win32" ? pid : -pid;
+
   const isAlive = () => {
     try {
-      process.kill(-pid, 0);
+      kill(groupTarget, 0);
       return true;
     } catch (e) {
-      if (e.code === "ESRCH") {
+      if (e.code === "ESRCH" && groupTarget !== pid) {
         try {
-          process.kill(pid, 0);
+          kill(pid, 0);
           return true;
         } catch {
           return false;
@@ -429,12 +454,12 @@ export async function terminateProcessGroup(pid, {
   const send = (sig) => {
     let sent = false;
     try {
-      process.kill(-pid, sig);
+      kill(groupTarget, sig);
       sent = true;
     } catch (e) {
-      if (e.code === "ESRCH") {
+      if (e.code === "ESRCH" && groupTarget !== pid) {
         try {
-          process.kill(pid, sig);
+          kill(pid, sig);
           sent = true;
         } catch {}
       }

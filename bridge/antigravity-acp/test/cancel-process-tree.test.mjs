@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AntigravityAcpBroker } from "../broker.mjs";
+import { AntigravityAcpBroker, terminateProcessGroup, wrapWorkerInProcessGroup } from "../broker.mjs";
 
 const FIXTURE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SLEEP_PEER = path.resolve(FIXTURE_DIR, "fixtures/sleep-peer.mjs");
@@ -188,4 +188,43 @@ test("cancel escalates to SIGKILL if processes ignore SIGTERM", { timeout: 30_00
     await rm(stateRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     await rm(workspace, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
+});
+
+test("worker launch falls back to direct command when python3 is unavailable", () => {
+  assert.deepEqual(
+    wrapWorkerInProcessGroup("mycmd", ["a"], { platform: "linux", hasPython3: () => false }),
+    ["mycmd", "a"],
+  );
+  assert.deepEqual(
+    wrapWorkerInProcessGroup("mycmd", ["a"], { platform: "win32", hasPython3: () => true }),
+    ["mycmd", "a"],
+  );
+  assert.equal(
+    wrapWorkerInProcessGroup("mycmd", ["a"], { platform: "linux", hasPython3: () => true })[0],
+    "python3",
+  );
+});
+
+test("termination on win32 signals the positive pid, never a process group", async () => {
+  const calls = [];
+  let alive = true;
+  const kill = (target, sig) => {
+    calls.push([target, sig]);
+    if (!alive) {
+      const error = new Error("no such process");
+      error.code = "ESRCH";
+      throw error;
+    }
+    if (sig !== 0) alive = false;
+  };
+  const result = await terminateProcessGroup(4321, {
+    platform: "win32",
+    kill,
+    graceMs: 1_000,
+    pollMs: 10,
+  });
+  assert.equal(result.exited, true);
+  assert.ok(calls.length > 0, "kill must be invoked");
+  assert.ok(calls.every(([target]) => target === 4321), `negative pid used: ${JSON.stringify(calls)}`);
+  assert.ok(calls.some(([, sig]) => sig === "SIGTERM"), "worker must receive SIGTERM");
 });
