@@ -9,7 +9,7 @@ v1 supports Antigravity only.
 
 ## What the remote endpoint can do
 
-Only three tools. There is no shell, exec, file, or raw ACP tool on the
+Only five narrow task tools. There is no shell, exec, file, or raw ACP tool on the
 remote endpoint.
 
 | Tool | What it does |
@@ -17,10 +17,13 @@ remote endpoint.
 | `shed_task_run` | Run one coding task in an allowlisted GitHub repo on a new `shed/<taskId>` branch, then open a draft PR. |
 | `shed_task_status` | Read one task by `taskId` (status, branch, PR URL, redacted summary). With no `taskId`, returns shed state (`idle` / `available` / `busy`), `running`, `maxConcurrent`, and every running task (`taskId`, `repo`, `branch`, `requestedBy`, `startedAt`). |
 | `shed_task_cancel` | Cancel a running task by `taskId`. No PR is opened. |
+| `shed_task_steer` | Send a follow-up instruction (`{ taskId, instruction, requested_by }`) into a running task's ACP session. Refuses non-running tasks and secrets. |
+| `shed_task_result` | Read the final outcome (`{ taskId }`) of a finished task from its task record: redacted `summary`, `prUrl`, `headSha`, `harness`, `model`, and `session_url`. |
 
 `shed_task_run` takes `owner`, `repo`, `task`, `requested_by` (the bot that
-asked, for the audit log), and optional `baseBranch` (default `main`) and
-`title`.
+asked, for the audit log), and optional `baseBranch` (default `main`),
+`headBranch`, `forge`, `title`, `harness` (`antigravity` or `muse`), and
+`model` (validated against the harness's advertised models).
 
 The shed runs up to `SAARIUS_ACP_REMOTE_MAX_CONCURRENT` tasks at once
 (default 1, max 16). Each task gets its own git worktree under

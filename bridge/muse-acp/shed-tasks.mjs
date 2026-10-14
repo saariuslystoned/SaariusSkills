@@ -3,14 +3,14 @@ import { randomBytes } from "node:crypto";
 import { appendFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { BridgeError, MAX_PROMPT_CHARS, redactSensitive } from "./broker.mjs";
+import { BridgeError, MAX_PROMPT_CHARS, MAX_STEER_CHARS, redactSensitive } from "./broker.mjs";
 import { appendEvent, buildView, createTranscript, isSessionId, loadSession, resolveSessionBaseUrl, saveSession, sessionUrl } from "./shed-sessions.mjs";
 import { createRepoOwnerGuard, parseOptionalOwners, parseRepoOwners, REMOTE_ORIGIN_OWNERS_ENV, REMOTE_REPO_OWNERS_ENV } from "./repo-allowlist.mjs";
 
 const execFile = promisify(execFileCallback);
 
 // Remote-shed task runner. The remote endpoint exposes only these narrow
-// operations (run / status / cancel); there is no general exec tool. Up to
+// operations (run / status / cancel / steer / result); there is no general exec tool. Up to
 // SAARIUS_ACP_REMOTE_MAX_CONCURRENT tasks (default 1) run at once, each in its
 // own git worktree; over the cap a caller gets "busy" and queues or falls back.
 // The bridge itself keeps no queue.
@@ -22,7 +22,38 @@ export const BRANCH_PREFIX = "shed/";
 // headBranch may only continue branches the shed (shed/<taskId>) or a Codex
 // lane (codex/<name>) owns; never main/master/baseBranch or the repo default.
 export const HEAD_BRANCH_PREFIXES = Object.freeze([BRANCH_PREFIX, "codex/"]);
+export const VALID_HARNESSES = Object.freeze(["antigravity", "muse"]);
+export const DEFAULT_ANTIGRAVITY_MODEL = "gemini-4-argon-medium";
+export const DEFAULT_ANTIGRAVITY_ADVERTISED_MODELS = Object.freeze([
+  DEFAULT_ANTIGRAVITY_MODEL,
+  "gemini-3.8-flash-high",
+  "gemini-3.1-pro",
+  "gemini-3-flash",
+]);
+export const DEFAULT_MUSE_ADVERTISED_MODELS = Object.freeze([
+  "claude-sonnet-4-6",
+  "claude-opus-4-6",
+  "gpt-5.4",
+  "gemini-3.1-pro",
+  "fixture-a",
+  "fixture-b",
+  "fixture-c",
+  "fixture-fast",
+]);
+export const DEFAULT_ADVERTISED_MODELS = Object.freeze({
+  antigravity: DEFAULT_ANTIGRAVITY_ADVERTISED_MODELS,
+  muse: DEFAULT_MUSE_ADVERTISED_MODELS,
+});
+export const STEER_MAX = MAX_STEER_CHARS ?? 8_000;
 const PROTECTED_BRANCHES = new Set(["main", "master", "head"]);
+const TERMINAL_TASK_STATUSES = new Set([
+  "pr_opened",
+  "pushed",
+  "no_changes",
+  "cancelled",
+  "failed",
+  "unavailable",
+]);
 const isCancelled = (task) => task.status === "cancelling" || task.status === "cancelled";
 export const FORGES = Object.freeze(["github", "origin"]);
 const REPO_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
@@ -64,6 +95,20 @@ function assertNoSecrets(value, field) {
   }
 }
 
+function assertCaller(caller) {
+  if (!caller || typeof caller !== "object" || typeof caller.label !== "string" || !LABEL_PATTERN.test(caller.label.trim())) {
+    throw new ShedTaskError("ACCESS_DENIED", "Valid Access caller identity is required");
+  }
+  return { ...caller, label: caller.label.trim() };
+}
+
+function validateRequestedBy(requested_by) {
+  if (typeof requested_by !== "string" || !LABEL_PATTERN.test(requested_by)) {
+    throw new ShedTaskError("REQUESTED_BY_REQUIRED", "requested_by must name the bot that asked (letters, digits, _ . @ -)");
+  }
+  return requested_by;
+}
+
 const clean = (value, max = 2_400) => {
   const safe = redactSensitive(String(value ?? "")).trim();
   return safe.length > max ? `${safe.slice(0, max - 1)}…` : safe;
@@ -80,8 +125,10 @@ async function defaultRun(command, args, { cwd, timeoutMs = 120_000 } = {}) {
 }
 
 export class ShedTaskRunner {
-  constructor({ broker, env = process.env, run = defaultRun, maxConcurrent, owners, originOwners, reposRoot, stateDir, guard, log, now = () => new Date(), sessionWaitMs = SESSION_WAIT_MS, sessionBaseUrl } = {}) {
+  constructor({ broker, env = process.env, run = defaultRun, maxConcurrent, owners, originOwners, reposRoot, stateDir, guard, log, now = () => new Date(), sessionWaitMs = SESSION_WAIT_MS, sessionBaseUrl, harness = "muse", advertisedModels } = {}) {
     this.broker = broker;
+    this.harness = VALID_HARNESSES.includes(harness) ? harness : "muse";
+    this.advertisedModels = advertisedModels ?? null;
     this.run = run;
     this.now = now;
     this.owners = owners ? new Set([...owners].map((o) => o.toLowerCase())) : parseRepoOwners(env[REMOTE_REPO_OWNERS_ENV]);
@@ -109,6 +156,45 @@ export class ShedTaskRunner {
     this.pendingEvents = new Map();
     this.flushTimers = new Map();
     this.broker?.addEventObserver?.((jobId, event) => this.onAgentEvent(jobId, event));
+  }
+
+  async getAdvertisedModels(harness, broker = this.broker) {
+    const normalize = (list) =>
+      [...new Set([...list].filter((m) => typeof m === "string" && m.trim()).map((m) => m.trim()))];
+    if (Array.isArray(this.advertisedModels) || this.advertisedModels instanceof Set) {
+      return normalize(this.advertisedModels);
+    }
+    if (
+      this.advertisedModels &&
+      typeof this.advertisedModels === "object" &&
+      (Array.isArray(this.advertisedModels[harness]) || this.advertisedModels[harness] instanceof Set)
+    ) {
+      return normalize(this.advertisedModels[harness]);
+    }
+    if (typeof broker?.getAdvertisedModels === "function") {
+      const dynamic = await broker.getAdvertisedModels();
+      if (Array.isArray(dynamic) || dynamic instanceof Set) return normalize(dynamic);
+    }
+    if (typeof broker?.listModels === "function") {
+      const dynamic = await broker.listModels();
+      if (Array.isArray(dynamic) || dynamic instanceof Set) return normalize(dynamic);
+    }
+    if (Array.isArray(broker?.advertisedModels) || broker?.advertisedModels instanceof Set) {
+      return normalize(broker.advertisedModels);
+    }
+    if (Array.isArray(broker?.availableModelIds) || broker?.availableModelIds instanceof Set) {
+      return normalize(broker.availableModelIds);
+    }
+    if (Array.isArray(broker?.models?.availableModelIds)) {
+      return normalize(broker.models.availableModelIds);
+    }
+    if (Array.isArray(broker?.models)) {
+      return normalize(broker.models);
+    }
+    if (typeof broker?.verifyModel === "function") {
+      return null;
+    }
+    return normalize(DEFAULT_ADVERTISED_MODELS[harness] ?? []);
   }
 
   onAgentEvent(jobId, event) {
@@ -198,6 +284,8 @@ export class ShedTaskRunner {
       taskId: task.taskId,
       caller: task.caller,
       requestedBy: task.requestedBy,
+      harness: task.harness ?? this.harness,
+      ...(task.model ? { model: task.model } : {}),
       repo: `${task.owner}/${task.repo}`,
       forge: task.forge,
       branch: task.branch,
@@ -212,6 +300,8 @@ export class ShedTaskRunner {
     const out = {
       taskId: task.taskId,
       status: task.status,
+      harness: task.harness ?? this.harness,
+      ...(task.model ? { model: task.model } : {}),
       repo: `${task.owner}/${task.repo}`,
       forge: task.forge,
       baseBranch: task.baseBranch,
@@ -238,6 +328,8 @@ export class ShedTaskRunner {
     return {
       taskId: task.taskId,
       status: task.status,
+      harness: task.harness ?? this.harness,
+      ...(task.model ? { model: task.model } : {}),
       repo: `${task.owner}/${task.repo}`,
       forge: task.forge,
       branch: task.branch,
@@ -261,7 +353,7 @@ export class ShedTaskRunner {
     return out;
   }
 
-  validate({ owner, repo, task, baseBranch, headBranch, forge, title, requested_by }) {
+  validate({ owner, repo, task, baseBranch, headBranch, forge, title, requested_by, harness, model }) {
     const safeForge = forge ?? "github";
     if (!FORGES.includes(safeForge)) throw new ShedTaskError("FORGE_INVALID", "forge must be github or origin");
     const allowedOwners = safeForge === "origin" ? this.originOwners : this.owners;
@@ -285,18 +377,80 @@ export class ShedTaskRunner {
     )) {
       throw new ShedTaskError("HEAD_BRANCH_INVALID", `headBranch must be an existing shed-owned branch (${HEAD_BRANCH_PREFIXES.join(", ")}) different from baseBranch, main, master, and the repo default branch`);
     }
-    if (typeof requested_by !== "string" || !LABEL_PATTERN.test(requested_by)) {
-      throw new ShedTaskError("REQUESTED_BY_REQUIRED", "requested_by must name the bot that asked (letters, digits, _ . @ -)");
+    validateRequestedBy(requested_by);
+    const safeHarness = harness === undefined ? this.harness : harness;
+    if (typeof safeHarness !== "string" || !VALID_HARNESSES.includes(safeHarness)) {
+      throw new ShedTaskError("HARNESS_INVALID", `harness must be one of: ${VALID_HARNESSES.join(", ")}`);
+    }
+    let safeModel;
+    if (model !== undefined) {
+      if (
+        typeof model !== "string" ||
+        !model.trim() ||
+        model !== model.trim() ||
+        model.length > 120 ||
+        model.includes("\u0000")
+      ) {
+        throw new ShedTaskError("MODEL_INVALID", "model must be a non-empty model ID string (max 120 chars)");
+      }
+      assertNoSecrets(model, "model");
+      safeModel = model;
     }
     const safeTitle = typeof title === "string" && title.trim() ? title.trim().slice(0, TITLE_MAX) : undefined;
     assertNoSecrets(task, "task");
     if (safeTitle) assertNoSecrets(safeTitle, "title");
-    return { owner: owner.toLowerCase(), repo, forge: safeForge, task, baseBranch: base, headBranch, title: safeTitle, requestedBy: requested_by };
+    return {
+      owner: owner.toLowerCase(),
+      repo,
+      forge: safeForge,
+      task,
+      baseBranch: base,
+      headBranch,
+      title: safeTitle,
+      requestedBy: requested_by,
+      harness: safeHarness,
+      ...(safeModel ? { model: safeModel } : {}),
+    };
+  }
+
+  validateSteer({ taskId, instruction, requested_by } = {}) {
+    const safeRequestedBy = validateRequestedBy(requested_by);
+    if (typeof taskId !== "string" || !taskId.trim()) {
+      throw new ShedTaskError("TASK_NOT_FOUND", "unknown task");
+    }
+    if (
+      typeof instruction !== "string" ||
+      !instruction.trim() ||
+      instruction.length > STEER_MAX ||
+      instruction.includes("\u0000")
+    ) {
+      throw new ShedTaskError(
+        "INSTRUCTION_INVALID",
+        `instruction must be a non-empty string up to ${STEER_MAX} characters`,
+      );
+    }
+    assertNoSecrets(instruction, "instruction");
+    return {
+      taskId: taskId.trim(),
+      instruction: instruction.trim(),
+      requestedBy: safeRequestedBy,
+    };
   }
 
   async runTask(input, caller) {
+    const verifiedCaller = assertCaller(caller);
     if (this.active.size >= this.maxConcurrent) return this.shedState();
     const request = this.validate(input ?? {});
+    if (request.model !== undefined) {
+      const advertised = await this.getAdvertisedModels(request.harness, this.broker);
+      if (Array.isArray(advertised) && !advertised.includes(request.model)) {
+        throw new ShedTaskError(
+          "MODEL_INVALID",
+          `Unknown model "${request.model}": not advertised by harness "${request.harness}" (advertised: ${advertised.join(", ") || "none"})`,
+          { harness: request.harness, model: request.model, advertisedModels: advertised },
+        );
+      }
+    }
     const repoDir = path.join(this.reposRoot, request.owner, request.repo);
     // Everything below up to the slot reservation is synchronous, so two
     // concurrent calls can never both take the last slot or the same branch.
@@ -319,7 +473,7 @@ export class ShedTaskRunner {
       ...request,
       task: undefined,
       branch: request.headBranch ?? `${BRANCH_PREFIX}${taskId}`,
-      caller: caller?.label ?? "unknown",
+      caller: verifiedCaller.label,
       createdAt: this.now().toISOString(),
       worktree: path.join(this.stateDir, "worktrees", taskId),
     };
@@ -372,6 +526,7 @@ export class ShedTaskRunner {
         workspace: task.worktree,
         prompt: `${SHED_INSTRUCTIONS}\n\nTask:\n${request.task}`,
         hostConversationId: taskId,
+        ...(request.model ? { model: request.model } : {}),
       });
       task.jobId = submitted.jobId;
       if (isSessionId(submitted.backendSessionId)) task.sessionId = submitted.backendSessionId;
@@ -386,6 +541,15 @@ export class ShedTaskRunner {
       }
     } catch (error) {
       if (isCancelled(task)) return this.cancelBeforeRun(task);
+      if (/^(MODEL_UNAVAILABLE|INVALID_MODEL|MODEL_REQUIRED|MODEL_AMBIGUOUS|MODEL_INVALID)$/i.test(error?.code ?? "")) {
+        await this.finish(task, "start_failed");
+        this.tasks.delete(taskId);
+        throw new ShedTaskError(
+          "MODEL_INVALID",
+          clean(error?.message || `Model is not advertised by harness ${task.harness}`, 300),
+          error?.details ?? { harness: task.harness, model: request.model },
+        );
+      }
       const unavailable = /READINESS|OAUTH|RUNTIME|AUTH|SETUP/i.test(error?.code ?? "");
       task.status = unavailable ? "unavailable" : "failed";
       task.error = { code: error?.code ?? "TASK_START_FAILED", message: clean(error?.message, 300) };
@@ -434,6 +598,9 @@ export class ShedTaskRunner {
     for (;;) {
       job = await this.broker.result({ jobId: task.jobId, waitMs: POLL_WAIT_MS });
       if (job.complete || (job.taskComplete && (!this.broker?.active?.has?.(task.jobId) || job.cleanup?.status === "uncertain"))) break;
+    }
+    if (!task.model && job?.model?.selectedModelId) {
+      task.model = job.model.selectedModelId;
     }
     task.summary = clean(job.handoff);
     const transcript = this.transcripts.get(task.taskId);
@@ -607,5 +774,131 @@ export class ShedTaskRunner {
     await this.record(task, "cancel_requested");
     if (task.jobId) await this.broker.cancel({ jobId: task.jobId, reason: "cancelled by remote caller" });
     return { ...this.publicTask(task), cancellationRequested: true };
+  }
+
+  async steer(input = {}, caller) {
+    assertCaller(caller);
+    const { taskId, instruction, requestedBy } = this.validateSteer(input);
+    const task = this.tasks.get(taskId) ?? (await this.load(taskId));
+    if (!this.active.has(taskId) || task.status !== "running" || !task.jobId) {
+      throw new ShedTaskError(
+        "TASK_NOT_RUNNING",
+        `Task ${taskId} is not running (current state: ${task.status}); only running tasks can be steered`,
+        { taskId, status: task.status },
+      );
+    }
+    if (typeof this.broker?.steer === "function") {
+      try {
+        await this.broker.steer({
+          jobId: task.jobId,
+          sessionId: task.sessionId,
+          instruction,
+          message: instruction,
+          requestedBy,
+        });
+      } catch (error) {
+        if (error?.code === "STEERING_UNSUPPORTED") {
+          await this.steerViaRuntime(this.broker, task, instruction);
+        } else {
+          throw error;
+        }
+      }
+    } else if (typeof this.broker?.steerSession === "function") {
+      await this.broker.steerSession({
+        jobId: task.jobId,
+        sessionId: task.sessionId,
+        instruction,
+        message: instruction,
+        requestedBy,
+      });
+    } else {
+      await this.steerViaRuntime(this.broker, task, instruction);
+    }
+    const transcript = this.transcripts.get(taskId);
+    if (transcript) {
+      appendEvent(transcript, { type: "status", tag: "steered", text: instruction }, this.now().toISOString());
+      this.scheduleFlush(task);
+    }
+    await this.record(task, "steered");
+    return {
+      ...this.publicTask(task),
+      steered: true,
+      requestedBy,
+    };
+  }
+
+  async steerViaRuntime(broker, task, instruction) {
+    const active = broker?.active?.get?.(task.jobId);
+    const runtime =
+      broker?.runtime ?? (typeof broker?.ensureRuntime === "function" ? broker.ensureRuntime() : null);
+    if (active?.handle && typeof runtime?.startTurn === "function") {
+      const turn = runtime.startTurn({
+        handle: active.handle,
+        text: instruction,
+        mode: "steer",
+        requestId: `${task.jobId}:steer:${Date.now()}`,
+        timeoutMs: 120_000,
+      });
+      if (turn?.promptStarted) await turn.promptStarted;
+      return;
+    }
+    throw new ShedTaskError(
+      "STEER_UNAVAILABLE",
+      `Unable to steer running task ${task.taskId}: active ACP session does not expose a steer handler`,
+      { taskId: task.taskId },
+    );
+  }
+
+  async result({ taskId } = {}, caller) {
+    assertCaller(caller);
+    if (typeof taskId !== "string" || !taskId.trim()) {
+      throw new ShedTaskError("TASK_NOT_FOUND", "unknown task");
+    }
+    const trimmedId = taskId.trim();
+    const inMem = this.tasks.get(trimmedId);
+    if (this.active.has(trimmedId) || (inMem && !TERMINAL_TASK_STATUSES.has(inMem.status))) {
+      const currentStatus = inMem?.status ?? "running";
+      throw new ShedTaskError(
+        "TASK_NOT_FINISHED",
+        `Task ${trimmedId} is still ${currentStatus} (not finished); wait for completion before calling shed_task_result`,
+        { taskId: trimmedId, status: currentStatus },
+      );
+    }
+    const record = await this.load(trimmedId);
+    if (!TERMINAL_TASK_STATUSES.has(record.status)) {
+      throw new ShedTaskError(
+        "TASK_NOT_FINISHED",
+        `Task ${trimmedId} is still ${record.status} (not finished); wait for completion before calling shed_task_result`,
+        { taskId: trimmedId, status: record.status },
+      );
+    }
+    const sessionId = record.sessionId ?? record.session_id ?? null;
+    const link = record.session_url ?? (sessionId ? sessionUrl(this.sessionBaseUrl, sessionId) ?? null : null);
+    const summary = typeof record.summary === "string" ? clean(record.summary) : null;
+    const harness = record.harness ?? this.harness;
+    const model = record.model ?? null;
+    return {
+      taskId: record.taskId,
+      status: record.status,
+      summary,
+      prUrl: record.prUrl ?? null,
+      headSha: record.headSha ?? null,
+      harness,
+      model,
+      session_id: sessionId,
+      session_url: link,
+      sessionUrl: link,
+      repo: record.repo ?? (record.owner && record.repo ? `${record.owner}/${record.repo}` : undefined),
+      forge: record.forge,
+      branch: record.branch,
+      baseBranch: record.baseBranch,
+      ...(record.headBranch ? { headBranch: record.headBranch } : {}),
+      ...(record.commitsAhead !== undefined ? { commitsAhead: record.commitsAhead } : {}),
+      ...(record.startSha ? { startSha: record.startSha } : {}),
+      ...(record.error ? { error: record.error } : {}),
+      requestedBy: record.requestedBy,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    };
   }
 }
