@@ -122,6 +122,7 @@ class TimeoutFixtureRuntime {
 function hermeticProcessEnv() {
   const env = { ...process.env };
   delete env.SAARIUS_ACP_PERMISSION_MODE;
+  delete env.SAARIUS_ACP_TIMEOUT_MS;
   return env;
 }
 
@@ -138,10 +139,11 @@ async function makeBroker(options = {}) {
     museExecutable: executable,
     runtime,
     execFile: async (_exe, args) => ({ stdout: args?.includes("serve") ? "muse serve \u2014 serve an MSP session host over stdio\n" : "2026.08.11-e8db854\n", stderr: "" }),
-    processEnv: hermeticProcessEnv(),
+    processEnv: { ...hermeticProcessEnv(), ...(options.processEnv ?? {}) },
     defaultHostConversationId: options.defaultHostConversationId ?? `conv-${path.basename(root)}`,
     defaultBinderId: options.defaultBinderId ?? "test-owner",
     ...options,
+    processEnv: { ...hermeticProcessEnv(), ...(options.processEnv ?? {}) },
   });
   await broker.init();
   return { broker, runtime, workspace, root };
@@ -268,4 +270,50 @@ test("default ACpx runtime keeps the 10-minute control-plane timeout", async () 
   });
   assert.equal(runtime.options.timeoutMs, RUNTIME_CONTROL_TIMEOUT_MS);
   await runtime.shutdown();
+});
+
+test("SAARIUS_ACP_TIMEOUT_MS sets the broker default timeout, per-call timeoutMs overrides it, and invalid env throws at broker construction", async () => {
+  const { broker, runtime, workspace, root } = await makeBroker({
+    processEnv: { SAARIUS_ACP_TIMEOUT_MS: "  180000  " },
+  });
+  assert.equal(broker.timeoutMs, 180_000);
+
+  const envDefaultJob = await broker.delegate({
+    workspace,
+    prompt: "Use SAARIUS_ACP_TIMEOUT_MS default.",
+  });
+  assert.equal(envDefaultJob.timeoutMs, 180_000);
+  assert.equal((await persistedJob(broker, envDefaultJob.jobId)).timeoutMs, 180_000);
+  const envDefaultCompleted = await broker.result({ jobId: envDefaultJob.jobId, waitMs: 1_000 });
+  assert.equal(envDefaultCompleted.status, "completed");
+  assert.equal(envDefaultCompleted.timeoutMs, 180_000);
+  assert.equal(runtime.turns[0].input.timeoutMs, 180_000);
+
+  const overrideJob = await broker.delegate({
+    workspace,
+    prompt: "Override SAARIUS_ACP_TIMEOUT_MS per call.",
+    timeoutMs: 60_000,
+  });
+  assert.equal(overrideJob.timeoutMs, 60_000);
+  assert.equal((await persistedJob(broker, overrideJob.jobId)).timeoutMs, 60_000);
+  const overrideCompleted = await broker.result({ jobId: overrideJob.jobId, waitMs: 1_000 });
+  assert.equal(overrideCompleted.status, "completed");
+  assert.equal(overrideCompleted.timeoutMs, 60_000);
+  assert.equal(runtime.turns[1].input.timeoutMs, 60_000);
+  await broker.close();
+
+  for (const badEnv of ["999", "14400001", "-1000", "3600.5", "not-an-int"]) {
+    assert.throws(
+      () =>
+        new MuseAcpBroker({
+          stateRoot: path.join(root, "state-invalid"),
+          runtime: new TimeoutFixtureRuntime(),
+          processEnv: { PATH: process.env.PATH ?? "", SAARIUS_ACP_TIMEOUT_MS: badEnv },
+        }),
+      (error) =>
+        error instanceof BridgeError &&
+        error.code === "INVALID_CONFIG" &&
+        /SAARIUS_ACP_TIMEOUT_MS/.test(error.message),
+    );
+  }
 });

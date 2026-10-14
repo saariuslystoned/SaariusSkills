@@ -145,6 +145,7 @@ export async function describeSource({ pluginRoot, bridge }) {
     "../acp-runtime/lifecycle.mjs",
     "../acp-runtime/recovery.mjs",
     "../acp-runtime/process-identity.mjs",
+    "../acp-runtime/timeout.mjs",
     ...siblingFiles,
   ];
   const entries = [];

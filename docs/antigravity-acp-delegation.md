@@ -137,7 +137,7 @@ It will not start a login or send a live request from this follow-up worker.
 one ACpx prompt turn. Omit it for the 60-minute default. Request up to 4
 hours explicitly when the slice needs it. Values above 4 hours are rejected
 at MCP admission and again in the broker. The requested value is what the
-runtime turn receives; it is also stored on the public and persisted job.
+runtime turn receives; it is also stored on the public and persisted job. Set `SAARIUS_ACP_TIMEOUT_MS` (milliseconds, default `3600000`, integer bounds `1000..14400000`) to override the broker default timeout; invalid values fail closed at broker startup, and a per-call `timeoutMs` override wins.
 
 That budget is not the parent conversation lifetime, the MCP session
 duration, or `antigravity_acp_result` `waitMs`. Result wait stays a short
