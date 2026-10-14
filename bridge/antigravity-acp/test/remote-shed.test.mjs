@@ -233,7 +233,47 @@ test("a task runs on a new branch and ends in a draft PR; audit log names caller
   assert.ok(!flat.some((c) => /--force(?!\s+\S*worktrees)|merge/.test(c.replace(/git worktree remove --force \S+/, ""))));
   assert.ok(logs.every((line) => line.caller === "acp-runner" && line.requestedBy === "acp-runner"));
   assert.ok(!JSON.stringify(logs).includes("README typo"));
-  assert.equal((await runner.status({})).status, "idle");
+  // The task is pr_opened before async cleanup clears the active slot; poll
+  // briefly instead of assuming cleanup finished within settle().
+  let shedStatus = (await runner.status({})).status;
+  for (let attempt = 0; attempt < 100 && shedStatus !== "idle"; attempt += 1) {
+    await settle();
+    shedStatus = (await runner.status({})).status;
+  }
+  assert.equal(shedStatus, "idle");
+});
+
+test("terminal tool updates preserve the started command summary in latestEvent", async () => {
+  const { runner } = shedFixture();
+  await runner.init();
+  const started = {
+    type: "job_event",
+    event: "tool_call_started",
+    timestamp: "2026-10-14T00:00:00.000Z",
+    details: { toolCallId: "call-1", tool: "Bash", summary: "echo hi" },
+  };
+  const completedRaw = {
+    type: "tool_call",
+    toolCallId: "call-1",
+    title: "Bash",
+    status: "completed",
+    rawOutput: { exitCode: 0, output: "ok" },
+  };
+  const task = { taskId: "task-summary-1" };
+  runner.jobTasks.set("job-summary-1", task);
+  runner.onAgentEvent("job-summary-1", started);
+  runner.onAgentEvent("job-summary-1", completedRaw);
+  assert.equal(task.latestEvent.event, "tool_call_finished");
+  assert.equal(task.latestEvent.summary, "echo hi", "completion without rawInput must keep the started summary");
+
+  const pendingTask = { taskId: "task-summary-2" };
+  runner.pendingEvents.set("job-summary-2", [
+    { event: started, at: "2026-10-14T00:00:00.000Z" },
+    { event: completedRaw, at: "2026-10-14T00:00:01.000Z" },
+  ]);
+  runner.bindJob(pendingTask, "job-summary-2");
+  assert.equal(pendingTask.latestEvent.event, "tool_call_finished");
+  assert.equal(pendingTask.latestEvent.summary, "echo hi");
 });
 
 test("input validation: allowlist, requested_by, secrets, and unavailable repos", async () => {
