@@ -16,7 +16,7 @@ import {
   DEFAULT_ANTIGRAVITY_MODEL,
   DEFAULT_MUSE_ADVERTISED_MODELS,
   SHED_ANTIGRAVITY_MODEL_ENV,
-  MUSE_COAUTHOR_EMAIL,
+  MUSE_COAUTHOR_ENV,
   SHED_COMMIT_AUTHOR,
   STEER_MAX,
   appendCoAuthorTrailer,
@@ -122,29 +122,51 @@ function shedFixture(brokerOptions, { changes = " M README.md", ahead, remoteHea
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+const TEST_MUSE_COAUTHOR = "Muse <123456+muse-bot@users.noreply.github.com>";
 
-test("muse co-author trailer includes the model id and keeps the shed author identity", () => {
-  assert.equal(museCoAuthorTrailer("claude-sonnet-4-6"), "Co-authored-by: Muse (claude-sonnet-4-6) <noreply@muse.dev>");
-  assert.equal(museCoAuthorTrailer(undefined), "Co-authored-by: Muse <noreply@muse.dev>");
-  assert.equal(MUSE_COAUTHOR_EMAIL, "noreply@muse.dev");
+test("muse co-author trailer requires MUSE_COAUTHOR, includes model id when known, and keeps the shed author identity", () => {
+  assert.equal(MUSE_COAUTHOR_ENV, "MUSE_COAUTHOR");
   assert.equal(SHED_COMMIT_AUTHOR, "saariuslystoned <159389674+saariuslystoned@users.noreply.github.com>");
+  assert.equal(museCoAuthorTrailer("claude-sonnet-4-6", {}), "");
+  assert.equal(museCoAuthorTrailer("claude-sonnet-4-6", { MUSE_COAUTHOR: "   " }), "");
+  assert.equal(
+    museCoAuthorTrailer("claude-sonnet-4-6", { MUSE_COAUTHOR: TEST_MUSE_COAUTHOR }),
+    "Co-authored-by: Muse (claude-sonnet-4-6) <123456+muse-bot@users.noreply.github.com>",
+  );
+  assert.equal(
+    museCoAuthorTrailer(undefined, { MUSE_COAUTHOR: TEST_MUSE_COAUTHOR }),
+    "Co-authored-by: Muse <123456+muse-bot@users.noreply.github.com>",
+  );
+  assert.equal(
+    museCoAuthorTrailer("gpt-5.4", { MUSE_COAUTHOR: "123456+muse-bot@users.noreply.github.com" }),
+    "Co-authored-by: Muse (gpt-5.4) <123456+muse-bot@users.noreply.github.com>",
+  );
 });
 
-test("co-author trailer is appended once and never duplicated", () => {
+test("co-author trailer is omitted when MUSE_COAUTHOR is unset and appended once without duplication when set", () => {
   const base = "Fix typo\n\nRemote-shed task shed-x requested by acp-runner.";
-  const once = appendCoAuthorTrailer(base, { harness: "muse", model: "claude-sonnet-4-6" });
-  assert.match(once, /\n\nCo-authored-by: Muse \(claude-sonnet-4-6\) <noreply@muse\.dev>$/);
-  assert.equal(appendCoAuthorTrailer(once, { harness: "muse", model: "claude-sonnet-4-6" }), once);
-  const agentAdded = "Fix typo\n\nCo-authored-by: Muse (claude-sonnet-4-6) <noreply@muse.dev>";
-  assert.equal(appendCoAuthorTrailer(agentAdded, { harness: "muse", model: "gpt-5.4" }), agentAdded);
+  assert.equal(appendCoAuthorTrailer(base, { harness: "muse", model: "claude-sonnet-4-6", env: {} }), base);
+  assert.equal(appendCoAuthorTrailer(base, { harness: "muse", model: "claude-sonnet-4-6", env: { MUSE_COAUTHOR: "" } }), base);
+
+  const env = { MUSE_COAUTHOR: TEST_MUSE_COAUTHOR };
+  const once = appendCoAuthorTrailer(base, { harness: "muse", model: "claude-sonnet-4-6", env });
+  assert.match(once, /\n\nCo-authored-by: Muse \(claude-sonnet-4-6\) <123456\+muse-bot@users\.noreply\.github\.com>$/);
+  assert.equal(appendCoAuthorTrailer(once, { harness: "muse", model: "claude-sonnet-4-6", env }), once);
+  const agentAdded = "Fix typo\n\nCo-authored-by: Muse (claude-sonnet-4-6) <123456+muse-bot@users.noreply.github.com>";
+  assert.equal(appendCoAuthorTrailer(agentAdded, { harness: "muse", model: "gpt-5.4", env }), agentAdded);
   assert.equal((once.match(/Co-authored-by: Muse/g) ?? []).length, 1);
+
+  const noModel = appendCoAuthorTrailer(base, { harness: "muse", env });
+  assert.match(noModel, /\n\nCo-authored-by: Muse <123456\+muse-bot@users\.noreply\.github\.com>$/);
+  assert.equal(appendCoAuthorTrailer(noModel, { harness: "muse", env }), noModel);
 });
 
-test("other harnesses get no co-author trailer", () => {
+test("other harnesses get no co-author trailer even when MUSE_COAUTHOR is set", () => {
   const msg = "Fix typo";
-  assert.equal(appendCoAuthorTrailer(msg, { harness: "antigravity", model: "gemini-3.1-pro" }), msg);
-  assert.equal(appendCoAuthorTrailer(msg, { harness: "cursor", model: "x" }), msg);
-  assert.equal(appendCoAuthorTrailer(msg, { harness: undefined, model: "x" }), msg);
+  const env = { MUSE_COAUTHOR: TEST_MUSE_COAUTHOR };
+  assert.equal(appendCoAuthorTrailer(msg, { harness: "antigravity", model: "gemini-3.1-pro", env }), msg);
+  assert.equal(appendCoAuthorTrailer(msg, { harness: "cursor", model: "x", env }), msg);
+  assert.equal(appendCoAuthorTrailer(msg, { harness: undefined, model: "x", env }), msg);
 });
 
 const RUN = { owner: "saari-co", repo: "site", task: "Fix the README typo", requested_by: "acp-runner" };
@@ -710,13 +732,32 @@ test("routing per harness: antigravity and muse route to their respective broker
   await runner.whenIdle();
 });
 
-test("shed commit carries the Muse trailer only for muse tasks; antigravity commits stay unchanged", async () => {
+test("shed commit carries the Muse trailer only when MUSE_COAUTHOR is set for muse tasks; antigravity commits stay unchanged", async () => {
+  // 1. When MUSE_COAUTHOR is unset, Muse tasks get no co-author trailer
+  const unsetMuseBroker = multiBroker();
+  unsetMuseBroker.harness = "muse";
+  const { runner: unsetRunner, commands: unsetCommands } = shedFixture(undefined, {
+    brokers: { muse: unsetMuseBroker },
+    env: { MUSE_COAUTHOR: "" },
+  });
+  await unsetRunner.init();
+  const unsetTask = await unsetRunner.runTask({ ...RUN, harness: "muse", model: "claude-sonnet-4-6", task: "muse unset task" }, CALLER);
+  unsetMuseBroker.finish(unsetMuseBroker.jobs.keys().next().value);
+  await unsetRunner.whenIdle();
+  assert.equal((await unsetRunner.status({ taskId: unsetTask.taskId })).status, "pr_opened");
+  const unsetCommit = unsetCommands.find((c) => c[0] === "git" && c[1] === "commit");
+  assert.ok(unsetCommit, "shed should create a commit for the muse task");
+  assert.ok(!unsetCommit.join(" ").includes("Co-authored-by:"), unsetCommit.join(" "));
+  assert.ok(!([...unsetMuseBroker.jobs.values()][0].input.prompt).includes("Co-authored-by:"));
+
+  // 2. When MUSE_COAUTHOR is set, Muse tasks include the trailer and Antigravity tasks stay unchanged
   const antiBroker = multiBroker();
   antiBroker.harness = "antigravity";
   const museBroker = multiBroker();
   museBroker.harness = "muse";
   const { runner, commands } = shedFixture(undefined, {
     brokers: { antigravity: antiBroker, muse: museBroker },
+    env: { MUSE_COAUTHOR: TEST_MUSE_COAUTHOR },
   });
   await runner.init();
 
@@ -727,11 +768,11 @@ test("shed commit carries the Muse trailer only for muse tasks; antigravity comm
   const museCommit = commands.find((c) => c[0] === "git" && c[1] === "commit");
   assert.ok(museCommit, "shed should create a commit for the muse task");
   const museFlat = museCommit.join(" ");
-  assert.ok(museFlat.includes("Co-authored-by: Muse (claude-sonnet-4-6) <noreply@muse.dev>"), museFlat);
+  assert.ok(museFlat.includes("Co-authored-by: Muse (claude-sonnet-4-6) <123456+muse-bot@users.noreply.github.com>"), museFlat);
   assert.equal((museFlat.match(/Co-authored-by: Muse/g) ?? []).length, 1);
   assert.ok(!museCommit.some((arg) => String(arg).startsWith("--author")), "commit author must stay the shed git identity");
   const museDelegate = [...museBroker.jobs.values()][0].input;
-  assert.ok(museDelegate.prompt.includes("Co-authored-by: Muse (claude-sonnet-4-6) <noreply@muse.dev>"), museDelegate.prompt);
+  assert.ok(museDelegate.prompt.includes("Co-authored-by: Muse (claude-sonnet-4-6) <123456+muse-bot@users.noreply.github.com>"), museDelegate.prompt);
 
   const before = commands.length;
   const antiTask = await runner.runTask({ ...RUN, harness: "antigravity", task: "anti commit task" }, CALLER);

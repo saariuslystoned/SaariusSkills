@@ -82,32 +82,75 @@ const SHED_INSTRUCTIONS = [
   "Finish with a short plain-text summary of what you changed.",
 ].join("\n");
 
-// Shed commits keep the owner as author (repo git config); the Muse harness
-// is credited only through a Co-authored-by trailer, never as author.
+// Shed commits keep the owner as author (repo git config). The Muse harness is
+// credited through a Co-authored-by trailer only when MUSE_COAUTHOR is set to a
+// GitHub-recognized identity (e.g. "Muse <12345+muse-bot@users.noreply.github.com>"
+// or "12345+muse-bot@users.noreply.github.com"); unset/empty adds no trailer.
 export const SHED_COMMIT_AUTHOR = "saariuslystoned <159389674+saariuslystoned@users.noreply.github.com>";
-export const MUSE_COAUTHOR_EMAIL = "noreply@muse.dev";
-const MUSE_TRAILER_PATTERN = /^Co-authored-by:[ \t]*Muse\b/im;
+export const MUSE_COAUTHOR_ENV = "MUSE_COAUTHOR";
+const MUSE_TRAILER_PATTERN = /^[ \t]*Co-authored-by:[ \t]*Muse\b/im;
 
-export function museCoAuthorTrailer(model) {
-  const id = typeof model === "string" ? model.trim().replace(/[\r\n<>]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 120) : "";
-  return id ? `Co-authored-by: Muse (${id}) <${MUSE_COAUTHOR_EMAIL}>` : `Co-authored-by: Muse <${MUSE_COAUTHOR_EMAIL}>`;
+function parseMuseCoAuthor(envOrIdentity = process.env) {
+  const rawValue = typeof envOrIdentity === "string"
+    ? envOrIdentity
+    : (envOrIdentity?.[MUSE_COAUTHOR_ENV] ?? envOrIdentity?.coAuthor ?? "");
+  const cleaned = typeof rawValue === "string"
+    ? rawValue.replace(/[\r\n]+/g, " ").replace(/^[ \t]*Co-authored-by:[ \t]*/i, "").trim()
+    : "";
+  if (!cleaned) return null;
+  const angleMatch = cleaned.match(/^([^<>]*?)<([^<>\s]+@[^<>\s]+)>$/);
+  if (angleMatch) {
+    const name = angleMatch[1].trim() || "Muse";
+    const email = angleMatch[2].trim();
+    return { name, email };
+  }
+  const plainEmail = cleaned.replace(/^[<]+|[>]+$/g, "").trim();
+  if (/^[^\s<>@]+@[^\s<>@]+$/.test(plainEmail)) {
+    return { name: "Muse", email: plainEmail };
+  }
+  return null;
 }
 
-export function appendCoAuthorTrailer(message, { harness, model } = {}) {
+export function museCoAuthorTrailer(model, env = process.env) {
+  const identity = parseMuseCoAuthor(env);
+  if (!identity) return "";
+  const id = typeof model === "string" ? model.trim().replace(/[\r\n<>]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 120) : "";
+  return id
+    ? `Co-authored-by: ${identity.name} (${id}) <${identity.email}>`
+    : `Co-authored-by: ${identity.name} <${identity.email}>`;
+}
+
+function hasExistingMuseTrailer(text, identity) {
+  if (MUSE_TRAILER_PATTERN.test(text)) return true;
+  if (!identity) return false;
+  const emailLower = `<${identity.email.toLowerCase()}>`;
+  const nameLower = identity.name.toLowerCase();
+  return text.split(/\r?\n/).some((line) => {
+    if (!/^[ \t]*Co-authored-by:/i.test(line)) return false;
+    const lower = line.toLowerCase();
+    return lower.includes(emailLower) || lower.includes(nameLower);
+  });
+}
+
+export function appendCoAuthorTrailer(message, { harness, model, env = process.env, coAuthor } = {}) {
   const text = String(message ?? "");
   const h = typeof harness === "string" ? harness.trim().toLowerCase() : "";
   if (h !== "muse" && h !== "muse-acp") return text;
-  if (MUSE_TRAILER_PATTERN.test(text)) return text;
-  const trailer = museCoAuthorTrailer(model);
+  const identity = parseMuseCoAuthor(coAuthor ?? env);
+  if (!identity) return text;
+  if (hasExistingMuseTrailer(text, identity)) return text;
+  const trailer = museCoAuthorTrailer(model, coAuthor ?? env);
   return text.trim() ? `${text.replace(/\s+$/, "")}\n\n${trailer}` : trailer;
 }
 
-function coAuthorPromptNote(harness, model) {
+function coAuthorPromptNote(harness, model, env = process.env) {
   const h = typeof harness === "string" ? harness.trim().toLowerCase() : "";
   if (h !== "muse" && h !== "muse-acp") return "";
+  const identity = parseMuseCoAuthor(env);
+  if (!identity) return "";
   const trailer = typeof model === "string" && model.trim()
-    ? museCoAuthorTrailer(model)
-    : `Co-authored-by: Muse (<your exact model id>) <${MUSE_COAUTHOR_EMAIL}>`;
+    ? museCoAuthorTrailer(model, env)
+    : `Co-authored-by: ${identity.name} (<your exact model id>) <${identity.email}>`;
   return `\nIf you create git commits, end each commit message with this trailer line: ${trailer}`;
 }
 
@@ -753,7 +796,7 @@ export class ShedTaskRunner {
       if (isCancelled(task)) return this.cancelBeforeRun(task);
       const submitted = await broker.delegate({
         workspace: task.worktree,
-        prompt: `${SHED_INSTRUCTIONS}${coAuthorPromptNote(task.harness ?? request.harness, task.model ?? request.model)}\n\nTask:\n${request.task}`,
+        prompt: `${SHED_INSTRUCTIONS}${coAuthorPromptNote(task.harness ?? request.harness, task.model ?? request.model, this.env)}\n\nTask:\n${request.task}`,
         hostConversationId: taskId,
         ...(task.model ? { model: task.model } : {}),
       });
@@ -852,7 +895,7 @@ export class ShedTaskRunner {
     const title = task.title ?? `Shed task ${task.taskId}`;
     if (await this.run("git", ["status", "--porcelain"], { cwd })) {
       await this.run("git", ["add", "-A"], { cwd });
-      const body = appendCoAuthorTrailer(`Remote-shed task ${task.taskId} requested by ${task.requestedBy}.`, { harness: task.harness ?? this.harness, model: task.model });
+      const body = appendCoAuthorTrailer(`Remote-shed task ${task.taskId} requested by ${task.requestedBy}.`, { harness: task.harness ?? this.harness, model: task.model, env: this.env });
       await this.run("git", ["commit", "--quiet", "-m", title, "-m", body], { cwd });
     }
     // Count commits ahead of the start point, so agent-made commits (git am,
@@ -937,7 +980,7 @@ export class ShedTaskRunner {
               "--quiet",
               "--no-verify",
               "-m",
-              appendCoAuthorTrailer(`Rescue uncommitted changes for task ${task.taskId}`, { harness: task.harness ?? this.harness, model: task.model }),
+              appendCoAuthorTrailer(`Rescue uncommitted changes for task ${task.taskId}`, { harness: task.harness ?? this.harness, model: task.model, env: this.env }),
             ], { cwd: task.worktree });
           } catch {
             hasUncommitted = true;
