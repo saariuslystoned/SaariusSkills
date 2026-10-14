@@ -8,7 +8,7 @@ import { accessSync, constants } from "node:fs";
 import { access, appendFile, link, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
-import { execFile as execFileCallback } from "node:child_process";
+import { execFile as execFileCallback, spawnSync } from "node:child_process";
 import { promisify } from "node:util";
 import { createAcpRuntime, createAgentRegistry } from "acpx/runtime";
 import {
@@ -305,6 +305,183 @@ export function redactSensitive(value) {
   return text;
 }
 
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+let python3AvailableCache;
+function defaultHasPython3() {
+  if (python3AvailableCache === undefined) {
+    try {
+      const probe = spawnSync("python3", ["--version"], { stdio: "ignore" });
+      python3AvailableCache = !probe.error && probe.status === 0;
+    } catch {
+      python3AvailableCache = false;
+    }
+  }
+  return python3AvailableCache;
+}
+
+export function wrapWorkerInProcessGroup(command, args = [], {
+  platform = process.platform,
+  hasPython3 = defaultHasPython3,
+} = {}) {
+  // Windows has no POSIX process groups, and hosts without python3 must still
+  // launch: fall back to the direct command. Termination compensates by
+  // killing captured descendants (POSIX) or taskkill /T (Windows).
+  if (platform === "win32" || !hasPython3()) {
+    return [command, ...(args ?? [])];
+  }
+  return [
+    "python3",
+    "-c",
+    "import os, sys; os.setpgrp(); os.execvp(sys.argv[1], sys.argv[1:])",
+    command,
+    ...(args ?? []),
+  ];
+}
+
+async function defaultDescendantsOf(rootPid) {
+  try {
+    const { stdout } = await execFile("ps", ["-eo", "pid=,ppid="], {
+      timeout: 5_000,
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    const childrenByParent = new Map();
+    for (const line of String(stdout).split("\n")) {
+      const [child, parent] = line.trim().split(/\s+/).map(Number);
+      if (!Number.isInteger(child) || !Number.isInteger(parent)) continue;
+      if (!childrenByParent.has(parent)) childrenByParent.set(parent, []);
+      childrenByParent.get(parent).push(child);
+    }
+    const descendants = [];
+    const queue = [rootPid];
+    const seen = new Set([rootPid]);
+    while (queue.length > 0) {
+      for (const child of childrenByParent.get(queue.shift()) ?? []) {
+        if (seen.has(child)) continue;
+        seen.add(child);
+        descendants.push(child);
+        queue.push(child);
+      }
+    }
+    return descendants;
+  } catch {
+    return [];
+  }
+}
+
+async function defaultTaskkill(target, force) {
+  await execFile("taskkill", ["/PID", String(target), "/T", ...(force ? ["/F"] : [])], {
+    timeout: 10_000,
+  });
+}
+
+export async function terminateProcessGroup(pid, {
+  signal = "SIGTERM",
+  escalateSignal = "SIGKILL",
+  graceMs = 10_000,
+  pollMs = 50,
+  platform = process.platform,
+  kill = (target, sig) => process.kill(target, sig),
+  descendantsOf = defaultDescendantsOf,
+  taskkill = defaultTaskkill,
+} = {}) {
+  if (!Number.isInteger(pid) || pid <= 0) return { exited: true, signal: null };
+
+  // Negative-pid group signals are POSIX-only; on Windows address the worker
+  // process itself or every probe/signal fails before any fallback runs.
+  const groupTarget = platform === "win32" ? pid : -pid;
+  // Capture descendants before signaling the parent: once it exits, children
+  // are reparented and can no longer be found. This covers launches that had
+  // no process group (win32 / no-python3 fallback), so cancellation never
+  // reports complete while spawned child work keeps running.
+  const descendants = platform === "win32"
+    ? []
+    : (await descendantsOf(pid).catch(() => []))
+        .filter((child) => Number.isInteger(child) && child > 0 && child !== pid);
+
+  const probe = (target) => {
+    try {
+      kill(target, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const isAlive = () => {
+    try {
+      kill(groupTarget, 0);
+      return true;
+    } catch (e) {
+      if (e.code === "ESRCH" && groupTarget !== pid && probe(pid)) return true;
+    }
+    return descendants.some((child) => probe(child));
+  };
+
+  const send = async (sig) => {
+    let sent = false;
+    if (platform === "win32") {
+      try {
+        await taskkill(pid, sig === escalateSignal);
+        sent = true;
+      } catch {
+        try {
+          kill(pid, sig);
+          sent = true;
+        } catch {}
+      }
+      return sent;
+    }
+    try {
+      kill(groupTarget, sig);
+      sent = true;
+    } catch (e) {
+      if (e.code === "ESRCH" && groupTarget !== pid) {
+        try {
+          kill(pid, sig);
+          sent = true;
+        } catch {}
+      }
+    }
+    for (const child of descendants) {
+      try {
+        kill(child, sig);
+        sent = true;
+      } catch {}
+    }
+    return sent;
+  };
+
+  if (!isAlive()) return { exited: true, signal: null };
+
+  await send(signal);
+  let effectiveSignal = signal;
+
+  const deadline = Date.now() + graceMs;
+  while (Date.now() < deadline) {
+    await sleep(pollMs);
+    if (!isAlive()) {
+      return { exited: true, signal: effectiveSignal };
+    }
+  }
+
+  // If still alive after graceMs, escalate to SIGKILL
+  if (isAlive()) {
+    effectiveSignal = escalateSignal;
+    await send(escalateSignal);
+    const killDeadline = Date.now() + 5_000;
+    while (Date.now() < killDeadline) {
+      await sleep(pollMs);
+      if (!isAlive()) {
+        return { exited: true, signal: effectiveSignal };
+      }
+    }
+  }
+
+  return { exited: !isAlive(), signal: effectiveSignal };
+}
+
 export function safeMessage(value, maxChars = 320) {
   const text = redactSensitive(value).replace(/\s+/g, " ").trim();
   return text.length > maxChars ? `${text.slice(0, maxChars - 1)}…` : text;
@@ -568,8 +745,12 @@ export function createDefaultRuntime({
   processEnv = process.env,
   processLifecycle,
 }) {
+  const [workerCommand, ...workerArgs] = wrapWorkerInProcessGroup(
+    launch.command,
+    launch.args ?? [],
+  );
   const registry = createAgentRegistry({
-    overrides: { antigravity: [launch.command, ...launch.args] },
+    overrides: { antigravity: [workerCommand, ...workerArgs] },
   });
   const sessions = new Map();
   const permission = resolveLivePermissionMode(processEnv);
@@ -927,7 +1108,16 @@ export class AntigravityAcpBroker {
   async observeJob(jobId) {
     let job = await this.getJob(jobId);
     if (!isTerminalStatus(job.status) && !this.active.has(jobId)) {
-      await this.recoverOwnedJobIfEligible(job);
+      if (job.cancelRequested) {
+        job.status = "cancelled";
+        job.handoff = "Antigravity ACP cancelled the active turn.";
+        await this.saveAndRecord(job, "cancelled", {
+          eventCount: job.eventCount ?? 0,
+          toolCallCount: job.toolCallCount ?? 0,
+        }).catch(() => {});
+      } else {
+        await this.recoverOwnedJobIfEligible(job);
+      }
       job = await this.getJob(jobId);
     }
     if (needsCleanupFence(job) && !this.active.has(jobId)) {
@@ -1459,6 +1649,43 @@ export class AntigravityAcpBroker {
     }
   }
 
+  async recordWorkerExited(job, { exitSignal = null, signal = null, exitCode = null, pid = null } = {}) {
+    const effectiveSignal = exitSignal ?? signal ?? null;
+    if (!job.recordedWorkerExits) job.recordedWorkerExits = new Set();
+    const key = `${pid}:${effectiveSignal}:${exitCode}`;
+    if (job.recordedWorkerExits.has(key)) return;
+    job.recordedWorkerExits.add(key);
+    await this.recordEvent(job, "worker_exited", {
+      exitSignal: effectiveSignal,
+      signal: effectiveSignal,
+      ...(exitCode !== null && exitCode !== undefined ? { exitCode } : {}),
+      ...(pid ? { pid } : {}),
+    });
+  }
+
+  async terminateJobProcessGroup(job, { signal = "SIGTERM", graceMs = this.workerExitWaitMs ?? 10_000 } = {}) {
+    const pids = new Set();
+    if (Array.isArray(job.workers)) {
+      for (const w of job.workers) {
+        if (Number.isInteger(w.pid) && w.pid > 0) pids.add(w.pid);
+      }
+    }
+    const tracked = this.processLifecycleTracker?.snapshotOwned?.(job.sessionKey)?.started ?? [];
+    for (const w of tracked) {
+      if (Number.isInteger(w.pid) && w.pid > 0) pids.add(w.pid);
+    }
+    for (const pid of pids) {
+      const result = await terminateProcessGroup(pid, { signal, graceMs });
+      if (result.signal) {
+        await this.recordWorkerExited(job, {
+          exitSignal: result.signal,
+          signal: result.signal,
+          pid,
+        });
+      }
+    }
+  }
+
   async runJob(job, taskPrompt, requestedModel, prepared = {}) {
     let handle = prepared.handle;
     let turn;
@@ -1517,7 +1744,7 @@ export class AntigravityAcpBroker {
           return { action: "cancel" };
         },
       });
-      this.active.set(job.jobId, { promise: this.active.get(job.jobId)?.promise, handle, turn });
+      this.active.set(job.jobId, { promise: this.active.get(job.jobId)?.promise, handle, turn, job });
       await turn.promptStarted;
       await this.recordEvent(job, "prompt_started", { requestId: job.jobId });
 
@@ -1538,12 +1765,30 @@ export class AntigravityAcpBroker {
           job.lastEventTag = event.tag;
         }
       });
-      const result = await turn.result;
-      await eventsPromise;
+      let result;
+      try {
+        result = await turn.result.catch((err) => {
+          if (job.cancelRequested) return { status: "cancelled", stopReason: job.cancelReason ?? "cancelled" };
+          throw err;
+        });
+      } finally {
+        await eventsPromise.catch(() => {});
+        if (!job.cancelRequested) {
+          const persisted = await this.getJob(job.jobId).catch(() => null);
+          if (persisted?.cancelRequested) {
+            job.cancelRequested = true;
+            job.cancelReason = persisted.cancelReason;
+          }
+        }
+      }
       job.eventCount = eventCount;
       job.toolCallCount = toolCallCount;
       job.updatedAt = this.now();
-      if (interaction.question) {
+      if (job.cancelRequested || result?.status === "cancelled") {
+        job.status = "cancelled";
+        job.handoff = "Antigravity ACP cancelled the active turn.";
+        await this.saveAndRecord(job, "cancelled", { eventCount, toolCallCount });
+      } else if (interaction.question) {
         job.status = "needs-input";
         job.error = {
           code: "INPUT_REQUIRED",
@@ -1575,10 +1820,6 @@ export class AntigravityAcpBroker {
           eventCount,
           toolCallCount,
         });
-      } else if (result?.status === "cancelled") {
-        job.status = "cancelled";
-        job.handoff = "Antigravity ACP cancelled the active turn.";
-        await this.saveAndRecord(job, "cancelled", { eventCount, toolCallCount });
       } else {
         const failure = classifyFailure(
           new BridgeError(
@@ -1593,13 +1834,34 @@ export class AntigravityAcpBroker {
         await this.saveAndRecord(job, failure.status, { eventCount, toolCallCount });
       }
     } catch (error) {
-      const failure = classifyFailure(error, interaction);
-      job.status = failure.status;
-      job.error = failure.error;
-      if (failure.question) job.question = failure.question;
-      job.updatedAt = this.now();
-      await this.saveAndRecord(job, failure.status, { eventCount, toolCallCount });
+      if (!job.cancelRequested) {
+        const persisted = await this.getJob(job.jobId).catch(() => null);
+        if (persisted?.cancelRequested) {
+          job.cancelRequested = true;
+          job.cancelReason = persisted.cancelReason;
+        }
+      }
+      if (job.cancelRequested) {
+        job.status = "cancelled";
+        job.handoff = "Antigravity ACP cancelled the active turn.";
+        await this.saveAndRecord(job, "cancelled", { eventCount, toolCallCount });
+      } else {
+        const failure = classifyFailure(error, interaction);
+        if (failure.error?.code === "TIMEOUT") {
+          await this.terminateJobProcessGroup(job).catch(() => {});
+        }
+        job.status = failure.status;
+        job.error = failure.error;
+        if (failure.question) job.question = failure.question;
+        job.updatedAt = this.now();
+        await this.saveAndRecord(job, failure.status, { eventCount, toolCallCount });
+      }
     } finally {
+      if (job.cancelRequested && !isTerminalStatus(job.status)) {
+        job.status = "cancelled";
+        job.handoff = "Antigravity ACP cancelled the active turn.";
+        await this.saveAndRecord(job, "cancelled", { eventCount, toolCallCount });
+      }
       if (handle && isTerminalStatus(job.status)) await this.closeRuntimeSession(job, handle);
       this.notifyChange(job.jobId);
       if (isTerminalStatus(job.status)) this.active.delete(job.jobId);
@@ -1695,8 +1957,28 @@ export class AntigravityAcpBroker {
     const safeReason = reason ? safeMessage(reason, 200) : "cancelled by parent agent";
     job.cancelRequested = true;
     job.cancelReason = safeReason;
+    if (active.job) {
+      active.job.cancelRequested = true;
+      active.job.cancelReason = safeReason;
+    }
     await this.saveAndRecord(job, "cancel_requested", { reason: safeReason });
-    await active.turn.cancel({ reason: safeReason });
+    const turnCancelPromise = active.turn.cancel({ reason: safeReason }).catch(() => {});
+    const killPromise = this.terminateJobProcessGroup(job, { graceMs: this.workerExitWaitMs }).catch(() => {});
+
+    Promise.allSettled([turnCancelPromise, killPromise]).then(async () => {
+      const current = await this.getJob(jobId).catch(() => null);
+      if (current && !isTerminalStatus(current.status)) {
+        current.status = "cancelled";
+        current.cancelRequested = true;
+        current.cancelReason = safeReason;
+        current.handoff = "Antigravity ACP cancelled the active turn.";
+        await this.saveAndRecord(current, "cancelled", {
+          eventCount: current.eventCount ?? 0,
+          toolCallCount: current.toolCallCount ?? 0,
+        }).catch(() => {});
+      }
+    });
+
     return {
       jobId,
       status: "cancellation-requested",
