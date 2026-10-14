@@ -11,7 +11,7 @@ This is documentation fidelity proof, **not a new runtime run** or full E2E cert
 | Ship enable/settings and existing-order sync records | Approved Ship handoff preserves key and order | Link or service health does not establish shipment |
 | PB service-refusal and corrected quoted-attempt records | Trackability refusal followed by insufficient-funds refusal on a qualified Priority Mail/DelCon attempt | No PDF, tracking, terminal completion or email delivery claimed; visible absence is not provider ledger proof |
 | Existing sandbox account metadata/balance record | Intended agent-associated account displays $400 test balance | Currency code absent; deployed credential ownership unresolved |
-| Coordinator authority record | One automatic TEST email approved; scoped rebind plan preparation only | No account change, funding, diagnostic implementation or deployment authorized |
+| Latest coordinator authority record | Automatic TEST email and scoped shared sandbox switch approved: human matching API-pair entry, one matching configuration deployment and one qualified existing-order retry after postflight | Not applied: Worker settings refuse access; human existing authorized login needed. No new access grant, funding or privileged diagnostic implementation authorized |
 
 The source observations are held in the approved private run proof and coordinator record. Those records are not copied or linked publicly because they contain runtime identifiers and private account information. This documentation pass relies on the coordinator’s curated handoff; it does not claim independent re-observation of private UI or provider state.
 
