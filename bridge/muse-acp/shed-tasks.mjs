@@ -77,6 +77,35 @@ const SHED_INSTRUCTIONS = [
   "Finish with a short plain-text summary of what you changed.",
 ].join("\n");
 
+// Shed commits keep the owner as author (repo git config); the Muse harness
+// is credited only through a Co-authored-by trailer, never as author.
+export const SHED_COMMIT_AUTHOR = "saariuslystoned <159389674+saariuslystoned@users.noreply.github.com>";
+export const MUSE_COAUTHOR_EMAIL = "noreply@muse.dev";
+const MUSE_TRAILER_PATTERN = /^Co-authored-by:[ \t]*Muse\b/im;
+
+export function museCoAuthorTrailer(model) {
+  const id = typeof model === "string" ? model.trim().replace(/[\r\n<>]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 120) : "";
+  return id ? `Co-authored-by: Muse (${id}) <${MUSE_COAUTHOR_EMAIL}>` : `Co-authored-by: Muse <${MUSE_COAUTHOR_EMAIL}>`;
+}
+
+export function appendCoAuthorTrailer(message, { harness, model } = {}) {
+  const text = String(message ?? "");
+  const h = typeof harness === "string" ? harness.trim().toLowerCase() : "";
+  if (h !== "muse" && h !== "muse-acp") return text;
+  if (MUSE_TRAILER_PATTERN.test(text)) return text;
+  const trailer = museCoAuthorTrailer(model);
+  return text.trim() ? `${text.replace(/\s+$/, "")}\n\n${trailer}` : trailer;
+}
+
+function coAuthorPromptNote(harness, model) {
+  const h = typeof harness === "string" ? harness.trim().toLowerCase() : "";
+  if (h !== "muse" && h !== "muse-acp") return "";
+  const trailer = typeof model === "string" && model.trim()
+    ? museCoAuthorTrailer(model)
+    : `Co-authored-by: Muse (<your exact model id>) <${MUSE_COAUTHOR_EMAIL}>`;
+  return `\nIf you create git commits, end each commit message with this trailer line: ${trailer}`;
+}
+
 export class ShedTaskError extends BridgeError {}
 
 export function parseMaxConcurrent(value) {
@@ -524,7 +553,7 @@ export class ShedTaskRunner {
       if (isCancelled(task)) return this.cancelBeforeRun(task);
       const submitted = await this.broker.delegate({
         workspace: task.worktree,
-        prompt: `${SHED_INSTRUCTIONS}\n\nTask:\n${request.task}`,
+        prompt: `${SHED_INSTRUCTIONS}${coAuthorPromptNote(request.harness ?? this.harness, request.model)}\n\nTask:\n${request.task}`,
         hostConversationId: taskId,
         ...(request.model ? { model: request.model } : {}),
       });
@@ -622,7 +651,8 @@ export class ShedTaskRunner {
     const title = task.title ?? `Shed task ${task.taskId}`;
     if (await this.run("git", ["status", "--porcelain"], { cwd })) {
       await this.run("git", ["add", "-A"], { cwd });
-      await this.run("git", ["commit", "--quiet", "-m", title, "-m", `Remote-shed task ${task.taskId} requested by ${task.requestedBy}.`], { cwd });
+      const body = appendCoAuthorTrailer(`Remote-shed task ${task.taskId} requested by ${task.requestedBy}.`, { harness: task.harness ?? this.harness, model: task.model });
+      await this.run("git", ["commit", "--quiet", "-m", title, "-m", body], { cwd });
     }
     // Count commits ahead of the start point, so agent-made commits (git am,
     // merges) are pushed too, not only a dirty worktree.
@@ -705,7 +735,7 @@ export class ShedTaskRunner {
               "--quiet",
               "--no-verify",
               "-m",
-              `Rescue uncommitted changes for task ${task.taskId}`,
+              appendCoAuthorTrailer(`Rescue uncommitted changes for task ${task.taskId}`, { harness: task.harness ?? this.harness, model: task.model }),
             ], { cwd: task.worktree });
           } catch {
             hasUncommitted = true;
