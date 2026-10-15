@@ -20,6 +20,7 @@ class PackagingTests(unittest.TestCase):
         skill = ROOT / "skills" / "dinkuskit-e2e-blackbox"
         for path in ("SKILL.md", "agents/openai.yaml", "references/execution-plan.md",
                      "references/qualification.md", "scripts/cloudflare-probe/probe.mjs",
+                     "references/browser-options.md",
                      "scripts/cloudflare-probe/decode.py", "scripts/cloudflare-probe/render_commands.py",
                      "scripts/cloudflare-probe/prepare.sh", "scripts/cloudflare-probe/package.json",
                      "scripts/cloudflare-probe/package-lock.json"):

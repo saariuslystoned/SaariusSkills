@@ -8,6 +8,11 @@
 - Use a qualified stable Crabbox release by default. Upgrade main only for an identified upstream feature or fix and record its exact commit. Qualify client, deployed coordinator/runner, browser, and artifact path together.
 - Keep this route separate from the existing merchant E2E skill and its source owner.
 
+For a fully Cloudflare-hosted browser, read [browser options](browser-options.md).
+Browser Run Chromium and the Agents SDK's session continuity are candidates to
+qualify; the passing container probe does not prove either integration. Kitesurf
+is deferred for the main authenticated acceptance journey.
+
 ## Milestone 1: qualify execution before touching a merchant
 
 Use a small public browser fixture with no credentials and no product source. Test creation/reuse of the execution environment; pinned browser installation; external HTTPS navigation; an asserted page result; PNG capture; structured result retrieval; SHA-256 verification; a second execution reusing the prepared dependencies; and owned lease expiry/release behavior. Record any separately qualified trace/PDF/video capability.

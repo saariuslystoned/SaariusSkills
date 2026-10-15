@@ -12,6 +12,7 @@ This file distinguishes supported, prepared, tested and observed capabilities. D
 | Cloudflare configured provider readiness | VERIFIED readiness only | Native doctor reports delegated runner control plane, authentication and runtime ready. |
 | Cloudflare headless browser and artifact retrieval | VERIFIED synthetic runner proof | Two fresh Chromium156 processes on the same prepared Linux lease passed an owned DOM interaction and external HTTPS200. PNG, public trace ZIP and JSON artifacts returned through ordinary CLI process stdout and passed size/SHA-256 checks. No provider fork or private provider API. |
 | Dedicated test-account binding for CF runner | UNVERIFIED | Existing runner identity must be bound to an approved account before production of a persistent enrollment. |
+| Browser Run / Agents SDK persistent browser | DOCUMENTED, UNVERIFIED LIVE | Candidate separate browser lifecycle through official CDP; reconnect, expiry recovery, identity isolation and authentication remain to be proven. See [browser options](browser-options.md). |
 | Repeatable authenticated merchant session | UNVERIFIED | Requires supported initial bootstrap and second unattended run. |
 | Complete real-provider merchant acceptance | UNVERIFIED | Runner qualification does not establish checkout, label, PDF, tracking or completion. |
 
