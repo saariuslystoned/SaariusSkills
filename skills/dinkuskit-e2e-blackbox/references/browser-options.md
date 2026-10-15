@@ -2,6 +2,8 @@
 
 Documentation assessment October15,2026; these options have not been live-qualified by this route. The existing passing probe ran Chromium inside a Crabbox Cloudflare container. It did not use Browser Run or the Agents SDK.
 
+An explicitly requested live qualification stopped at credential preflight: the inspected registry has no enrolled Browser Run fixed consumer. No Browser Run API authentication attempt, managed browser or new lease was created. This is a missing approved route, not evidence that the Cloudflare account lacks the service. The official CDP route requires `Browser Rendering - Edit` permission; an existing delegated container token cannot substitute for it. Qualify the intended account and approved consumer before attempting the tests below.
+
 ## Browser Run: next useful qualification
 
 [Browser Run](https://www.cloudflare.com/products/browser-run/) hosts managed browsers and supports Playwright/Puppeteer. Its [Playwright CDP guide](https://developers.cloudflare.com/browser-run/cdp/playwright/) documents connecting ordinary Node Playwright to the hosted browser. A possible composition retains upstream Crabbox's Cloudflare container as the test-program executor, while the test code controls Browser Run Chromium through the official API. This is an application integration to qualify, not a new Crabbox provider or a feature already proven by the container probe.

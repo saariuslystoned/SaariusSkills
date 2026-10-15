@@ -11,6 +11,9 @@ PREFIX = 'E2E_PUBLIC_ARTIFACT_V1 '
 NAMES = {'page.png', 'trace.zip', 'result.json'}
 CAP = 16 * 1024 * 1024
 MAX_LINE = 65536
+TRACE_ENTRY_CAP = 16 * 1024 * 1024
+TRACE_TOTAL_CAP = 64 * 1024 * 1024
+TRACE_ENTRY_COUNT = 1024
 
 
 def records(source):
@@ -78,7 +81,12 @@ def decode(source, destination, run_id):
     if 'trace.zip' in buffers:
         import io
         with zipfile.ZipFile(io.BytesIO(buffers['trace.zip'])) as archive:
-            if archive.testzip() is not None or not any(n.endswith('.trace') for n in archive.namelist()):
+            entries = archive.infolist()
+            if (len(entries) > TRACE_ENTRY_COUNT
+                    or any(entry.file_size > TRACE_ENTRY_CAP for entry in entries)
+                    or sum(entry.file_size for entry in entries) > TRACE_TOTAL_CAP):
+                raise ValueError('Playwright trace ZIP exceeds expansion limits')
+            if archive.testzip() is not None or not any(entry.filename.endswith('.trace') for entry in entries):
                 raise ValueError('Invalid Playwright trace ZIP')
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=False)

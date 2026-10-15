@@ -42,6 +42,12 @@ The deployed runner commit/image provenance and its binding to the intended
 dedicated test account remain UNVERIFIED. Merchant authentication, unattended
 renewal, and real payment-to-shipment acceptance also remain UNVERIFIED.
 
+The requested Browser Run follow-up stopped at credential preflight. The
+inspected capability registry has no approved fixed consumer for Browser Run;
+the delegated container bearer is not Browser Run API authority. No managed
+browser, new lease, authentication attempt or credential change occurred. This
+does not prove that the intended Cloudflare account lacks access to Browser Run.
+
 ## Artifact identities
 
 | Artifact | Bytes | SHA-256 |
@@ -64,10 +70,12 @@ required review preflight. This change performs no media publication.
 - Skill Creator quick validator: PASS using an existing Python with PyYAML.
 - Repository suite before adding the artifact codec:177 tests PASS.
 - Final packaging suite:21 tests PASS.
-- Artifact integrity suite:5 tests PASS, including multichunk byte preservation,
+- Artifact integrity suite:6 tests PASS, including multichunk byte preservation,
   truncation, reordering, identity/hash mismatch, missing passing artifacts,
-  unexpected paths, oversized records and existing-output preservation.
-- The packaged decoder adds a bounded line reader. Replaying both real public
+  unexpected paths, oversized records, ZIP expansion limits and existing-output preservation.
+- The packaged decoder adds a bounded line reader and rejects over1,024 ZIP
+  entries, over16MiB expanded per entry or over64MiB expanded in total before
+  decompression. Replaying both real public
   captures through those final decoder bytes produced PASS and the exact hashes
   above, without another remote workload.
 - Node syntax, shell syntax, local links, portable identity/path privacy and
@@ -79,3 +87,13 @@ No full provider E2E success, persistent authentication, dedicated account
 enrollment, production rollout, account/security change, merge or external send
 is claimed. The next implementation gate is the enrolled target and supported
 unattended merchant authentication, followed by the real acceptance contract.
+
+## Review disposition
+
+Comprehensive exact-head Spark/OpenClaw review of
+`3bb0c7cae9bc0be1ccb9d006c1e8f354fb52fb84` reported one P2: trace ZIP expansion
+was not bounded before `testzip()`. Disposition: `required_fix`. Added per-entry,
+aggregate and entry-count checks before decompression, a regression proving
+over-limit archives never reach decompression or create output, and replayed
+both actual public captures with matching hashes. The repaired source requires
+its own exact-head review; the earlier finding is not a clean verdict.

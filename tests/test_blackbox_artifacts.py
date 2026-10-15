@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 
@@ -17,13 +18,13 @@ decoder = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(decoder)
 
 
-def passing_records():
+def passing_records(trace_bytes=None):
     trace = io.BytesIO()
     with zipfile.ZipFile(trace, "w") as archive:
         archive.writestr("trace.trace", '{"type":"context-options"}\n')
     files = {
         "page.png": b"\x89PNG\r\n\x1a\n" + bytes(range(256)) * 200,
-        "trace.zip": trace.getvalue(),
+        "trace.zip": trace.getvalue() if trace_bytes is None else trace_bytes,
         "result.json": json.dumps({"runId": "run1", "status": "PASS"}).encode(),
     }
     records = []
@@ -99,3 +100,26 @@ class PublicArtifactTransferTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 decoder.decode(self.capture(root, records), output, "run1")
             self.assertEqual((output / "keep.txt").read_text(), "prior evidence")
+
+    def test_trace_expansion_limits_rejected_before_decompression(self):
+        cases = (
+            ("entry", [2048], 1024, 4096, 8),
+            ("total", [512, 512, 512], 1024, 1024, 8),
+            ("count", [8, 8, 8], 1024, 4096, 2),
+        )
+        for reason, sizes, entry_cap, total_cap, count_cap in cases:
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as temp:
+                trace = io.BytesIO()
+                with zipfile.ZipFile(trace, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                    for index, size in enumerate(sizes):
+                        archive.writestr(f"{index}.trace", b"x" * size)
+                records, _ = passing_records(trace.getvalue())
+                root = Path(temp)
+                with mock.patch.object(decoder, "TRACE_ENTRY_CAP", entry_cap), \
+                        mock.patch.object(decoder, "TRACE_TOTAL_CAP", total_cap), \
+                        mock.patch.object(decoder, "TRACE_ENTRY_COUNT", count_cap), \
+                        mock.patch.object(zipfile.ZipFile, "testzip") as decompress:
+                    with self.assertRaisesRegex(ValueError, "expansion limits"):
+                        decoder.decode(self.capture(root, records), root / "output", "run1")
+                    decompress.assert_not_called()
+                self.assertFalse((root / "output").exists())
