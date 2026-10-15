@@ -247,5 +247,7 @@ committed records into its plan and validates their ancestry, exact witness
 bytes and inherited presence. A record may seed only its own validated canonical
 source chain at its anchor or descendants, including that exact common base;
 it cannot whitelist arbitrary roots or affect earlier/nonancestral inputs.
-This is a history link, not a decision-conflict selection or event-prefix bypass.
+Applied joins retain incoming link records explicitly. Recomputing an old retained
+plan cannot expand the caller's witness scope. This is a history link, not a
+decision-conflict selection or event-prefix bypass.
 Reconciliation still uses its normal exact inputs, adjudication and approval.

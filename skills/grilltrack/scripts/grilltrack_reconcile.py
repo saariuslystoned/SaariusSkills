@@ -379,7 +379,10 @@ def historical_link(store, anchor, witness, api, context=None):
     files = paths(witness, store.project)
     validate_snapshot(files, api)
     evidence = lineage_paths(witness, store.project)
-    plans = validate_nested_lineage(witness, evidence, store, api, ({}, set()), evidence, witness)
+    witness_context = ({}, set())
+    witness_context[0][("active-history-links",)] = read_history_links(
+        witness, store, api, witness_context)
+    plans = validate_nested_lineage(witness, evidence, store, api, witness_context, evidence, witness)
     ledger = json.loads(files["ledger.json"])
     record = ledger.get("reconciliation")
     if not isinstance(record, dict) or record.get("plan_id") not in plans:
@@ -781,9 +784,11 @@ def build_plan(store, args, api, context=None, adjudication=None, schema=V2):
     for role in ("current", "incoming"):
         if any(links[role].get(key) != value for key, value in links["base"].items()):
             raise ValueError("inherited historical link changed or disappeared")
-    active = context[0].setdefault(("active-history-links",), {})
-    for items in links.values():
-        active.update(items)
+    # Only the explicit outer input refs authorize this validation scope.
+    # Recomputing an old retained plan must not elevate its links into the caller.
+    if ("active-history-links",) not in context[0]:
+        context[0][("active-history-links",)] = {
+            key: value for items in links.values() for key, value in items.items()}
     snapshots = {role: cached_paths(ref, store.project, context) for role, ref in refs.items()}
     lineage = ({role: cached_paths(ref, store.project, context, lineage=True) for role, ref in refs.items()}
                if schema == V2 else {})
@@ -1040,6 +1045,9 @@ def reconcile_command(store, args, api):
         else:
             retained = {lineage / name: raw for name, raw in logical.items() if name != "applied.json"}
             expected_receipt = logical["applied.json"]
+        for items in plan.get("history_links", {}).values():
+            for link_id, link in items.items():
+                retained[state / "history-links" / (link_id + ".json")] = encoded(link)
         if applied.exists() and not journal.exists():
             if applied.read_bytes() != expected_receipt:
                 raise ValueError("reconciliation receipt mismatch")

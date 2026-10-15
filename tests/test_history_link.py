@@ -136,6 +136,31 @@ class HistoryLinkTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn('lineage', result.stderr)
 
+    def test_incoming_link_is_retained_when_join_is_applied(self):
+        f = self.f
+        path = self.apply_link()
+        linked = f.commit('incoming historical authority')
+        f.git('checkout', '--detach', self.anchor)
+        f.base, f.current, f.incoming = self.anchor, self.anchor, linked
+        plan = f.plan()
+        result = f.reconcile('--apply', plan['plan_id'])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(path.is_file(), 'incoming plan authority must be retained explicitly')
+
+    def test_nested_source_link_cannot_become_unbound_ambient_authority(self):
+        f = self.f
+        path = self.apply_link()
+        linked = f.commit('bound historical authority')
+        f.base, f.current, f.incoming = self.anchor, linked, linked
+        plan = f.plan()
+        self.assertEqual(f.reconcile('--apply', plan['plan_id']).returncode, 0)
+        f.commit('joined bound source history')
+        path.unlink()
+        removed = f.commit('drop record but keep old source commits')
+        f.base, f.current, f.incoming = self.anchor, removed, removed
+        result = f.reconcile()
+        self.assertEqual(result.returncode, 2, result.stdout)
+
 
 if __name__ == '__main__':
     unittest.main()
