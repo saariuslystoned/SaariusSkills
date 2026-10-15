@@ -358,6 +358,143 @@ def packed_retention(plan, sources, decisions, prior_lineage, store, api):
     return root, object_closure(root, objects)
 
 
+
+HISTORY_LINK = "grilltrack/history-link/v1"
+
+
+def historical_link(store, anchor, witness, api, context=None):
+    """Bind a real historical canonical pair; never synthesize a closed archive."""
+    for ref in (anchor, witness):
+        if not isinstance(ref, str) or not re.fullmatch(r"[0-9a-f]{40}", ref):
+            raise ValueError("history link requires full immutable commit ids")
+        if git(store.project, "cat-file", "-t", ref).strip() != b"commit":
+            raise ValueError("history link input must be a commit")
+    if witness == anchor:
+        raise ValueError("historical witness must precede its anchor")
+    memo = context[0] if context else {}
+    memo_key = ("historical-witness", anchor, witness)
+    if memo_key in memo:
+        return memo[memo_key]
+    git(store.project, "merge-base", "--is-ancestor", witness, anchor)
+    files = paths(witness, store.project)
+    validate_snapshot(files, api)
+    evidence = lineage_paths(witness, store.project)
+    plans = validate_nested_lineage(witness, evidence, store, api, ({}, set()), evidence, witness)
+    ledger = json.loads(files["ledger.json"])
+    record = ledger.get("reconciliation")
+    if not isinstance(record, dict) or record.get("plan_id") not in plans:
+        raise ValueError("historical witness requires its canonical applied join")
+    plan, _, projection = plans[record["plan_id"]]
+    validate_join_descendant(ledger, files["events.jsonl"], plan, projection)
+    body = {"schema": HISTORY_LINK, "anchor_ref": anchor, "witness_ref": witness,
+            "plan_id": record["plan_id"],
+            "canonical": {name: digest(files[name]) for name in ("ledger.json", "events.jsonl")},
+            "lineage_root": retention.pack(evidence)[0]}
+    result = ({**body, "link_id": digest(encoded(body))}, files, evidence)
+    memo[memo_key] = result
+    return result
+
+
+def read_history_links(ref, store, api, context):
+    cache, _ = context
+    key = ("history-links", ref)
+    if key in cache:
+        return cache[key]
+    entries = git(store.project, "ls-tree", "-rz", ref, "--", ".grilltrack/history-links").split(b"\0")
+    selected = {}
+    for entry in entries:
+        if not entry:
+            continue
+        meta, raw_name = entry.split(b"\t", 1)
+        name = raw_name.decode().removeprefix(".grilltrack/history-links/")
+        if not re.fullmatch(r"[0-9a-f]{64}\.json", name) or meta.split()[0] != b"100644":
+            raise ValueError("unsupported historical link artifact")
+        selected[name] = meta.split()[2].decode()
+    result = {}
+    for name, raw in read_blobs(store.project, selected).items():
+        link = json.loads(raw, object_pairs_hook=reject_duplicate_keys)
+        if not isinstance(link, dict):
+            raise ValueError("historical link must be an object")
+        expected, _, _ = historical_link(store, link.get("anchor_ref"), link.get("witness_ref"), api, context)
+        if link != expected or name != expected["link_id"] + ".json" or raw != encoded(expected):
+            raise ValueError("historical link differs from its exact canonical witness")
+        git(store.project, "merge-base", "--is-ancestor", link["anchor_ref"], ref)
+        result[link["link_id"]] = link
+    cache[key] = result
+    return result
+
+
+def history_link_command(store, args, api):
+    try:
+        context = ({}, set())
+        link, _, _ = historical_link(store, args.anchor_ref, args.witness_ref, api, context)
+        current_ref = git(store.project, "rev-parse", "HEAD").decode().strip()
+        git(store.project, "merge-base", "--is-ancestor", args.anchor_ref, current_ref)
+        if target_files(store) != paths(current_ref, store.project):
+            raise ValueError("target state differs from the exact current commit snapshot")
+        root = store.state_dir / "lineage"
+        ordinary_path(root)
+        working = {}
+        if root.exists():
+            for path in root.rglob("*"):
+                ordinary_path(path)
+                if path.is_file():
+                    working[path.relative_to(root).as_posix()] = path.read_bytes()
+        if working != physical_lineage_paths(current_ref, store.project):
+            raise ValueError("target immutable lineage differs from the exact current commit snapshot")
+        existing = read_history_links(current_ref, store, api, context)
+        linked = {**existing, link["link_id"]: link}
+        link_root = store.state_dir / "history-links"
+        ordinary_path(link_root)
+        local = {}
+        if link_root.exists():
+            for path in link_root.iterdir():
+                ordinary_path(path)
+                if not path.is_file():
+                    raise ValueError("historical link must be an ordinary file")
+                local[path.name] = path.read_bytes()
+        expected_local = {key + ".json": encoded(value) for key, value in existing.items()}
+        retry_local = {key + ".json": encoded(value) for key, value in linked.items()}
+        if local not in (expected_local, retry_local):
+            raise ValueError("target historical links differ from the committed state or exact retry")
+        context[0][("active-history-links",)] = linked
+        current_evidence = lineage_paths(current_ref, store.project)
+        validate_nested_lineage(current_ref, current_evidence, store, api, context,
+                                lineage_paths(args.anchor_ref, store.project), args.anchor_ref)
+        approved = {"link": link, "current_ref": current_ref,
+                    "snapshots": {name: digest(raw) for name, raw in paths(current_ref, store.project).items()}}
+        plan_id = digest(encoded(approved))
+        if args.apply and args.apply != plan_id:
+            raise ValueError("approved history link digest does not match these exact inputs")
+        destination = store.state_dir / "history-links" / (link["link_id"] + ".json")
+        ordinary_path(destination)
+        if args.apply:
+            immutable(destination, encoded(link))
+        api.output({**link, "plan_id": plan_id, "current_ref": current_ref, "applied": bool(args.apply),
+                    "path": ".grilltrack/history-links/" + destination.name,
+                    "canonical_state_changed": False})
+    except (ValueError, OSError, json.JSONDecodeError) as exc:
+        raise api.LedgerError(str(exc)) from exc
+
+
+def historical_seeds(ref, evidence, store, api, context):
+    cache, _ = context
+    for link in cache.get(("active-history-links",), {}).values():
+        # An explicitly anchored link cannot affect earlier or foreign inputs.
+        ancestry = subprocess.run(["git", "-C", str(store.project), "merge-base", "--is-ancestor",
+                                   link["anchor_ref"], ref], capture_output=True)
+        if ancestry.returncode == 1:
+            continue
+        if ancestry.returncode:
+            raise ValueError("historical link ancestry unavailable")
+        expected, files, prior = historical_link(store, link["anchor_ref"], link["witness_ref"], api, context)
+        if expected != link:
+            raise ValueError("historical link changed")
+        if any(evidence.get(name) != raw for name, raw in prior.items()):
+            raise ValueError("historical witness lineage changed or disappeared")
+        yield json.loads(files["ledger.json"]), files["events.jsonl"]
+
+
 def cached_paths(ref, project, context, *, lineage=False):
     cache, _ = context
     key = ("lineage" if lineage else "snapshot", str(project), ref)
@@ -380,7 +517,8 @@ def validate_nested_lineage(ref, evidence, store, api, context, inherited, ancho
         raise ValueError("inherited immutable lineage changed or disappeared from the common base")
     if not evidence:
         return {}
-    key = (ref, anchor_ref, digest(encoded({name: digest(value) for name, value in evidence.items()})),
+    key = (ref, anchor_ref, tuple(sorted(cache.get(("active-history-links",), {}))),
+           digest(encoded({name: digest(value) for name, value in evidence.items()})),
            digest(encoded({name: digest(value) for name, value in inherited.items()})))
     if key in cache:
         return cache[key]
@@ -449,6 +587,7 @@ def validate_nested_lineage(ref, evidence, store, api, context, inherited, ancho
         reachable = set()
         current = cached_paths(ref, store.project, context)
         pending = [(json.loads(current["ledger.json"]), current["events.jsonl"])]
+        pending.extend(historical_seeds(ref, evidence, store, api, context))
         anchors = {name.split("/", 1)[0] for name in inherited}
         base_files = cached_paths(anchor_ref, store.project, context)
         for name, content in base_files.items():
@@ -638,6 +777,13 @@ def build_plan(store, args, api, context=None, adjudication=None, schema=V2):
             raise ValueError("input identity must be a commit")
     for role in ("current", "incoming"):
         git(store.project, "merge-base", "--is-ancestor", refs["base"], refs[role])
+    links = {role: read_history_links(ref, store, api, context) for role, ref in refs.items()}
+    for role in ("current", "incoming"):
+        if any(links[role].get(key) != value for key, value in links["base"].items()):
+            raise ValueError("inherited historical link changed or disappeared")
+    active = context[0].setdefault(("active-history-links",), {})
+    for items in links.values():
+        active.update(items)
     snapshots = {role: cached_paths(ref, store.project, context) for role, ref in refs.items()}
     lineage = ({role: cached_paths(ref, store.project, context, lineage=True) for role, ref in refs.items()}
                if schema == V2 else {})
@@ -786,6 +932,8 @@ def build_plan(store, args, api, context=None, adjudication=None, schema=V2):
             for role, files in lineage.items()
             if files
         }
+    if any(links.values()):
+        manifest["history_links"] = links
     if adjudication is not None:
         manifest["adjudication"] = adjudication
     if base_id is None:
