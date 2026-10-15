@@ -781,6 +781,14 @@ def build_plan(store, args, api, context=None, adjudication=None, schema=V2):
     for role in ("current", "incoming"):
         git(store.project, "merge-base", "--is-ancestor", refs["base"], refs[role])
     links = {role: read_history_links(ref, store, api, context) for role, ref in refs.items()}
+    # A normal apply may be committed with only the current Git parent. Do not
+    # publish incoming link records whose anchors that commit cannot inherit.
+    for items in links.values():
+        for link in items.values():
+            try:
+                git(store.project, "merge-base", "--is-ancestor", link["anchor_ref"], refs["current"])
+            except ValueError as exc:
+                raise ValueError("historical link anchor must precede current before reconciliation") from exc
     for role in ("current", "incoming"):
         if any(links[role].get(key) != value for key, value in links["base"].items()):
             raise ValueError("inherited historical link changed or disappeared")

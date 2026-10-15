@@ -161,6 +161,17 @@ class HistoryLinkTests(unittest.TestCase):
         result = f.reconcile()
         self.assertEqual(result.returncode, 2, result.stdout)
 
+    def test_incoming_only_anchor_is_refused_before_a_single_parent_apply(self):
+        f = self.f
+        self.apply_link()
+        incoming = f.commit('link anchored only on incoming history')
+        f.git('checkout', '--detach', self.n.base)
+        f.base = f.current = self.n.base
+        f.incoming = incoming
+        result = f.reconcile()
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn('historical link anchor must precede current', result.stderr)
+
 
 if __name__ == '__main__':
     unittest.main()
