@@ -1,0 +1,6 @@
+interface:
+  display_name: "DinkusKit E2E Blackbox"
+  short_description: "Repeat merchant acceptance on a reusable Crabbox runner"
+  default_prompt: "Use $dinkuskit-e2e-blackbox to run the enrolled merchant acceptance case from its existing isolated environment and report joined evidence or the first blocker."
+policy:
+  allow_implicit_invocation: true
