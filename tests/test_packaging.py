@@ -16,6 +16,21 @@ JEVSWEEPER_SKILL = ROOT / "skills" / "jevsweeper"
 
 
 class PackagingTests(unittest.TestCase):
+    def test_dinkuskit_blackbox_route_is_packaged_separately(self) -> None:
+        skill = ROOT / "skills" / "dinkuskit-e2e-blackbox"
+        for path in ("SKILL.md", "agents/openai.yaml", "references/execution-plan.md",
+                     "references/qualification.md", "scripts/cloudflare-probe/probe.mjs",
+                     "references/browser-options.md",
+                     "scripts/cloudflare-probe/decode.py", "scripts/cloudflare-probe/render_commands.py",
+                     "scripts/cloudflare-probe/prepare.sh", "scripts/cloudflare-probe/package.json",
+                     "scripts/cloudflare-probe/package-lock.json"):
+            self.assertTrue((skill / path).is_file(), path)
+        cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
+        self.assertIn("./skills/dinkuskit-e2e-blackbox/", cursor["skills"])
+        metadata = (skill / "agents/openai.yaml").read_text()
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("$dinkuskit-e2e-blackbox", metadata)
+
     def test_emdash_skills_discoverable_with_licenses(self) -> None:
         upstream = ("building-emdash-site", "creating-plugins", "emdash-cli", "upgrading-emdash")
         names = ("emdash-sites", "emdash-commerce", "emdash-ci-deploy", *upstream)

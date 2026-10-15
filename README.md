@@ -25,6 +25,14 @@ approval gates. All seven use the same plugin installation paths
 below; see [EmDash packaging](docs/emdash-skills.md) for the upstream pin,
 standalone installation and version-specific corrections.
 
+[DinkusKit E2E Blackbox](skills/dinkuskit-e2e-blackbox/SKILL.md) prepares and runs
+repeatable merchant acceptance from upstream Crabbox providers using a reusable
+test environment. It is a separate experimental route from the merchant E2E
+contract in [PR135](https://github.com/saariuslystoned/SaariusSkills/pull/135).
+Runner qualification and full real-provider acceptance remain distinct; see
+its [qualification ledger](skills/dinkuskit-e2e-blackbox/references/qualification.md).
+It uses the same Codex, Cursor, Claude Code and path installation routes below.
+
 ## Archived: Puppet and Herdr-Puppet
 
 The `puppet` and `herdr-puppet` skills are archived. The local Cursor ACP and
