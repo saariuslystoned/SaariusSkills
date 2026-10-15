@@ -6,6 +6,12 @@ Record a run ID, owner, case, allowed mode/actions, closer, exact repos/revision
 
 Use an authorized new merchant for the main case, an independently identified returning merchant for that case, and a distinct DinkusKit admin identity for privileged setup. Do not publish raw emails or credentials. Use native authentication; an unattended login method must be proven before describing the run as automated.
 
+## Reusable isolation and release checks
+
+Provision the isolated sandbox service and disposable store resources once under their exact approved account, host, namespace and audience. Routine release checks should update the plugin in that isolated environment and use unique TEST fixture identities for each run; they should not recreate infrastructure or replace shared service credentials on every release. A new-install/onboarding case remains separate and requires its own fresh store and admission proof.
+
+Keep service resource creation, closed deployment, issuer routing/site generation, merchant activation and provider operation as distinct transitions. Approval for an inactive deployment does not authorize credential entry, email bindings, provider calls or activation. Preserve existing paid orders, keys and shared-service configuration when qualifying a new isolated target. The deployment hostname and runtime audience are distinct configuration fields; verify both rather than deriving one from the other.
+
 ## Cases
 
 1. **New merchant:** create the authorized disposable Registry store; install Commerce and Payments via Registry; prove TEST connection and storefront catalog/config readiness; purchase a test product through actual Stripe TEST checkout; inspect paid order in Commerce admin; fulfill that same order through hosted Ship with PB sandbox; obtain and render the provider PDF; inspect matching tracking/completed state.

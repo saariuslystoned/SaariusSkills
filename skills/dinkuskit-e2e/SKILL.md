@@ -15,6 +15,7 @@ Keep practice-label and returning-merchant checks as separate cases. Neither rep
 
 ## Working rules
 
+- Prefer qualified CLI/API consumers for speed and repeatability. If the exact consumer is unavailable or fails, use the authorized browser fallback with a verified profile and target; this is not a CLI-only workflow. Preserve authentication and action gates in either surface.
 - Use the assigned run's exact identities, environment and authority. Keep the merchant/plugin-user identity separate from the DinkusKit administrator identity.
 - Confirm Stripe TEST and PB sandbox at each boundary. Stop before live charges, live postage, external sends, production changes or unapproved account/auth changes; obtain the applicable human authorization.
 - Use native EmDash authentication. Cloudflare Access authentication has been observed for an isolated test admin; automated merchant authentication remains unverified. Do not bypass passkeys or change auth policy to make a run pass.
