@@ -25,6 +25,10 @@ approval gates. All seven use the same plugin installation paths
 below; see [EmDash packaging](docs/emdash-skills.md) for the upstream pin,
 standalone installation and version-specific corrections.
 
+[DinkusKit E2E](skills/dinkuskit-e2e/SKILL.md) is an unverified draft for the
+Registry merchant-to-Stripe TEST-to-PB sandbox proof flow, with separate
+practice-label and returning-merchant cases. It does not certify runtime behavior.
+
 ## Archived: Puppet and Herdr-Puppet
 
 The `puppet` and `herdr-puppet` skills are archived. The local Cursor ACP and
