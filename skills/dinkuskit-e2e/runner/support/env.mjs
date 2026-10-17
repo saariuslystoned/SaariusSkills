@@ -6,7 +6,7 @@ const read = (name, fallback = "") => (process.env[name] ?? "").trim() || fallba
 const origin = value => new URL(value).origin;
 
 const runId = read("DINKUS_E2E_RUN", new Date().toISOString().replace(/[:.]/g, "-"));
-const store = origin(read("DINKUS_E2E_STORE", "https://e2e.sm0ky.dev"));
+const store = origin(read("DINKUS_E2E_STORE", "https://e2e-v2.sm0ky.dev"));
 
 /** Everything a run needs, from the environment; nothing secret lives here. */
 export const config = {
@@ -16,6 +16,8 @@ export const config = {
   ship: origin(read("DINKUS_E2E_SHIP", "https://ship.dinkuskit.com")),
   account: origin(read("DINKUS_E2E_ACCOUNT", "https://dinkuskit.com")),
   siteId: read("DINKUS_E2E_SITE_ID"),
+  // "wait" lets a person sign in to the store admin when the saved profile has no sign-in yet.
+  adminSignIn: read("DINKUS_E2E_ADMIN_SIGNIN", "skip"),
   ownerEmail: read("DINKUS_E2E_OWNER_EMAIL"),
   // Finish mode: the order number (1001) or Commerce order id to finish. Empty picks the only TEST order waiting for a label.
   order: read("DINKUS_E2E_ORDER").replace(/^#/, ""),

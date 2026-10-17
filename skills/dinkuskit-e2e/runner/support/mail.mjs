@@ -8,10 +8,6 @@ export const MAIL = {
     // Better Auth's magic link; the token is single use and expires after 5 minutes.
     pattern: /https:\/\/dinkuskit\.com\/[^\s"'<>)\]]*(?:magic-link|verify)[^\s"'<>)\]]*/g,
   },
-  access: {
-    query: "from:cloudflareaccess.com newer_than:1h",
-    pattern: /\b(\d{6})\b/g,
-  },
 };
 
 const sleep = ms => new Promise(done => setTimeout(done, ms));

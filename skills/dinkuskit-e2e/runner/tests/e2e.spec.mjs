@@ -161,7 +161,8 @@ test("DinkusKit live e2e: TEST order to sandbox label to Completed", async ({ pa
     while (!done && Date.now() < deadline) {
       // Commerce collects labels on its 5-minute background check, or when someone opens Commerce Orders.
       if (!nudged && Date.now() > deadline - config.completeWaitMs / 2) {
-        await openStoreAdmin(page, config.ordersAdmin).catch(error => note("admin nudge", error.message.split("\n")[0]));
+        const opened = await openStoreAdmin(page, config.ordersAdmin, { waitForPerson: false }).catch(() => false);
+        note("Commerce Orders opened to collect the label", opened ? "yes" : "no (store admin not signed in)");
         nudged = true;
       }
       await page.waitForTimeout(30_000);
@@ -176,8 +177,9 @@ test("DinkusKit live e2e: TEST order to sandbox label to Completed", async ({ pa
     return `Completed with tracking ${tracking ?? "(none shown)"}`;
   });
 
-  await step(page, "Commerce Orders shows Completed in the store admin", async () => {
-    await openStoreAdmin(page, config.ordersAdmin);
+  if (!await openStoreAdmin(page, config.ordersAdmin, { waitForPerson: config.adminSignIn === "wait" })) {
+    record("Commerce Orders shows Completed in the store admin", "SKIP", "the saved profile has no store admin sign-in yet; Ship's page already shows Commerce completed the order");
+  } else await step(page, "Commerce Orders shows Completed in the store admin", async () => {
     await expect(page.getByText(`#${orderName}`).first()).toBeVisible({ timeout: 60_000 });
     const text = await page.locator("body").innerText();
     expect(text).toMatch(/Completed/i);
