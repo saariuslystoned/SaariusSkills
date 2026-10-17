@@ -77,7 +77,7 @@ class PackagingTests(unittest.TestCase):
         )
         self.assertEqual(root_plugin, expected_root)
         self.assertEqual(plugin["name"], "saarius-skills")
-        self.assertEqual(plugin["version"], "0.5.0")
+        self.assertEqual(plugin["version"], "0.6.0")
         self.assertEqual(plugin["skills"], "./skills/")
         self.assertNotEqual(plugin, root_plugin)
         self.assertEqual(plugin["name"], root_plugin["name"])
@@ -205,7 +205,7 @@ class PackagingTests(unittest.TestCase):
         self.assertNotIn("os.system", helper)
         self.assertNotIn('"serial": serial', helper)
 
-    def test_antigravity_acp_skill_and_mcp_server_are_packaged(self) -> None:
+    def test_antigravity_acp_skill_is_packaged(self) -> None:
         skill = (ANTIGRAVITY_SKILL / "SKILL.md").read_text(encoding="utf-8")
         metadata = (
             ANTIGRAVITY_SKILL / "agents" / "openai.yaml"
@@ -213,7 +213,6 @@ class PackagingTests(unittest.TestCase):
         plugin = json.loads(
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
-        mcp = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))
         self.assertLessEqual(len(skill.splitlines()), 500)
         self.assertIn("$antigravity-acp-delegation", metadata)
         self.assertIn("allow_implicit_invocation: true", metadata)
@@ -222,69 +221,18 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("gemini-3.8-flash-high", skill)
         self.assertIn("plugin default", skill)
         self.assertIn("GEMINI_HOME", skill)
-        contract = (ROOT / "bridge" / "antigravity-acp" / "contract.mjs").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn(
-            'PREFERRED_DEFAULT_MODEL_ID = "gemini-3.8-flash-high"',
-            contract,
-        )
-        cursor_mcp = (ROOT / ".cursor-plugin" / "mcp.json").read_text(encoding="utf-8")
-        self.assertNotIn("GEMINI_HOME", cursor_mcp)
-        self.assertNotIn("gemini-3.8-flash-high", cursor_mcp)
         self.assertIn("interaction_*", skill)
         self.assertIn("STEERING_UNSUPPORTED", skill)
         self.assertIn("agy-print", skill)
         self.assertIn("antigravity-acp", plugin["keywords"])
-        self.assertIn("antigravity-acp", mcp["mcpServers"])
-        self.assertIn("cursor-acp", mcp["mcpServers"])
-        self.assertIn("grok-acp", mcp["mcpServers"])
         self.assertIn("grok-acp", plugin["keywords"])
-        acp_runtime = ROOT / "bridge" / "acp-runtime"
-        self.assertTrue((acp_runtime / "launcher.mjs").is_file())
-        self.assertTrue((acp_runtime / "hop.mjs").is_file())
-        self.assertTrue((acp_runtime / "prepare.mjs").is_file())
-        self.assertTrue((acp_runtime / "runtime-store.mjs").is_file())
         self.assertIn("SAARIUS_ACP_HOP_ARGV", skill)
         self.assertIn("worker-absolute", skill)
-        self.assertEqual(
-            mcp["mcpServers"]["antigravity-acp"]["args"],
-            ["bridge/acp-runtime/launcher.mjs", "antigravity-acp"],
-        )
-        self.assertEqual(
-            mcp["mcpServers"]["cursor-acp"]["args"],
-            ["bridge/acp-runtime/launcher.mjs", "cursor-acp"],
-        )
-        self.assertEqual(
-            mcp["mcpServers"]["grok-acp"]["args"],
-            ["bridge/acp-runtime/launcher.mjs", "grok-acp"],
-        )
-        self.assertIn("muse-acp", mcp["mcpServers"])
-        self.assertEqual(
-            mcp["mcpServers"]["muse-acp"]["args"],
-            ["bridge/acp-runtime/launcher.mjs", "muse-acp"],
-        )
-        cursor_broker = (ROOT / "bridge" / "cursor-acp" / "broker.mjs").read_text(
-            encoding="utf-8"
-        )
-        cursor_recovery_tests = (
-            ROOT / "bridge" / "cursor-acp" / "test" / "recovery.test.mjs"
-        ).read_text(encoding="utf-8")
-        self.assertIn('schema: "saarius.cursor-acp.owner.v1"', cursor_broker)
-        self.assertIn("startTime", cursor_broker)
-        self.assertIn("recoverStaleJobs", cursor_broker)
-        self.assertIn("live owner", cursor_recovery_tests)
 
-    def test_cursor_plugin_manifest_packages_skills_and_antigravity_mcp(
-        self,
-    ) -> None:
+    def test_cursor_plugin_manifest_packages_skills_only(self) -> None:
         cursor = json.loads(
             (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
-        cursor_mcp_text = (ROOT / ".cursor-plugin" / "mcp.json").read_text(
-            encoding="utf-8"
-        )
-        cursor_mcp = json.loads(cursor_mcp_text)
         packaged = {
             path.name
             for path in (ROOT / "skills").iterdir()
@@ -304,7 +252,6 @@ class PackagingTests(unittest.TestCase):
                 encoding="utf-8"
             )
         )
-        codex_mcp = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))
 
         self.assertIn(omitted, packaged)
         self.assertEqual(cursor["name"], "saarius-skills")
@@ -316,41 +263,9 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("./skills/pstack-playbooks/", cursor["skills"])
         for skill in cursor["skills"]:
             self.assertTrue((ROOT / skill / "SKILL.md").is_file(), skill)
-        self.assertEqual(cursor["mcpServers"], "./.cursor-plugin/mcp.json")
+        self.assertEqual(set(cursor), {"name", "skills"})
         self.assertNotEqual(cursor, root_plugin)
         self.assertNotEqual(cursor, codex)
-
-        self.assertEqual(
-            set(cursor_mcp["mcpServers"]), {"antigravity-acp", "grok-acp", "muse-acp", "jev-decision"}
-        )
-        server = cursor_mcp["mcpServers"]["antigravity-acp"]
-        self.assertEqual(server["command"], "node")
-        self.assertEqual(
-            server["args"],
-            ["${CURSOR_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", "antigravity-acp"],
-        )
-        grok_server = cursor_mcp["mcpServers"]["grok-acp"]
-        self.assertEqual(grok_server["command"], "node")
-        self.assertEqual(
-            grok_server["args"],
-            ["${CURSOR_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", "grok-acp"],
-        )
-        muse_server = cursor_mcp["mcpServers"]["muse-acp"]
-        self.assertEqual(muse_server["command"], "node")
-        self.assertEqual(
-            muse_server["args"],
-            ["${CURSOR_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", "muse-acp"],
-        )
-        self.assertNotIn("env", muse_server)
-        self.assertNotIn("env", server)
-        self.assertNotIn("env", grok_server)
-        self.assertNotIn("GEMINI_HOME", cursor_mcp_text)
-        self.assertNotIn("CURSOR_AGENT_EXECUTABLE", cursor_mcp_text)
-        self.assertNotIn("GROK_EXECUTABLE", cursor_mcp_text)
-        self.assertNotIn("MUSE_EXECUTABLE", cursor_mcp_text)
-        self.assertNotIn("/Users/", cursor_mcp_text)
-        self.assertNotIn("${PLUGIN_ROOT}", cursor_mcp_text)
-        self.assertNotIn("cursor-acp", cursor_mcp["mcpServers"])
 
         self.assertEqual(
             root_plugin,
@@ -360,39 +275,80 @@ class PackagingTests(unittest.TestCase):
             },
         )
         self.assertEqual(codex["name"], "saarius-skills")
-        self.assertEqual(codex["version"], "0.5.0")
+        self.assertEqual(codex["version"], "0.6.0")
         self.assertEqual(codex["skills"], "./skills/")
-        self.assertEqual(codex["mcpServers"], "./.mcp.json")
         self.assertEqual(marketplace["name"], "saarius-skills")
         self.assertEqual(marketplace["plugins"][0]["source"]["path"], "./")
-        self.assertEqual(
-            codex_mcp["mcpServers"]["antigravity-acp"]["args"],
-            ["bridge/acp-runtime/launcher.mjs", "antigravity-acp"],
-        )
-        self.assertEqual(
-            codex_mcp["mcpServers"]["cursor-acp"]["args"],
-            ["bridge/acp-runtime/launcher.mjs", "cursor-acp"],
-        )
-        self.assertEqual(
-            codex_mcp["mcpServers"]["grok-acp"]["args"],
-            ["bridge/acp-runtime/launcher.mjs", "grok-acp"],
-        )
-        self.assertEqual(
-            codex_mcp["mcpServers"]["muse-acp"]["args"],
-            ["bridge/acp-runtime/launcher.mjs", "muse-acp"],
-        )
-        self.assertNotIn("GROK_EXECUTABLE", json.dumps(codex_mcp["mcpServers"]["grok-acp"]))
-        self.assertNotIn("MUSE_EXECUTABLE", json.dumps(codex_mcp["mcpServers"]["muse-acp"]))
 
-    def test_grok_acp_skill_and_mcp_server_are_packaged(self) -> None:
+    def test_plugin_ships_no_mcp_servers(self) -> None:
+        # The ACP brokers and jev-decision ship in the separate ai-shed plugin
+        # (saari-co/ai-shed). Declaring them here too makes both plugins
+        # register the same servers and start every broker twice.
+        claude = json.loads(
+            (ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        codex = json.loads(
+            (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        cursor = json.loads(
+            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        metadata = {
+            "name",
+            "version",
+            "description",
+            "author",
+            "homepage",
+            "repository",
+            "license",
+            "keywords",
+        }
+        self.assertLessEqual(set(claude), metadata)
+        self.assertLessEqual(set(codex), metadata | {"skills", "interface"})
+        self.assertEqual(set(cursor), {"name", "skills"})
+        self.assertFalse((ROOT / ".mcp.json").exists())
+        self.assertFalse((ROOT / ".cursor-plugin" / "mcp.json").exists())
+        self.assertFalse((ROOT / "bridge").exists())
+        workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("node-bridges", workflow)
+
+    def test_acp_skills_point_at_ai_shed_plugin(self) -> None:
+        reference = (
+            ROOT / "skills" / "acp-delegation" / "references" / "ai-shed-plugin.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("saari-co/ai-shed", reference)
+        self.assertIn("claude plugin install ai-shed@ai-shed", reference)
+        self.assertIn("mcp__plugin_ai-shed_", reference)
+        self.assertIn("Do not bundle", reference)
+        entry = (ROOT / "skills" / "acp-delegation" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("references/ai-shed-plugin.md", entry)
+        for lane in ("cursor", "antigravity", "grok", "muse"):
+            server = f"{lane}-acp"
+            skill = (
+                ROOT / "skills" / f"{server}-delegation" / "SKILL.md"
+            ).read_text(encoding="utf-8")
+            doc = (ROOT / "docs" / f"{server}-delegation.md").read_text(
+                encoding="utf-8"
+            )
+            for text in (skill, doc):
+                self.assertIn("ai-shed", text, server)
+                self.assertIn(f"mcp__plugin_ai-shed_{server}__", text, server)
+                self.assertNotIn("../../bridge", text, server)
+                self.assertNotIn("SAARIUS_PLUGIN_ROOT", text, server)
+            self.assertIn("ai-shed-plugin.md", skill, server)
+        jevsweeper = (JEVSWEEPER_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("ai-shed", jevsweeper)
+        self.assertIn("mcp__plugin_ai-shed_jev-decision__decision_evaluate", jevsweeper)
+
+    def test_grok_acp_skill_is_packaged(self) -> None:
         skill = (GROK_SKILL / "SKILL.md").read_text(encoding="utf-8")
         metadata = (GROK_SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")
         plugin = json.loads(
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
-        )
-        mcp = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))
-        broker = (ROOT / "bridge" / "grok-acp" / "broker.mjs").read_text(
-            encoding="utf-8"
         )
         self.assertLessEqual(len(skill.splitlines()), 500)
         self.assertIn("$grok-acp-delegation", metadata)
@@ -406,28 +362,13 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("STEERING_UNSUPPORTED", skill)
         self.assertIn("cursor-agent acp", skill)
         self.assertIn("Grok Bot", skill)
-        self.assertIn('DEFAULT_GROK_MODEL = "grok-4.7"', broker)
-        self.assertIn('ACPX_GROK_AGENT = "grok-build"', broker)
-        self.assertNotIn("/Users/bobbybones", broker)
         self.assertIn("grok-acp", plugin["keywords"])
-        self.assertIn("grok-acp", mcp["mcpServers"])
-        self.assertNotIn("GROK_EXECUTABLE", json.dumps(mcp["mcpServers"]["grok-acp"]))
-        self.assertNotIn("/Users/", json.dumps(mcp["mcpServers"]["grok-acp"]))
 
-
-
-    def test_muse_acp_skill_and_mcp_server_are_packaged(self) -> None:
+    def test_muse_acp_skill_is_packaged(self) -> None:
         skill = (MUSE_SKILL / "SKILL.md").read_text(encoding="utf-8")
         metadata = (MUSE_SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")
         plugin = json.loads(
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
-        )
-        mcp = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))
-        broker = (ROOT / "bridge" / "muse-acp" / "broker.mjs").read_text(
-            encoding="utf-8"
-        )
-        adapter = (ROOT / "bridge" / "muse-acp" / "adapter" / "server.mjs").read_text(
-            encoding="utf-8"
         )
         self.assertLessEqual(len(skill.splitlines()), 500)
         self.assertIn("$muse-acp-delegation", metadata)
@@ -438,20 +379,11 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("host default", skill)
         self.assertIn("MUSE_EXECUTABLE", skill)
         self.assertIn("STEERING_UNSUPPORTED", skill)
-        self.assertIn("ACPX_MUSE_AGENT = \"muse\"", broker)
-        self.assertIn("resolveMuseAdapterArgv", broker)
-        self.assertIn("@agentclientprotocol/sdk", adapter)
-        self.assertNotIn("/Users/bobbybones", broker)
-        self.assertNotIn("/Users/bobbybones", adapter)
         self.assertIn("muse-acp", plugin["keywords"])
-        self.assertIn("muse-acp", mcp["mcpServers"])
-        self.assertNotIn("MUSE_EXECUTABLE", json.dumps(mcp["mcpServers"]["muse-acp"]))
-        self.assertNotIn("/Users/", json.dumps(mcp["mcpServers"]["muse-acp"]))
         self.assertTrue((MUSE_SKILL / "references" / "remote-shed.md").is_file())
         self.assertTrue((ROOT / "docs" / "muse-acp-delegation.md").is_file())
-        self.assertTrue((ROOT / "bridge" / "muse-agent-acp" / "server.mjs").is_file())
 
-    def test_claude_plugin_manifest_packages_skills_and_acp_mcp(self) -> None:
+    def test_claude_plugin_manifest_packages_skills(self) -> None:
         claude_text = (ROOT / ".claude-plugin" / "plugin.json").read_text(
             encoding="utf-8"
         )
@@ -464,7 +396,6 @@ class PackagingTests(unittest.TestCase):
         codex = json.loads(
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
-        root_mcp = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))
         packaged = {
             path.name
             for path in (ROOT / "skills").iterdir()
@@ -481,55 +412,7 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("antigravity-acp-delegation", packaged)
         self.assertIn("grok-acp-delegation", packaged)
         self.assertIn("muse-acp-delegation", packaged)
-
-        # Claude Code also loads the root .mcp.json; every server it declares
-        # must be overridden here so no relative, cwd-bound entry leaks in.
-        servers = claude["mcpServers"]
-        self.assertEqual(set(servers), set(root_mcp["mcpServers"]))
-        self.assertEqual(
-            set(servers), {"cursor-acp", "antigravity-acp", "grok-acp", "muse-acp", "jev-decision"}
-        )
-        # jev-decision is not an ACP bridge; its own test covers its entry.
-        self.assertNotIn("cwd", servers["jev-decision"])
-        self.assertNotIn("env", servers["jev-decision"])
-        acp_servers = {k: v for k, v in servers.items() if k != "jev-decision"}
-        for name, server in acp_servers.items():
-            self.assertEqual(server["command"], "node")
-            self.assertEqual(
-                server["args"],
-                ["${CLAUDE_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", name],
-            )
-            self.assertNotIn("cwd", server)
-            # Issue #92: the inline block replaces the .mcp.json entry, so the
-            # policy env must ride here. Pass the host value through and keep
-            # approve-reads as the shipped default; approve-all is break-glass.
-            self.assertEqual(
-                server["env"]["SAARIUS_ACP_PERMISSION_MODE"],
-                "${SAARIUS_ACP_PERMISSION_MODE:-approve-reads}",
-            )
-            self.assertEqual(
-                server["env"]["SAARIUS_ACP_TIMEOUT_MS"],
-                "${SAARIUS_ACP_TIMEOUT_MS:-3600000}",
-            )
-            self.assertEqual(
-                root_mcp["mcpServers"][name]["env"]["SAARIUS_ACP_TIMEOUT_MS"],
-                "${SAARIUS_ACP_TIMEOUT_MS:-3600000}",
-            )
-            for value in server["env"].values():
-                self.assertTrue(value.startswith("${"), value)
         self.assertNotIn("/Users/", claude_text)
-        self.assertNotIn('"approve-all"', claude_text)
-        # Issue #92 follow-up: the break-glass never ships in any manifest and
-        # only the Claude Code manifest names the policy variable, as a host
-        # passthrough. Codex reads .mcp.json and Cursor reads
-        # .cursor-plugin/mcp.json; both leave the mode to the bridge default.
-        for relative in (".mcp.json", ".cursor-plugin/mcp.json"):
-            text = (ROOT / relative).read_text(encoding="utf-8")
-            self.assertNotIn("SAARIUS_ACP_PERMISSION_MODE", text, relative)
-            self.assertNotIn("approve-all", text, relative)
-        # GEMINI_HOME is the antigravity bridge default; a .mcp.json env for it
-        # is dead under the Claude Code plugin and redundant under Codex.
-        self.assertNotIn("GEMINI_HOME", root_mcp["mcpServers"]["antigravity-acp"]["env"])
 
         self.assertEqual(market["name"], "saarius-skills")
         self.assertIn("name", market["owner"])
@@ -574,43 +457,6 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("headRefOid", coordinator)
         self.assertIn("needs-evidence", scenarios)
         self.assertNotIn("- `repair` if any leftover item is repair.", rubric)
-
-    def test_jev_decision_bridge_is_packaged(self) -> None:
-        bridge = ROOT / "bridge" / "jev-decision"
-        server = (bridge / "server.mjs").read_text(encoding="utf-8")
-        client = (bridge / "client.mjs").read_text(encoding="utf-8")
-        claude = json.loads(
-            (ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
-        )
-        cursor_mcp = json.loads(
-            (ROOT / ".cursor-plugin" / "mcp.json").read_text(encoding="utf-8")
-        )
-        codex_mcp = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))
-        workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(
-            encoding="utf-8"
-        )
-        self.assertNotIn("from \"@", server + client)
-        self.assertIn('name: "decision_evaluate"', server)
-        self.assertIn("https://api.typesafe.ai/v1/systemone", client)
-        self.assertEqual(
-            codex_mcp["mcpServers"]["jev-decision"]["args"],
-            ["bridge/jev-decision/server.mjs"],
-        )
-        self.assertEqual(
-            claude["mcpServers"]["jev-decision"]["args"],
-            ["${CLAUDE_PLUGIN_ROOT}/bridge/jev-decision/server.mjs"],
-        )
-        self.assertEqual(
-            cursor_mcp["mcpServers"]["jev-decision"]["args"],
-            ["${CURSOR_PLUGIN_ROOT}/bridge/jev-decision/server.mjs"],
-        )
-        for entry in (
-            codex_mcp["mcpServers"]["jev-decision"],
-            claude["mcpServers"]["jev-decision"],
-            cursor_mcp["mcpServers"]["jev-decision"],
-        ):
-            self.assertNotIn("TYPESAFE_API_KEY", json.dumps(entry))
-        self.assertIn("node --test bridge/jev-decision/test/*.test.mjs", workflow)
 
 
 if __name__ == "__main__":

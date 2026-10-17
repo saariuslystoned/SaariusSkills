@@ -27,6 +27,5 @@
     "./skills/unslop/",
     "./skills/upgrading-emdash/",
     "./skills/why/"
-  ],
-  "mcpServers": "./.cursor-plugin/mcp.json"
+  ]
 }

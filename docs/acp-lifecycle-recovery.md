@@ -21,14 +21,16 @@ from canonical state. First observe a nonterminal interrupted job through
 `status`/`result`: only a demonstrably gone owner with matching persisted lease
 may be marked `BRIDGE_RESTARTED`. Do not turn that receipt into cleanup proof.
 
-From the installed plugin or a checkout matching its prepared runtime, request a plan.
+From the installed `ai-shed` plugin root (`$AI_SHED_ROOT`) or an ai-shed checkout
+matching its prepared runtime, request a plan. The recovery utility ships in
+[saari-co/ai-shed](https://github.com/saari-co/ai-shed), not in `saarius-skills`.
 The utility resolves the integrity-checked persistent runtime, just like the MCP
 launcher; it does not require dependencies inside the plugin cache. If that
 runtime is missing or invalid, prepare the selected bridge using the reported
 setup command before retrying:
 
 ```sh
-node bridge/acp-runtime/recover.mjs --lane cursor \
+node "$AI_SHED_ROOT/acp-runtime/recover.mjs" --lane cursor \
   --state-root /absolute/host-controlled/state-root \
   --job ORIGINAL-JOB-UUID --conversation GENUINE-CONVERSATION-ID \
   --expected-binder ORIGINAL-BINDER-ID

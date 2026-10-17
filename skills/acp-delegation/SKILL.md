@@ -1,14 +1,20 @@
 ---
 name: acp-delegation
-description: Route generic requests to use the SaariusSkills ACP plugin or delegate through ACP. Discover Grok CLI, Cursor, Antigravity, and Muse native tools, select a suitable harness, verify effective permissions, and submit a bounded task. Use a lane skill directly for an already selected harness.
+description: Route generic requests to use the SaariusSkills ACP plugin or delegate through ACP. The MCP servers come from the separate ai-shed plugin. Discover Grok CLI, Cursor, Antigravity, and Muse native tools, select a suitable harness, verify effective permissions, and submit a bounded task. Use a lane skill directly for an already selected harness.
 ---
 
 # SaariusSkills ACP delegation
 
-Use this entry point when the user has not selected a worker harness. The
-plugin supports four native MCP lanes; a preference is not an exclusivity rule.
+Use this entry point when the user has not selected a worker harness. There
+are four native MCP lanes; a preference is not an exclusivity rule.
 The parent owns task scope, result verification, and external-action gates.
 This workflow concerns native plugin lanes, not Puppet's ACP transport roadmap.
+
+The MCP servers for every lane come from the separate `ai-shed` plugin
+([saari-co/ai-shed](https://github.com/saari-co/ai-shed)); this
+`saarius-skills` plugin ships the skills only and must not also bundle the
+servers. Install, prepare, and tool-name details are in
+[the ai-shed plugin reference](references/ai-shed-plugin.md).
 
 ## Discover and select
 
@@ -22,10 +28,13 @@ before declaring a route unavailable or writing a restricted handoff:
 | Google Antigravity ACP | `antigravity_acp_readiness` | [Antigravity](../antigravity-acp-delegation/SKILL.md) |
 | Muse (`muse serve` via `muse-agent-acp`) | `muse_acp_readiness` | [Muse](../muse-acp-delegation/SKILL.md) |
 
-Names may include server/plugin prefixes. Discoverability is not readiness.
-Codex and Claude Code package all four servers; Cursor's host package includes
-Grok, Antigravity, and Muse and omits the Cursor worker lane. Check live tools anyway;
-do not assume every host has the same inventory.
+Names may include server/plugin prefixes (in Claude Code,
+`mcp__plugin_ai-shed_<server>__<tool>`). Discoverability is not readiness.
+The `ai-shed` plugin ships all four servers for Codex and Claude Code; its
+Cursor package includes Grok, Antigravity, and Muse and omits the Cursor worker
+lane. Check live tools anyway; do not assume every host has the same inventory.
+If no lane's tools are present, the `ai-shed` plugin is probably not installed
+or not reloaded; follow [the ai-shed plugin reference](references/ai-shed-plugin.md).
 
 Honor an explicit harness and any prohibition on substitution. Read only the
 selected lane's detailed contract. For a generic request, use established user
