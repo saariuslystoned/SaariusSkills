@@ -47,6 +47,8 @@ export const config = {
   // Commerce Products sits beside Commerce Orders, so a beta install's Orders setting covers both.
   productsAdmin: read("DINKUS_E2E_PRODUCTS_ADMIN", ordersAdmin.replace(/\/orders\/?$/, "/products")),
   productPath: read("DINKUS_E2E_PRODUCT_PATH"),
+  // Mark as completed: Processing TEST orders (1003,1004) for the owner and then the agent to complete, instead of placing new ones.
+  ordersToComplete: read("DINKUS_E2E_ORDERS_TO_COMPLETE").split(",").map(number => number.trim().replace(/^#/, "")).filter(Boolean),
   shopper: {
     email: read("DINKUS_E2E_SHOPPER_EMAIL"),
     name: read("DINKUS_E2E_SHOPPER_NAME", "Test Shopper"),

@@ -10,6 +10,7 @@ journeys plan:
 | [Storefront](tests/storefront.spec.mjs) | `@next` | A new shopper's first look: the homepage, the product list, a product page and its category page |
 | [Cart](tests/cart.spec.mjs) | `@next` | A new shopper adds a product to the cart, changes its quantity and removes it, with the cart total right each time |
 | [Manage products](tests/manage-products.spec.mjs) | `@next` | The owner adds a product with a photo, gives it a page in a new category, changes its price and name, and archives and restores it, with the store following each change |
+| [Mark as completed](tests/mark-completed.spec.mjs) | `@next` | The owner marks a paid TEST order completed in Commerce Orders, typing a carrier and tracking number, and an agent completes another through Commerce's orders API, sending neither; both end Completed |
 
 `npm test` runs every `@running` journey. A new journey starts as `@next` and
 moves to `@running` once it has passed on the test store.
@@ -27,7 +28,7 @@ step in. If the Access app offers only Google, set
 ```sh
 npm ci
 npm test                      # every @running journey; Buy and ship goes from checkout to Completed
-npm run journey -- storefront # one journey, by its file name (storefront, cart, manage-products, buy-and-ship)
+npm run journey -- storefront # one journey, by its file name (storefront, cart, manage-products, mark-completed, buy-and-ship)
 npm run finish                # Buy and ship from an existing order (DINKUS_E2E_ORDER=1001, or the only unfinished TEST order)
 npm run unit                  # the runner's own offline checks
 ```
@@ -54,6 +55,19 @@ run leaves one archived product named "Live test product <date and time>
 renamed" and its photo in the Media library. Its product page and category go
 to EmDash's Trash.
 
+Mark as completed places two Stripe TEST orders the way Buy and ship places
+one, paying each once with the test card, and leaves both Completed. The owner
+completes the first in Commerce Orders. For the second, the test makes an admin
+key with the saved profile's admin sign-in, set to stop working after an hour,
+and the agent completes the order with that key alone. The test deletes the key
+at the end of the run, even after a failed step. The key only ever travels in
+the test's own calls, never through the browser, so it can't reach the proof or
+the browser's trace. When Cloudflare Access fronts the store's API as well as
+its admin, the agent's calls also carry the saved Access sign-in, as an agent's
+Access service token would. To complete existing Processing TEST orders instead
+of placing new ones, set `DINKUS_E2E_ORDERS_TO_COMPLETE` (the owner's order,
+then the agent's).
+
 The machine's settings come from `~/.dinkus-e2e/env`; see
 [setup](../references/setup.md).
 
@@ -77,6 +91,7 @@ the environment, which wins.
 | `DINKUS_E2E_COMPLETE_WAIT_SECONDS` | `420` | How long to wait for Commerce's background check |
 | `DINKUS_E2E_ORDERS_ADMIN` | the Registry Commerce plugin's Orders page | Commerce Orders in the store admin |
 | `DINKUS_E2E_PRODUCTS_ADMIN` | the Products page beside `DINKUS_E2E_ORDERS_ADMIN` | Commerce Products in the store admin, for Manage products |
+| `DINKUS_E2E_ORDERS_TO_COMPLETE` | new orders | For Mark as completed, existing Processing TEST orders for the owner and then the agent to complete (`1003,1004`) instead of placing new ones |
 | `DINKUS_E2E_ADMIN_SIGNIN` | `skip` | `wait` lets a person sign in to the store admin |
 | `DINKUS_E2E_PROOF` | `~/.dinkus-e2e/proof` | Where each run's proof folder goes |
 | `DINKUS_E2E_PROFILE` | `~/.dinkus-e2e/profile` | The saved Chrome profile |
@@ -151,6 +166,24 @@ step.
 | Archiving the product takes it off the store | After the owner archives it, the Shop list and the category page stop listing it, and its page answers HTTP 404 saying the product is no longer available |
 | Restoring the product puts it back on the store | After the owner restores it, the Shop list, its page and its category page show it again with its new name and price. Skipped when it wasn't archived |
 | The test takes its product, page and category off the store | The test archives the product, under whatever name and state Commerce shows for it then, and moves its page and category to EmDash's Trash; within a minute the store lists none of them and their addresses stop answering HTTP 200. Runs whenever the journey added anything, or pressed Add product |
+
+### Mark as completed
+
+The steps that place an order or make the agent's key stop the journey when
+they fail, since nothing after them can run; every other step is soft. Whenever
+the key was made, the last step deletes it.
+
+| Step | What it proves |
+| --- | --- |
+| The owner can open Commerce Orders | Commerce Orders opens in the store admin. When it doesn't, the journey stops here |
+| A shopper places a Stripe TEST order for the owner to complete | As in Buy and ship, a shopper pays for a physical product with the test card and Commerce records the payment. Skipped when `DINKUS_E2E_ORDERS_TO_COMPLETE` names an order |
+| The owner marks the order completed with a carrier and tracking number | The owner opens the order in Commerce Orders, presses Complete order and types USPS and a tracking number made for the run; Commerce says "Order completed" and shows the order Completed with both. Only a Processing TEST order is completed; any other fails the step and is left alone |
+| Commerce Orders keeps the owner's order Completed | Opened again from the list, the order is listed Completed and still shows its carrier and tracking number |
+| The test makes a one-hour key for the agent | EmDash makes an admin key named "Live test agent <date and time>" for the signed-in owner, set to stop working after an hour |
+| A shopper places a second Stripe TEST order for the agent to complete | As above, for the agent's order. Skipped when `DINKUS_E2E_ORDERS_TO_COMPLETE` names a second order |
+| An agent marks the order completed through Commerce's orders API, sending no carrier or tracking number | With only the key, the agent reads the order and completes it at the version it read; Commerce answers "saved" with the order completed, its version raised and no carrier or tracking number. Only a processing TEST order is completed |
+| Commerce Orders shows the agent's order Completed | In the store admin the agent's order is listed Completed, and its page shows "Not recorded" for the carrier and the tracking number |
+| The test deletes the agent's key | EmDash deletes the key, and a call with it then gets HTTP 401. Runs whenever the key was made |
 
 ## Proof
 

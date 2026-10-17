@@ -1,6 +1,6 @@
 ---
 name: dinkuskit-live-test
-description: Run the saved DinkusKit live test journeys (Buy and ship - Stripe TEST order, Commerce order, Pitney Bowes sandbox label in Ship, Completed; Storefront - homepage, product list, product page, category page; Cart - add, change quantity, remove, cart total; Manage products - add a product with a photo, page in a category, new price and name, archive and restore) and hand back their proof. Use when the owner says "run the test", asks to prove a DinkusKit release or plugin update works on a live store, asks for one journey, or wants a stuck TEST order finished.
+description: Run the saved DinkusKit live test journeys (Buy and ship - Stripe TEST order, Commerce order, Pitney Bowes sandbox label in Ship, Completed; Storefront - homepage, product list, product page, category page; Cart - add, change quantity, remove, cart total; Manage products - add a product with a photo, page in a category, new price and name, archive and restore; Mark as completed - the owner and an agent each complete a paid TEST order without a label) and hand back their proof. Use when the owner says "run the test", asks to prove a DinkusKit release or plugin update works on a live store, asks for one journey, or wants a stuck TEST order finished.
 ---
 
 # DinkusKit live test
@@ -15,7 +15,10 @@ Cart, a new shopper adds a product, changes its quantity and removes it, and the
 cart's count and total follow each change. In Manage products, the owner adds a
 product with a photo, gives it a page in a new category, changes its price and
 name, and archives and restores it, and the Shop list, product page and category
-page follow each change.
+page follow each change. In Mark as completed, the owner marks a paid TEST order
+completed in Commerce Orders with a carrier and tracking number, and an agent
+marks another completed through Commerce's orders API with neither, using an
+admin key the test makes for an hour and deletes at the end.
 
 Each journey has a stage. `@running` journeys run on every `npm test` and must all
 pass on the beta store before a final release. A new journey starts as `@next` and
@@ -45,6 +48,7 @@ authorization the test needs.
      no order. Cart fills and empties a new shopper's cart and never checks out.
      Manage products works in the store admin and takes its product, page and
      category off the store again, leaving one archived product and its photo.
+     Mark as completed places two Stripe TEST orders and leaves both Completed.
    - `npm run finish` finishes a Buy and ship order that already exists. Set
      `DINKUS_E2E_ORDER=1001` to pick one, or leave it unset to pick the only TEST
      order still waiting for a label.
@@ -52,7 +56,8 @@ authorization the test needs.
    Buy and ship takes about 15 minutes, because it gives Commerce's 5-minute
    background check up to 7 minutes to collect the label on its own. Storefront
    and Cart each take about a minute, and Manage products about two, plus up to a
-   minute for each change the store is slow to show.
+   minute for each change the store is slow to show. Mark as completed takes about
+   four, most of it in its two checkouts.
 4. Read the proof. The run prints each journey's verdict, then `Verdict: PASS` or
    `Verdict: FAIL` and the path to its `PROOF.md`. Read `PROOF.md` and
    `report.json`, and actually look at `label.pdf.png` (macOS draws it from the
@@ -90,6 +95,14 @@ authorization the test needs.
 - Manage products changes only the product, page and category it adds, each named
   "Live test" with the run's date and time. Never edit or archive the store's
   other products to make it pass.
+- Mark as completed completes only TEST orders: the two it places, paying each
+  once with the test card, or the Processing TEST orders
+  `DINKUS_E2E_ORDERS_TO_COMPLETE` names. It leaves every other order alone.
+- The agent's key is the only credential the test makes: an admin key for the
+  owner that stops working after an hour. It never leaves the test's own calls,
+  and the test deletes it at the end of every run. If that last step fails,
+  report the key's name and when it stops working, so the owner can revoke it
+  sooner under Settings, API Tokens in the store admin.
 - A failed run exits non-zero. A failure only on "Commerce's 5-minute check
   collects the label", with the steps after it passing, means the store's
   background check didn't collect the label and opening Commerce Orders did.
@@ -121,6 +134,11 @@ authorization the test needs.
   report each page that didn't follow a change, with how long the test waited.
   When the last step fails, name what it couldn't take off the store, so the
   owner can archive or trash it by hand.
+- Mark as completed stops when the owner can't open Commerce Orders, when an
+  order can't be placed, or when EmDash won't make the agent's key. Its other
+  steps are soft: report a refused completion with Commerce's answer, and an
+  order that shows the wrong status, carrier or tracking number with what it
+  showed.
 
 ## What each step proves
 
