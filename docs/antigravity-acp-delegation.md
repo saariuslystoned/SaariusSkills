@@ -1,5 +1,11 @@
 # Antigravity ACP delegation
 
+> **Where the server lives.** The `antigravity-acp` MCP server ships in the separate
+> `ai-shed` plugin ([saari-co/ai-shed](https://github.com/saari-co/ai-shed)); `saarius-skills` ships
+> skills and instructions only and must not also bundle the server. Broker
+> source, tests, and runtime preparation live in ai-shed. Install steps:
+> [the ai-shed plugin reference](../skills/acp-delegation/references/ai-shed-plugin.md).
+
 Host this plugin in Codex or Cursor, then delegate one bounded slice over
 ACP to Google's official Antigravity runtime. The bridge is a stdio MCP
 server named `antigravity-acp`. ACpx is the local client. SaariusSkills is
@@ -64,7 +70,7 @@ native MCP readiness discovers it without shell-only environment overrides:
 
 When the caller omits `model`, the plugin default is the exact advertised id
 `gemini-3.8-flash-high`. That default is defined in the plugin contract
-(`PREFERRED_DEFAULT_MODEL_ID` in `bridge/antigravity-acp/contract.mjs`) and
+(`PREFERRED_DEFAULT_MODEL_ID` in ai-shed's `antigravity-acp/contract.mjs`) and
 applied by readiness and delegate. It is not a `GEMINI_HOME` setting, not a
 machine `settings.json` field, and not a Bobby-only MCP env. If that id is not
 advertised, omit-model fails closed and an exact advertised id is required. The
@@ -109,27 +115,12 @@ recovery attempt.
 
 ## Local development
 
-From the repository worktree:
-
-```bash
-cd bridge/antigravity-acp
-npm run setup
-npm test
-```
-
-The package requires Node 22.13 or newer. `package-lock.json` pins the
-bridge's development dependencies. `npm test` uses protocol fixtures and a
-fake runtime; it does not contact Antigravity or run a model turn.
-
-The bounded live smoke test is opt-in and stays blocked unless
-already-authorized personal OAuth and overage-disabled controls are
-demonstrably available without account switching or billing changes:
-
-```bash
-npm run smoke
-```
-
-It will not start a login or send a live request from this follow-up worker.
+Broker source and its tests live in [saari-co/ai-shed](https://github.com/saari-co/ai-shed) under
+`antigravity-acp/`. Develop, test, and run the opt-in live smoke there (see that
+package's `package.json` scripts); this repository no longer carries the
+broker. The live smoke stays blocked unless already-authorized personal OAuth and
+overage-disabled controls are demonstrably available without account
+switching or billing changes.
 
 ## Delegation timeout
 
@@ -147,81 +138,54 @@ existing bounds.
 
 ## MCP connection
 
-The root `.codex-plugin/plugin.json` declares `.mcp.json`, which now has three
-separately named stdio servers: `cursor-acp`, `antigravity-acp`, and `grok-acp`.
-All use
-`cwd: "."`, which Codex resolves against the installed plugin root. This
-legacy `.codex-plugin` format does not expand `${PLUGIN_ROOT}` in arguments.
-`.mcp.json` sets no `GEMINI_HOME`: the broker defaults it to
+Install the `ai-shed` plugin, not `saarius-skills`, to get this server; follow
+[the ai-shed plugin reference](../skills/acp-delegation/references/ai-shed-plugin.md) or ai-shed's README section "Install as a
+plugin". In Claude Code the server registers as `plugin:ai-shed:antigravity-acp` and its
+tools as `mcp__plugin_ai-shed_antigravity-acp__<tool>`. Do not add the server to the
+`saarius-skills` manifests: both plugins would register it and start two
+brokers.
+
+Installing or updating ai-shed copies source; it does not install the broker's
+Node dependencies. After each install/update, prepare the persistent runtime
+store from the **installed** ai-shed plugin root (`$AI_SHED_ROOT`, the harness's
+plugin cache copy, not a git clone):
+
+```bash
+node "$AI_SHED_ROOT/acp-runtime/prepare.mjs" --bridge antigravity-acp
+```
+
+Preparation runs locked `npm ci` with lifecycle scripts disabled in a per-user,
+content-addressed runtime store outside the plugin cache. The MCP launcher
+reuses that store and performs no network install during MCP initialization.
+`setup.mjs --check` remains a dependency/MCP health check and does not install
+or send a model turn. It also does not download the Google runtime.
+
+The manifests set no `GEMINI_HOME`: the broker defaults it to
 `~/.local/state/saarius-skills/antigravity-acp/gemini-home` on every host, so
-an `env` edit there is never needed and, under the Claude Code plugin, never
-read.
+no `env` edit is needed. On Claude Code, ai-shed's manifest passes
+`SAARIUS_ACP_PERMISSION_MODE` from Claude Code's own environment through to the
+broker and defaults it to `approve-reads` (issue #92). Export
+`SAARIUS_ACP_PERMISSION_MODE=approve-all` or set it under `env` in Claude Code
+`settings.json` as the explicit break-glass; it takes effect in a fresh session.
+Readiness reports the resolved `permission.permissionMode` and the
+`antigravity_acp_delegate` receipt echoes the same `permission` object.
 
-After reviewing the package, connect it to Codex from the repository worktree:
-
-```bash
-codex plugin marketplace add "$PWD/.agents/plugins"
-codex plugin add saarius-skills@saarius-skills
-```
-
-For Claude Code, the [Claude Code manifest](../.claude-plugin/plugin.json)
-registers all three ACP servers through `${CLAUDE_PLUGIN_ROOT}` with no
-machine-specific paths. Claude Code launches the bridge from that inline
-`mcpServers` block, which replaces the same-named `.mcp.json` entry, so the
-manifest passes `SAARIUS_ACP_PERMISSION_MODE` from Claude Code's own
-environment through to the bridge and defaults it to `approve-reads`
-(issue #92). Export `SAARIUS_ACP_PERMISSION_MODE=approve-all` or set it under
-`env` in Claude Code `settings.json` as the explicit break-glass; it takes
-effect after a plugin update and a fresh session; readiness reports the
-resolved `permission.permissionMode` and the `antigravity_acp_delegate`
-receipt echoes the same `permission` object:
-
-```bash
-claude plugin marketplace add "$PWD"
-claude plugin install saarius-skills@saarius-skills
-```
-
-Published install is the Codex, Cursor, or Claude Code plugin. A machine-local
-`~/.cursor/mcp.json` attach is operator config, not the product install.
-
-Installing/updating the plugin copies source; it does not install this
-bridge's Node dependencies or the Google runtime. After each install/update,
-resolve the active plugin root from the installed skill location and prepare
-the persistent runtime store:
-
-```bash
-node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge antigravity-acp
-```
-
-Set `SAARIUS_PLUGIN_ROOT` to that absolute installed plugin directory, not a
-development checkout. Preparation runs locked `npm ci` with lifecycle scripts
-disabled in a per-user, content-addressed runtime store outside the ephemeral
-plugin cache. The MCP launcher reuses that store and performs no network install
-during MCP initialization. Run the analogous Cursor command when that lane is
-enabled. `setup.mjs --check` remains a dependency/MCP health check and does not
-install, download the Google runtime, or send a model turn.
-
-The shared store is keyed by bridge source, package lock, OS/architecture, and
-Node compatibility. Cursor and Antigravity never reuse each other's runtime
-trees. A failed or incomplete preparation never becomes launchable; diagnostics
-are emitted on stderr so MCP stdout remains protocol-only.
-
-Reload Codex or start a fresh task after repair. Verify the native
-`antigravity_acp_readiness` call before delegating. The Codex orchestrator
-model is independent of the Antigravity worker model. If native tools remain
-absent, diagnose registration/loading; changing models or switching to Cursor
-ACP, Puppet, or native `agy-print` does not repair this MCP installation.
+A machine-local `~/.cursor/mcp.json` attach is operator config, not the product
+install.
 
 If the launcher reports `RUNTIME_SETUP_REQUIRED` or `prepare.mjs` reports
-`RUNTIME_IDENTITY_CONFLICT`, the error names the first failing integrity check.
-Follow the Cursor guide's
-[Runtime troubleshooting](cursor-acp-delegation.md#runtime-troubleshooting),
-which also covers Node version changes on PATH. The recovery command for this
-bridge is:
+`RUNTIME_IDENTITY_CONFLICT`, follow the Cursor guide's
+[Runtime troubleshooting](cursor-acp-delegation.md#runtime-troubleshooting).
+The recovery command for this broker is:
 
 ```bash
-node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge antigravity-acp --replace-invalid
+node "$AI_SHED_ROOT/acp-runtime/prepare.mjs" --bridge antigravity-acp --replace-invalid
 ```
+
+Reload the host or start a fresh task after repair. Verify the native
+`antigravity_acp_readiness` call before delegating. If native tools remain absent, diagnose the
+ai-shed install and reload; changing models or switching lanes does not repair
+the MCP installation.
 
 ## Auth and profile
 
@@ -260,8 +224,8 @@ conversation messages. Shutdown clears that store; restart never resumes a
 previous model session and fails in-flight jobs closed as `BRIDGE_RESTARTED`.
 Final handoffs are bounded and redacted.
 
-To roll back the app connection, remove the local `saarius-skills` plugin from
-Codex, then restore the previous plugin revision in the repository. Stopping
+To roll back the app connection, remove the `ai-shed` plugin from the host, or
+restore a previous ai-shed revision. Stopping
 the MCP server does not alter Antigravity's installation or login. Job state
 may be left for audit or removed only as an explicitly approved, exact-path
 cleanup.
@@ -278,7 +242,7 @@ turning ACpx into an SSH client. Durable receipt:
 [proof/b-live-dogfood/RECEIPT.md](../proof/b-live-dogfood/RECEIPT.md)
 ([hello.mjs](../proof/b-live-dogfood/hello.mjs), `B_READY`, exit 0; hop
 wrapper [#83](https://github.com/saariuslystoned/SaariusSkills/pull/83);
-[`bridge/acp-runtime/test/hop.test.mjs`](../bridge/acp-runtime/test/hop.test.mjs)).
+[`acp-runtime/test/hop.test.mjs`](https://github.com/saari-co/ai-shed/blob/main/acp-runtime/test/hop.test.mjs) in ai-shed).
 ACpx stayed a local child on CP-1. Workspace was worker-absolute. Live MCP
 job folders are operator-local; use the receipt for full job UUIDs.
 
@@ -288,7 +252,7 @@ worker launcher command must include the explicit `--worker` entry flag, for
 example:
 
 ```json
-["ssh", "-T", "worker.example", "node", "/opt/saarius-skills/bridge/acp-runtime/launcher.mjs", "antigravity-acp", "--worker"]
+["ssh", "-T", "worker.example", "node", "/opt/ai-shed/acp-runtime/launcher.mjs", "antigravity-acp", "--worker"]
 ```
 
 That example is the shape, not a published hostname. Hop argv is operator

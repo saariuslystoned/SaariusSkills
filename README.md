@@ -7,9 +7,11 @@ The same skillpack ships as a [Codex plugin](.codex-plugin/plugin.json), a
 [Cursor plugin](.cursor-plugin/plugin.json), and a
 [Claude Code plugin](.claude-plugin/plugin.json). Pick the install path for your
 harness in [Install](#install).
-Host the plugin in Codex, Cursor, or Claude Code, then delegate over ACP to
-Cursor, Antigravity, or Grok. Published install is this plugin, not a
-hand-written `~/.cursor/mcp.json`.
+The plugin ships skills and instructions only. The ACP delegation MCP servers
+(`cursor-acp`, `antigravity-acp`, `grok-acp`, `muse-acp`, `jev-decision`) ship
+in the separate [`ai-shed`](https://github.com/saari-co/ai-shed) plugin; install
+both to delegate over ACP to Cursor, Antigravity, Grok, or Muse. This plugin
+must not also bundle those servers.
 
 ## EmDash sites and plugins
 
@@ -46,11 +48,14 @@ verification. Permission modes are server-scoped; per-job overrides are not
 currently supported.
 
 SaariusSkills is the host policy for one local ACP contract. ACpx is the
-local client. ACP is the wire. Host the plugin in **Codex** or **Cursor**,
-then delegate one bounded slice to a **Cursor**, **Antigravity**, **Grok**,
-or **Muse** worker. The Cursor plugin starts `antigravity-acp`, `grok-acp`,
-and `muse-acp`. The Codex plugin starts `antigravity-acp`, `cursor-acp`,
-`grok-acp`, and `muse-acp`.
+local client. ACP is the wire. Host the plugins in **Codex**, **Cursor**, or
+**Claude Code**, then delegate one bounded slice to a **Cursor**,
+**Antigravity**, **Grok**, or **Muse** worker. The MCP servers come from the
+[`ai-shed`](https://github.com/saari-co/ai-shed) plugin, not from this one: its
+Cursor package starts `antigravity-acp`, `grok-acp`, and `muse-acp`; its Codex
+and Claude Code packages also start `cursor-acp`. In Claude Code the tools are
+named `mcp__plugin_ai-shed_<server>__<tool>`. Install and prepare steps are in
+[the ai-shed plugin reference](skills/acp-delegation/references/ai-shed-plugin.md).
 
 The same six tools (`readiness`, `delegate`, `status`, `result`, `steer`,
 `cancel`) run in three proven placements. A separate host that owns phone
@@ -108,7 +113,7 @@ Concise native `cursor_acp_delegate` examples with model base only:
 {
   "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
   "model": "grok-4.6",
-  "prompt": "Run npm run check in bridge/cursor-acp and verify test output."
+  "prompt": "Run the Python test suite and verify zero failures."
 }
 
 // Grok 4.7 (model only, effort omitted)
@@ -158,7 +163,7 @@ Grok does not run Luna. The child is `GROK_EXECUTABLE` or
 ### Muse worker (`muse-acp`)
 
 The `muse-acp` bridge routes one bounded slice through pinned `acpx@0.19.4`
-to `muse-agent-acp`, a small adapter (`bridge/muse-acp/adapter/`) that
+to `muse-agent-acp`, a small adapter (ai-shed's `muse-acp/adapter/`) that
 translates ACP to Muse Session Protocol (MSP) over `muse serve`
 stdio; Muse ships no ACP server of its own. It exposes the same six
 tools and the same remote-shed HTTP mode (`shed_task_*` only) as the
@@ -170,14 +175,14 @@ on `PATH`; manifests do not ship a machine path. See the
 [Muse setup guide](docs/muse-acp-delegation.md).
 
 All bridges use a shared per-user persistent dependency store outside
-the Codex and Claude Code plugin caches. After installing or updating the plugin, prepare
-the bridges explicitly from the installed plugin root:
+the plugin caches. After installing or updating the `ai-shed` plugin, prepare
+each broker from the installed ai-shed plugin root (`$AI_SHED_ROOT`):
 
 ```bash
-node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge cursor-acp
-node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge antigravity-acp
-node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge grok-acp
-node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge muse-acp
+npm run setup-runtime --prefix "$AI_SHED_ROOT/cursor-acp"
+npm run setup-runtime --prefix "$AI_SHED_ROOT/antigravity-acp"
+npm run setup-runtime --prefix "$AI_SHED_ROOT/grok-acp"
+npm run setup-runtime --prefix "$AI_SHED_ROOT/muse-acp"
 ```
 
 The launchers reuse compatible prepared trees and keep MCP stdout reserved
@@ -274,10 +279,17 @@ details.
 
 ## Install
 
-Use **Codex**, **Cursor**, or **Claude Code** when you want the packaged skills
-and bundled ACP MCP servers. Published install is this plugin; do not treat a
-hand-written `~/.cursor/mcp.json` as the product install. Use **Google
+Use **Codex**, **Cursor**, or **Claude Code** when you want the packaged skills.
+This plugin ships skills and instructions only. For the ACP delegation and
+`jev-decision` MCP servers, also install the separate
+[`ai-shed`](https://github.com/saari-co/ai-shed) plugin (see its README, "Install
+as a plugin", or [the ai-shed plugin reference](skills/acp-delegation/references/ai-shed-plugin.md)); do not
+treat a hand-written `~/.cursor/mcp.json` as the product install. Use **Google
 Antigravity (AGY)** when you want a path-based install from a checkout.
+
+Upgrading from `saarius-skills` 0.5.x or earlier: those versions bundled the
+same MCP servers. Update this plugin so only `ai-shed` starts them; otherwise
+the old copies fail with "Connection closed" or start duplicate brokers.
 
 ### Codex
 
@@ -305,7 +317,7 @@ git clone https://github.com/saariuslystoned/SaariusSkills.git \
 ```
 
 Run **Developer: Reload Window**, then open **Customize** and confirm the
-`saarius-skills` skills (and MCP servers, if enabled) appear. This follows
+`saarius-skills` skills appear. This follows
 [Cursor's local plugin development flow](https://cursor.com/docs/plugins#test-plugins-locally).
 
 To update an existing local install:
@@ -314,9 +326,9 @@ To update an existing local install:
 git -C ~/.cursor/plugins/local/saarius-skills pull --ff-only
 ```
 
-The Cursor plugin MCP entries are hop-free and ship no machine paths. Hop,
-when used, is `SAARIUS_ACP_HOP_ARGV` on the parent attach. For the optional
-Cursor, Antigravity, Grok, and Muse worker bridges, see
+Hop, when used, is `SAARIUS_ACP_HOP_ARGV` on the parent attach. For the
+optional Cursor, Antigravity, Grok, and Muse worker lanes (servers from
+`ai-shed`), see
 [docs/cursor-acp-delegation.md](docs/cursor-acp-delegation.md),
 [docs/antigravity-acp-delegation.md](docs/antigravity-acp-delegation.md),
 [docs/grok-acp-delegation.md](docs/grok-acp-delegation.md), and
@@ -333,28 +345,16 @@ claude plugin install saarius-skills@saarius-skills
 ```
 
 Inside a session, `/plugin marketplace add saariuslystoned/SaariusSkills` and
-`/plugin install saarius-skills@saarius-skills` do the same. The
-[Claude Code manifest](.claude-plugin/plugin.json) registers the `cursor-acp`
-(Cursor Grok), `antigravity-acp`, `grok-acp`, and `muse-acp` delegation servers through
-`${CLAUDE_PLUGIN_ROOT}`, with no machine-specific paths; each bridge keeps its own
-defaults for the Cursor executable, Grok executable, `GEMINI_HOME`, and Muse executable. The
-manifest passes `SAARIUS_ACP_PERMISSION_MODE` from Claude Code's environment
-through to each bridge, defaulting to `approve-reads`; export
-`SAARIUS_ACP_PERMISSION_MODE=approve-all` (or set it under `env` in Claude
-Code `settings.json`) as the explicit break-glass, then start a fresh session
-and confirm `permission.permissionMode` in `*_acp_readiness`; the
-`*_acp_delegate` receipt echoes the same `permission` object. Each host reads
-its own manifest: Codex reads [`.mcp.json`](.mcp.json) through
-`.codex-plugin/plugin.json`, Cursor reads `.cursor-plugin/mcp.json`, and the
-installed Claude Code plugin reads only the inline block above, so an `env`
-edit in `.mcp.json` never reaches a Claude Code plugin bridge, and no manifest
-ships the break-glass. Prepare
-the bridge runtimes once per plugin version, as described in
-[Local Antigravity ACP](#local-antigravity-acp). If a server fails to start, its
-stderr names the exact `prepare.mjs` command for the installed copy, and for an
-invalid prepared tree the first failing integrity check and a
-`--replace-invalid` recovery command (see
-[Runtime troubleshooting](docs/cursor-acp-delegation.md#runtime-troubleshooting)).
+`/plugin install saarius-skills@saarius-skills` do the same. The plugin ships
+skills only. For the `cursor-acp`, `antigravity-acp`, `grok-acp`, `muse-acp`,
+and `jev-decision` servers, install the `ai-shed` plugin
+(`claude plugin marketplace add saari-co/ai-shed`, then
+`claude plugin install ai-shed@ai-shed`) and prepare its brokers as described
+in [the ai-shed plugin reference](skills/acp-delegation/references/ai-shed-plugin.md). Its tools appear as
+`mcp__plugin_ai-shed_<server>__<tool>`; permission mode and runtime
+troubleshooting are in the
+[permission setup guide](skills/acp-delegation/references/permissions.md) and
+[Runtime troubleshooting](docs/cursor-acp-delegation.md#runtime-troubleshooting).
 Then start a fresh session and confirm with `/mcp`. Puppet and Herdr-Puppet are archived and
 not installed.
 
@@ -418,8 +418,8 @@ invocation, but it is never required when the user's intent is already clear.
 - [`skills/jevsweeper/SKILL.md`](skills/jevsweeper/SKILL.md): after a published
   ClawSweeper review, Jev labels leftover boxes `repair`, `owner-gate`, or
   `do-not-patch`. It is not merge authority. Outside OpenClaw it asks Jev
-  through the local [`bridge/jev-decision`](bridge/jev-decision/README.md) MCP
-  server, and falls back to the rubric by hand when Jev is not available.
+  through the `jev-decision` MCP server from the
+  [`ai-shed`](https://github.com/saari-co/ai-shed) plugin, and falls back to the rubric by hand when Jev is not available.
 
 GrillTrack never treats a decision lock as permission to commit, push, open or
 merge a pull request, deploy, spend, or change an account. Those actions require

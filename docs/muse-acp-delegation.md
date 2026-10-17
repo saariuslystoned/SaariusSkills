@@ -1,10 +1,16 @@
 # Muse ACP delegation
 
+> **Where the server lives.** The `muse-acp` MCP server ships in the separate
+> `ai-shed` plugin ([saari-co/ai-shed](https://github.com/saari-co/ai-shed)); `saarius-skills` ships
+> skills and instructions only and must not also bundle the server. Broker
+> source, tests, and runtime preparation live in ai-shed. Install steps:
+> [the ai-shed plugin reference](../skills/acp-delegation/references/ai-shed-plugin.md).
+
 SaariusSkills is the host policy for one local ACP contract. ACpx is the
 local client. ACP is the wire. This lane's worker is Muse, which does
 not speak ACP natively: the ACP child is `muse-agent-acp`, a small adapter
-(`bridge/muse-acp/adapter/`) that translates ACP to Muse Session
-Protocol (MSP) over `muse serve` stdio. `bridge/muse-agent-acp/server.mjs`
+(ai-shed's `muse-acp/adapter/`) that translates ACP to Muse Session
+Protocol (MSP) over `muse serve` stdio. ai-shed's `muse-agent-acp/server.mjs`
 is the standalone entry other ACP clients run directly.
 
 ```text
@@ -36,8 +42,8 @@ HTTP mode with only `shed_task_*`; see
 | `session/request_permission` (client) | from MSP `approval/request`; decision returns as `approval/decide`; a cancelled prompt selects the deny choice (fail closed) |
 
 MSP `userInput/request` (fixed-choice questions) is declined fail-closed via
-`userInput/cancel`, matching the shared host policy. ACP `mcpServers` on
-`session/new` are currently ignored with a stderr note; MSP session-config
+`userInput/cancel`, matching the shared host policy. MCP servers passed on
+ACP `session/new` are currently ignored with a stderr note; MSP session-config
 mapping is not implemented yet. Both schemas are machine-exported
 (`muse schema` renders the exact MSP bundle for the installed binary, with
 a SHA-256 fingerprint the adapter logs at startup), so protocol drift is a
@@ -72,17 +78,40 @@ install; the bridge never starts a login or invents credentials.
 
 ## Local development
 
+Broker source and its tests live in [saari-co/ai-shed](https://github.com/saari-co/ai-shed) under
+`muse-acp/`. Develop, test, and run the opt-in live smoke there (see that
+package's `package.json` scripts); this repository no longer carries the
+broker. Adapter tests live in ai-shed's `muse-agent-acp/test/` and run against a
+fake MSP host.
+
+## MCP connection
+
+Install the `ai-shed` plugin, not `saarius-skills`, to get this server; follow
+[the ai-shed plugin reference](../skills/acp-delegation/references/ai-shed-plugin.md) or ai-shed's README section "Install as a
+plugin". In Claude Code the server registers as `plugin:ai-shed:muse-acp` and its
+tools as `mcp__plugin_ai-shed_muse-acp__<tool>`. Do not add the server to the
+`saarius-skills` manifests: both plugins would register it and start two
+brokers.
+
+Installing or updating ai-shed copies source; it does not install the broker's
+Node dependencies. After each install/update, prepare the persistent runtime
+store from the **installed** ai-shed plugin root (`$AI_SHED_ROOT`, the harness's
+plugin cache copy, not a git clone):
+
 ```bash
-cd bridge/muse-acp
-npm run setup        # install locked deps (lifecycle scripts disabled)
-npm run doctor       # MCP init + six-tool check, no model turn
-npm run check        # syntax + bridge tests + adapter tests
-node ../acp-runtime/prepare.mjs --bridge muse-acp
+node "$AI_SHED_ROOT/acp-runtime/prepare.mjs" --bridge muse-acp
 ```
 
-Adapter tests live in `bridge/muse-agent-acp/test/` and run against a fake
-MSP host; the bridge test suite also drives the real adapter through the
-pinned acpx runtime against that fake host.
+Preparation runs locked `npm ci` with lifecycle scripts disabled in a per-user,
+content-addressed runtime store outside the plugin cache. The MCP launcher
+reuses that store and performs no network install during MCP initialization.
+`setup.mjs --check` remains a dependency/MCP health check and does not install
+or send a model turn.
+
+Reload the host or start a fresh task after repair. Verify the native
+`muse_acp_readiness` call before delegating. If native tools remain absent, diagnose the
+ai-shed install and reload; changing models or switching lanes does not repair
+the MCP installation.
 
 ## Delegation timeout
 
@@ -96,8 +125,8 @@ Set `SAARIUS_ACP_TIMEOUT_MS` (milliseconds, default `3600000`, integer bounds `1
 Job state and compact proof live under the bridge state root
 (`SAARIUS_MUSE_ACP_STATE_DIR` or the per-user default), outside the mutating
 workspace: `jobs/`, `runs/<jobId>/` with `STATE.md`, `events.jsonl`,
-`heartbeat`, and `PROOF.md`. Removing the lane is removing its MCP manifest
-entries and prepared runtime; no workspace state is written by setup.
+`heartbeat`, and `PROOF.md`. Removing the lane is removing the `ai-shed` plugin (or
+its `muse-acp` server) and the prepared runtime; no workspace state is written by setup.
 
 ## Hop
 
@@ -119,5 +148,5 @@ read-only session viewer are in
 
 No committed live proof receipt exists for this lane yet. This lane does not
 claim an official Muse ACP server (none ships upstream), MSP
-`session/resume` replay, ACP `mcpServers` forwarding, active-turn steering,
+`session/resume` replay, forwarding MCP servers from ACP `session/new`, active-turn steering,
 or any Parallels/VM route.

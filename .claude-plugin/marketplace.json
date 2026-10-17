@@ -1,6 +1,6 @@
 {
   "name": "saarius-skills",
-  "description": "Saarius Skills for Claude Code: agent skills plus local Cursor, Antigravity, Grok, and Muse ACP delegation.",
+  "description": "Saarius Skills for Claude Code: agent skills plus instructions for local Cursor, Antigravity, Grok, and Muse ACP delegation (servers ship in the ai-shed plugin).",
   "owner": {
     "name": "Bobby Bones",
     "url": "https://github.com/saariuslystoned"
@@ -9,7 +9,7 @@
     {
       "name": "saarius-skills",
       "source": "./",
-      "description": "Experimental agent skills, product decisions, and local Cursor, Antigravity, Grok, and Muse ACP delegation routes."
+      "description": "Experimental agent skills, product decisions, and instructions for local Cursor, Antigravity, Grok, and Muse ACP delegation (MCP servers ship in the separate ai-shed plugin)."
     }
   ]
 }

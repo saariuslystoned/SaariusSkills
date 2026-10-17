@@ -1,11 +1,17 @@
 # Cursor ACP delegation
 
+> **Where the server lives.** The `cursor-acp` MCP server ships in the separate
+> `ai-shed` plugin ([saari-co/ai-shed](https://github.com/saari-co/ai-shed)); `saarius-skills` ships
+> skills and instructions only and must not also bundle the server. Broker
+> source, tests, and runtime preparation live in ai-shed. Install steps:
+> [the ai-shed plugin reference](../skills/acp-delegation/references/ai-shed-plugin.md).
+
 This is the Codex → Cursor worker lane. Host the plugin in Codex, then
 delegate one bounded slice over ACP to a local Cursor agent. Live Local /
 Always-on / Hop hello.mjs proof is the Antigravity worker, not this lane.
 Former aliases: Local was L; Always-on was A1; Hop was B. See
 [docs/antigravity-acp-delegation.md](antigravity-acp-delegation.md).
-Published install is the plugin, not a hand-written `~/.cursor/mcp.json`.
+Published install is the `ai-shed` plugin, not a hand-written `~/.cursor/mcp.json`.
 
 The bridge exposes a small stdio MCP server and uses pinned `acpx@0.19.4`
 to open an ACP session with the explicit local Cursor executable:
@@ -85,7 +91,7 @@ Pass `model` alone for any of the three supported models. One conversation owns 
 {
   "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
   "model": "grok-4.6",
-  "prompt": "Run npm run check in bridge/cursor-acp and verify test output."
+  "prompt": "Run the Python test suite and verify zero failures."
 }
 
 // Example 2: Grok 4.7 (model base name only, effort omitted)
@@ -105,35 +111,16 @@ Pass `model` alone for any of the three supported models. One conversation owns 
 
 ## Local development
 
-From the repository worktree:
+Broker source and its tests live in [saari-co/ai-shed](https://github.com/saari-co/ai-shed) under
+`cursor-acp/`. Develop, test, and run the opt-in live smoke there (see that
+package's `package.json` scripts); this repository no longer carries the
+broker.
 
-```bash
-cd bridge/cursor-acp
-npm run setup
-npm test
-```
-
-The package requires Node 22.13 or newer. `package-lock.json` pins the bridge's
-development dependencies. `npm test` uses protocol fixtures and a fake runtime;
-it does not contact Cursor or run a model turn.
-
-Tests need a real `node_modules` in the bridge directory (`npm ci`, or a copy).
+Tests need a real `node_modules` in the broker directory (`npm ci`, or a copy).
 Never symlink it to a prepared runtime under
 `~/.local/state/saarius-skills/acp-runtime`: the runtime-store tests mutate
 their fixture's dependencies, and a linked `node_modules` carries those writes
 into the prepared runtime (see [Runtime troubleshooting](#runtime-troubleshooting)).
-
-The bounded live smoke test is opt-in:
-
-```bash
-npm run smoke
-```
-
-It uses the installed Cursor login, the exact executable and model above, a
-disposable workspace, and a run directory outside that workspace. It proves
-readiness/model selection, workspace binding, completion, steering refusal, and
-cancellation. It does not push, deploy, send messages, change accounts, or use
-an API-key fallback.
 
 ## Delegation timeout
 
@@ -151,64 +138,51 @@ existing bounds.
 
 ## MCP connection
 
-The root `.codex-plugin/plugin.json` declares `.mcp.json`, whose stdio server
-command uses `cwd: "."`, which Codex resolves against the installed plugin
-root, with a relative server argument. This legacy `.codex-plugin` format does
-not expand `${PLUGIN_ROOT}` in arguments. The plugin's MCP server
-does not accept arbitrary shell commands or credentials in tool arguments.
+Install the `ai-shed` plugin, not `saarius-skills`, to get this server; follow
+[the ai-shed plugin reference](../skills/acp-delegation/references/ai-shed-plugin.md) or ai-shed's README section "Install as a
+plugin". In Claude Code the server registers as `plugin:ai-shed:cursor-acp` and its
+tools as `mcp__plugin_ai-shed_cursor-acp__<tool>`. Do not add the server to the
+`saarius-skills` manifests: both plugins would register it and start two
+brokers.
 
-After reviewing the package, connect it to Codex from the repository worktree:
-
-```bash
-codex plugin marketplace add "$PWD/.agents/plugins"
-codex plugin add saarius-skills@saarius-skills
-```
-
-For Claude Code, the [Claude Code manifest](../.claude-plugin/plugin.json)
-registers all three ACP servers through `${CLAUDE_PLUGIN_ROOT}` with no
-machine-specific paths:
+Installing or updating ai-shed copies source; it does not install the broker's
+Node dependencies. After each install/update, prepare the persistent runtime
+store from the **installed** ai-shed plugin root (`$AI_SHED_ROOT`, the harness's
+plugin cache copy, not a git clone):
 
 ```bash
-claude plugin marketplace add "$PWD"
-claude plugin install saarius-skills@saarius-skills
+node "$AI_SHED_ROOT/acp-runtime/prepare.mjs" --bridge cursor-acp
 ```
 
-Installing/updating the plugin copies source; it does not install this bridge's
-Node dependencies. After each install/update, resolve the active plugin root
-from the installed skill location and prepare the persistent runtime store:
+Preparation runs locked `npm ci` with lifecycle scripts disabled in a per-user,
+content-addressed runtime store outside the plugin cache. The MCP launcher
+reuses that store and performs no network install during MCP initialization.
+`setup.mjs --check` remains a dependency/MCP health check and does not install
+or send a model turn.
 
-```bash
-node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge cursor-acp
-```
+The shared store is keyed by broker source, package lock, OS/architecture, and
+Node compatibility. Lanes never reuse each other's runtime trees. A failed or
+incomplete preparation never becomes launchable; diagnostics are emitted on
+stderr so MCP stdout remains protocol-only.
 
-Set `SAARIUS_PLUGIN_ROOT` to that absolute installed plugin directory, not a
-development checkout. Preparation runs locked `npm ci` with lifecycle scripts
-disabled in a per-user, content-addressed runtime store outside the ephemeral
-plugin cache. The MCP launcher reuses that store and performs no network install
-during MCP initialization. Run the analogous Antigravity command when that lane
-is enabled. `setup.mjs --check` remains a dependency/MCP health check and does
-not install or send a model turn.
+The Codex orchestrator model (including GPT-5.6 Luna Medium) is independent of
+the Cursor worker model.
 
-The shared store is keyed by bridge source, package lock, OS/architecture, and
-Node compatibility. Cursor and Antigravity never reuse each other's runtime
-trees. A failed or incomplete preparation never becomes launchable; diagnostics
-are emitted on stderr so MCP stdout remains protocol-only.
-
-Reload Codex or start a fresh task after repair. Verify the native
-`cursor_acp_readiness` call before delegating. The Codex orchestrator model
-(including GPT-5.6 Luna Medium) is independent of the Cursor worker model. If
-native tools remain absent, diagnose registration/loading; changing models or
-switching to Puppet does not repair the MCP installation.
+Reload the host or start a fresh task after repair. Verify the native
+`cursor_acp_readiness` call before delegating. If native tools remain absent, diagnose the
+ai-shed install and reload; changing models or switching lanes does not repair
+the MCP installation.
 
 ## Runtime troubleshooting
 
-This section covers all three bridges; substitute the bridge name. The launcher
+This section covers every ACP broker; substitute the broker name. `$AI_SHED_ROOT`
+is the installed ai-shed plugin root. The launcher
 never installs anything. When it cannot start a bridge it writes one JSON line
 to stderr and exits 2, which MCP clients show as a failed or `CONNECTION_CLOSED`
 server. To read that line, run the launcher with stdin closed:
 
 ```bash
-node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/launcher.mjs" cursor-acp </dev/null
+node "$AI_SHED_ROOT/acp-runtime/launcher.mjs" cursor-acp </dev/null
 ```
 
 `RUNTIME_SETUP_REQUIRED` carries `details.state`:
@@ -226,7 +200,7 @@ stays fail-closed: it never overwrites or deletes an existing tree. After
 looking at what changed, move the invalid tree aside and prepare a fresh one:
 
 ```bash
-node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge cursor-acp --replace-invalid
+node "$AI_SHED_ROOT/acp-runtime/prepare.mjs" --bridge cursor-acp --replace-invalid
 ```
 
 `--replace-invalid` renames the invalid tree to

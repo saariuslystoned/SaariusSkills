@@ -1,7 +1,7 @@
 {
   "name": "saarius-skills",
-  "version": "0.5.0",
-  "description": "Experimental agent skills, product decisions, and local Cursor, Antigravity, Grok, and Muse ACP delegation routes.",
+  "version": "0.6.0",
+  "description": "Experimental agent skills, product decisions, and instructions for local Cursor, Antigravity, Grok, and Muse ACP delegation (MCP servers ship in the separate ai-shed plugin).",
   "author": {
     "name": "Bobby Bones",
     "url": "https://github.com/saariuslystoned"
@@ -18,57 +18,5 @@
     "grok-acp",
     "muse-acp",
     "bounded-delegation"
-  ],
-  "mcpServers": {
-    "cursor-acp": {
-      "command": "node",
-      "args": [
-        "${CLAUDE_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs",
-        "cursor-acp"
-      ],
-      "env": {
-        "SAARIUS_ACP_PERMISSION_MODE": "${SAARIUS_ACP_PERMISSION_MODE:-approve-reads}",
-        "SAARIUS_ACP_TIMEOUT_MS": "${SAARIUS_ACP_TIMEOUT_MS:-3600000}"
-      }
-    },
-    "antigravity-acp": {
-      "command": "node",
-      "args": [
-        "${CLAUDE_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs",
-        "antigravity-acp"
-      ],
-      "env": {
-        "SAARIUS_ACP_PERMISSION_MODE": "${SAARIUS_ACP_PERMISSION_MODE:-approve-reads}",
-        "SAARIUS_ACP_TIMEOUT_MS": "${SAARIUS_ACP_TIMEOUT_MS:-3600000}"
-      }
-    },
-    "grok-acp": {
-      "command": "node",
-      "args": [
-        "${CLAUDE_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs",
-        "grok-acp"
-      ],
-      "env": {
-        "SAARIUS_ACP_PERMISSION_MODE": "${SAARIUS_ACP_PERMISSION_MODE:-approve-reads}",
-        "SAARIUS_ACP_TIMEOUT_MS": "${SAARIUS_ACP_TIMEOUT_MS:-3600000}"
-      }
-    },
-    "muse-acp": {
-      "command": "node",
-      "args": [
-        "${CLAUDE_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs",
-        "muse-acp"
-      ],
-      "env": {
-        "SAARIUS_ACP_PERMISSION_MODE": "${SAARIUS_ACP_PERMISSION_MODE:-approve-reads}",
-        "SAARIUS_ACP_TIMEOUT_MS": "${SAARIUS_ACP_TIMEOUT_MS:-3600000}"
-      }
-    },
-    "jev-decision": {
-      "command": "node",
-      "args": [
-        "${CLAUDE_PLUGIN_ROOT}/bridge/jev-decision/server.mjs"
-      ]
-    }
-  }
+  ]
 }

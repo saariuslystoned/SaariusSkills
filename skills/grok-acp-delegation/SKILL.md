@@ -24,18 +24,25 @@ non-native substitutes.
 
 ## Discovery and setup
 
-Tool names may have a plugin/server prefix. Search the available/deferred tool
-catalog for `grok_acp_readiness` before concluding the route is unavailable; a
-short initial tool list is not proof.
+The `grok-acp` MCP server comes from the separate `ai-shed` plugin
+([saari-co/ai-shed](https://github.com/saari-co/ai-shed)), not from this
+`saarius-skills` plugin, which ships skills and instructions only. Do not
+bundle or re-add the server here; both plugins would register it and start two
+brokers. Install, prepare, and reload steps are in
+[the ai-shed plugin reference](../acp-delegation/references/ai-shed-plugin.md).
 
-If no callable Grok ACP tool is found, diagnose setup. From this installed
-skill's directory, the package check is:
+Tool names have a plugin/server prefix: in Claude Code this lane's readiness
+tool is `mcp__plugin_ai-shed_grok-acp__grok_acp_readiness`. Search the available/deferred
+tool catalog for `grok_acp_readiness` before concluding the route is unavailable; a short
+initial tool list is not proof.
+
+If no callable tool is found, diagnose setup: confirm the `ai-shed` plugin is
+installed, then run the package check from the **installed** ai-shed root:
 
 ```bash
-node ../../bridge/grok-acp/scripts/setup.mjs --check
+node "<ai-shed root>/grok-acp/scripts/setup.mjs" --check
 ```
 
-Resolve that relative path against this SKILL.md, not the task's workspace.
 `DEPENDENCIES_MISSING` includes an exact repair command. When local setup is
 authorized, run that command with `--install`; it installs locked Node
 dependencies with lifecycle scripts disabled and verifies MCP initialization
@@ -43,17 +50,17 @@ and all six tools. It does not open a Grok login or send a model turn.
 
 The child is whatever `GROK_EXECUTABLE` names, or `grok` on `PATH`. Plugin
 manifests do not ship a machine-specific path. Login is a precondition of the
-installed Grok CLI, not something this bridge starts. After every plugin
-install/update, prepare the persistent runtime:
+installed Grok CLI, not something this bridge starts. After every
+ai-shed install/update, prepare the persistent runtime:
 
 ```bash
-node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge grok-acp
+npm run setup-runtime --prefix "<ai-shed root>/grok-acp"
 ```
 
 After repair, reload the host app or start a fresh task so its native tool
 inventory is rebuilt. `MCP_READY` proves server startup, not that the current
 task has reloaded it. If still unavailable, report `MCP_UNAVAILABLE` with the
-setup result and the specific reload/registration action needed. Do not replace
+setup result and the specific install/reload action needed. Do not replace
 this route with Cursor ACP, Puppet grok, Herdr, or tmux unless the user
 explicitly authorizes that alternative.
 

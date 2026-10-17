@@ -75,13 +75,17 @@ Task statuses: `running`, `opening_pr`, `pr_opened`, `no_changes`,
 
 ## Setup (on the shed)
 
+The shed service code lives in
+[saari-co/ai-shed](https://github.com/saari-co/ai-shed); run it from a clone of
+that repo (`<ai-shed checkout>` below), not from `saarius-skills`.
+
 The examples use `shed.sm0ky.dev`. Use any hostname on a zone in your own
 Cloudflare account.
 
 1. **Prepare the bridge and sign in to Antigravity** (same as Local mode):
 
    ```sh
-   cd <plugin>/bridge/antigravity-acp
+   cd <ai-shed checkout>/antigravity-acp
    npm run setup && npm run setup-runtime && npm run doctor
    ```
 
