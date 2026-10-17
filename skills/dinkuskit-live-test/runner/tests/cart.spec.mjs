@@ -163,8 +163,13 @@ test("Cart", { tag: "@next" }, journey(async () => {
       const count = await headerCount(page, 2);
       if (count !== 2) problems.push(`the header's cart shows ${items(count)}`);
       const said = await cartSays(page);
-      // Read before the reload, so a total that only catches up on a reload is a finding.
-      liveTotal = await totalCatchesUp(page).then(detail => ({ detail }), error => ({ error }));
+      // Read before the reload, so a total that only catches up on a reload is a finding. A line the
+      // cart redrew at its old quantity can't show a total that followed the new one.
+      liveTotal = await (async () => {
+        const [live] = await cartLines(page);
+        if (live?.quantity !== "2") throw new Error(`Right after the change the cart shows quantity ${live?.quantity || "none"}, not 2, so its total didn't follow it${said}.`);
+        return totalCatchesUp(page);
+      })().then(detail => ({ detail }), error => ({ error }));
       // The cart is kept in the shopper's browser, so coming back shows the same quantity.
       await page.reload(load);
       const [line] = await cartLines(page);
