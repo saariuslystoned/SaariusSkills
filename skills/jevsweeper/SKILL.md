@@ -32,8 +32,11 @@ or dispatch. Follow `dinkuskit-leftover-recap` for leftover vs `main`. Follow
 3. Ask the first judge this harness has, in this order:
    - OpenClaw: the core `decision_evaluate` tool.
    - Claude, Cursor, Codex, Antigravity: `decision_evaluate` from the
-     `jev-decision` MCP server ([bridge/jev-decision](../../bridge/jev-decision/README.md)),
-     same request and result shape.
+     `jev-decision` MCP server, same request and result shape. That server ships
+     in the separate `ai-shed` plugin
+     ([saari-co/ai-shed](https://github.com/saari-co/ai-shed), see its
+     `jev-decision/README.md`), not in `saarius-skills`; in Claude Code the tool
+     is `mcp__plugin_ai-shed_jev-decision__decision_evaluate`.
    - Neither tool present: the rubric by hand.
    Labels are only `repair`, `owner-gate`, and `do-not-patch`. Work out
    `next_move` from the box labels with the rubric's `next_move` rule. Done

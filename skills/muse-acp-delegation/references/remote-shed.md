@@ -75,6 +75,10 @@ Task statuses: `running`, `opening_pr`, `pr_opened`, `no_changes`,
 
 ## Setup (on the shed)
 
+The shed service code lives in
+[saari-co/ai-shed](https://github.com/saari-co/ai-shed); run it from a clone of
+that repo (`<ai-shed checkout>` below), not from `saarius-skills`.
+
 The examples use `shed.sm0ky.dev`. Use any hostname on a zone in your own
 Cloudflare account. One shed host process serves one lane: running Muse
 alongside another lane's shed needs its own hostname, port, and Access
@@ -84,7 +88,7 @@ application (for example `shed-muse.sm0ky.dev` ->
 1. **Prepare the bridge and sign in to Muse on the shed (`muse login`)** (same as Local mode):
 
    ```sh
-   cd <plugin>/bridge/muse-acp
+   cd <ai-shed checkout>/muse-acp
    npm run setup && npm run setup-runtime && npm run doctor
    ```
 

@@ -1,6 +1,12 @@
 # Local Grok ACP delegation
 
-This repository carries an experimental local-only bridge, separate from the
+> **Where the server lives.** The `grok-acp` MCP server ships in the separate
+> `ai-shed` plugin ([saari-co/ai-shed](https://github.com/saari-co/ai-shed)); `saarius-skills` ships
+> skills and instructions only and must not also bundle the server. Broker
+> source, tests, and runtime preparation live in ai-shed. Install steps:
+> [the ai-shed plugin reference](../skills/acp-delegation/references/ai-shed-plugin.md).
+
+This guide documents an experimental local-only bridge, separate from the
 Cursor ACP lane and from Puppet's grok tmux harness. The bridge exposes a
 small stdio MCP server named `grok-acp` and uses pinned `acpx@0.19.4` to
 open an ACP session with ACpx's built-in `grok-build` agent:
@@ -48,33 +54,13 @@ explicitly proven.
 
 ## Local development
 
-From the repository worktree:
-
-```bash
-cd bridge/grok-acp
-npm run setup
-npm test
-```
-
-The package requires Node 22.13 or newer. `package-lock.json` pins the bridge's
-development dependencies. `npm test` uses protocol fixtures and a fake runtime;
-it does not contact Grok or run a model turn.
-
-The bounded live smoke test is opt-in:
-
-```bash
-SAARIUS_ACP_PERMISSION_MODE=approve-all npm run smoke
-```
-
-The explicit `SAARIUS_ACP_PERMISSION_MODE=approve-all` is required as a
-break-glass precondition because this smoke intentionally exercises local
-`pwd`/`sleep` exec. Unset or default `approve-reads` refuses before runtime or
-provider startup; the command does not automatically escalate permissions.
-It uses the installed Grok login, `grok agent stdio`, the plugin default
-model policy (`grok-4.7`, then advertised `grok-4.6`, then `grok-4.5`), a disposable workspace, and a run directory outside that
-workspace. It proves readiness/model selection, workspace binding, completion,
-steering refusal, and cancellation. It does not push, deploy, send messages,
-change accounts, or use an API-key fallback.
+Broker source and its tests live in [saari-co/ai-shed](https://github.com/saari-co/ai-shed) under
+`grok-acp/`. Develop, test, and run the opt-in live smoke there (see that
+package's `package.json` scripts); this repository no longer carries the
+broker. Its live smoke needs `SAARIUS_ACP_PERMISSION_MODE=approve-all` as a
+break-glass precondition because it exercises local `pwd`/`sleep` exec; it
+does not push, deploy, send messages, change accounts, or use an API-key
+fallback.
 
 ## Reasoning effort
 
@@ -107,37 +93,41 @@ turn wall.
 
 ## MCP connection
 
-Codex `.mcp.json`, Cursor `.cursor-plugin/mcp.json`, and the Claude Code
-manifest all start the shared launcher with bridge name `grok-acp`. After each
-plugin install/update,
-prepare the persistent runtime store from the installed plugin root:
+Install the `ai-shed` plugin, not `saarius-skills`, to get this server; follow
+[the ai-shed plugin reference](../skills/acp-delegation/references/ai-shed-plugin.md) or ai-shed's README section "Install as a
+plugin". In Claude Code the server registers as `plugin:ai-shed:grok-acp` and its
+tools as `mcp__plugin_ai-shed_grok-acp__<tool>`. Do not add the server to the
+`saarius-skills` manifests: both plugins would register it and start two
+brokers.
+
+Installing or updating ai-shed copies source; it does not install the broker's
+Node dependencies. After each install/update, prepare the persistent runtime
+store from the **installed** ai-shed plugin root (`$AI_SHED_ROOT`, the harness's
+plugin cache copy, not a git clone):
 
 ```bash
-node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge grok-acp
+node "$AI_SHED_ROOT/acp-runtime/prepare.mjs" --bridge grok-acp
 ```
 
-Set `SAARIUS_PLUGIN_ROOT` to that absolute installed plugin directory, not a
-development checkout. Preparation runs locked `npm ci` with lifecycle scripts
-disabled in a per-user, content-addressed runtime store. The MCP launcher
+Preparation runs locked `npm ci` with lifecycle scripts disabled in a per-user,
+content-addressed runtime store outside the plugin cache. The MCP launcher
 reuses that store and performs no network install during MCP initialization.
-`setup.mjs --check` remains a dependency/MCP health check and does not
-install or send a model turn.
-
-Cursor, Antigravity, and Grok never reuse each other's runtime trees.
-
-Reload the host or start a fresh task after repair. Verify the native
-`grok_acp_readiness` call before delegating.
+`setup.mjs --check` remains a dependency/MCP health check and does not install
+or send a model turn.
 
 If the launcher reports `RUNTIME_SETUP_REQUIRED` or `prepare.mjs` reports
-`RUNTIME_IDENTITY_CONFLICT`, the error names the first failing integrity check.
-Follow the Cursor guide's
-[Runtime troubleshooting](cursor-acp-delegation.md#runtime-troubleshooting),
-which also covers Node version changes on PATH. The recovery command for this
-bridge is:
+`RUNTIME_IDENTITY_CONFLICT`, follow the Cursor guide's
+[Runtime troubleshooting](cursor-acp-delegation.md#runtime-troubleshooting).
+The recovery command for this broker is:
 
 ```bash
-node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge grok-acp --replace-invalid
+node "$AI_SHED_ROOT/acp-runtime/prepare.mjs" --bridge grok-acp --replace-invalid
 ```
+
+Reload the host or start a fresh task after repair. Verify the native
+`grok_acp_readiness` call before delegating. If native tools remain absent, diagnose the
+ai-shed install and reload; changing models or switching lanes does not repair
+the MCP installation.
 
 ## State, proof, and rollback
 
