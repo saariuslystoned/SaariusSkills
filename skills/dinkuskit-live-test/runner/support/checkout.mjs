@@ -23,35 +23,44 @@ export async function placeTestOrder(page) {
   const email = config.shopper.email || config.ownerEmail;
   if (!email) throw new Error("Set DINKUS_E2E_SHOPPER_EMAIL (or DINKUS_E2E_OWNER_EMAIL) for the checkout contact.");
 
-  // The saved profile keeps an earlier run's cart and checkout; a leftover checkout locks the cart.
+  let path = config.productPath || null;
   await page.goto(config.store + "/");
-  await page.evaluate(keys => keys.forEach(key => localStorage.removeItem(key)), [CART_KEY, CHECKOUT_KEY]);
-  const path = config.productPath || await findPhysicalProduct(page);
+  // Never two checkouts at once: a checkout an earlier run left pending in Commerce is paid on its
+  // own Stripe session instead of starting another.
+  const earlier = await page.evaluate(readStatus, { key: CHECKOUT_KEY, routes: statusRoutes() });
+  const resume = earlier.checkout?.state === "pending" ? earlier.checkout.redirectUrl : null;
+  if (resume && new URL(resume).hostname === "checkout.stripe.com") {
+    await page.goto(resume);
+  } else {
+    // The saved profile keeps an earlier run's cart and checkout; a leftover checkout locks the cart.
+    await page.evaluate(keys => keys.forEach(key => localStorage.removeItem(key)), [CART_KEY, CHECKOUT_KEY]);
+    path = config.productPath || await findPhysicalProduct(page);
 
-  await page.goto(new URL(path, config.store).href);
-  await orFail(page.locator('[data-add-to-cart][data-guest-cart-ready="1"]').first().waitFor({ timeout: 15_000 }), async () =>
-    `${path} offers no Add to cart: ${await texts(page, ".product-detail__notice, [data-product-status]")}`);
-  await page.locator(productId ? `[data-add-to-cart="${productId}"]` : "[data-add-to-cart]").first().click();
-  await orFail(expect(page.locator("[data-add-to-cart-status]")).toHaveText(/added to cart/i, { timeout: 10_000 }), async () =>
-    `Add to cart failed: ${await texts(page, "[data-add-to-cart-status]")}`);
+    await page.goto(new URL(path, config.store).href);
+    await orFail(page.locator('[data-add-to-cart][data-guest-cart-ready="1"]').first().waitFor({ timeout: 15_000 }), async () =>
+      `${path} offers no Add to cart: ${await texts(page, ".product-detail__notice, [data-product-status]")}`);
+    await page.locator(productId ? `[data-add-to-cart="${productId}"]` : "[data-add-to-cart]").first().click();
+    await orFail(expect(page.locator("[data-add-to-cart-status]")).toHaveText(/added to cart/i, { timeout: 10_000 }), async () =>
+      `Add to cart failed: ${await texts(page, "[data-add-to-cart-status]")}`);
 
-  // The checkout button turns on once the cart's catalog snapshot and Commerce's prepare both answer.
-  await page.goto(config.store + "/cart");
-  const checkout = page.locator("[data-guest-cart-checkout]");
-  await orFail(expect(checkout).toBeEnabled({ timeout: 45_000 }), async () => `The cart never offered checkout: ${await cartMessage(page)}`);
-  await orFail(page.locator("[data-guest-cart-delivery]").waitFor({ timeout: 5_000 }), async () =>
-    `The cart asks for no delivery address, so ${path} is not a physical product; set DINKUS_E2E_PRODUCT_PATH.`);
-  const { shopper } = config;
-  await page.locator("[data-guest-cart-email]").fill(email);
-  await page.locator("[data-guest-cart-delivery-name]").fill(shopper.name);
-  await page.locator("[data-guest-cart-delivery-line1]").fill(shopper.line1);
-  await page.locator("[data-guest-cart-delivery-city]").fill(shopper.city);
-  await page.locator("[data-guest-cart-delivery-region]").fill(shopper.region);
-  await page.locator("[data-guest-cart-delivery-postal-code]").fill(shopper.postalCode);
-  await page.locator("[data-guest-cart-delivery-country]").selectOption("US");
-  await checkout.click();
-  await orFail(page.waitForURL(url => url.hostname === "checkout.stripe.com", { timeout: 60_000 }), async () =>
-    `The store did not open Stripe Checkout: ${await cartMessage(page)}`);
+    // The checkout button turns on once the cart's catalog snapshot and Commerce's prepare both answer.
+    await page.goto(config.store + "/cart");
+    const checkout = page.locator("[data-guest-cart-checkout]");
+    await orFail(expect(checkout).toBeEnabled({ timeout: 45_000 }), async () => `The cart never offered checkout: ${await cartMessage(page)}`);
+    await orFail(page.locator("[data-guest-cart-delivery]").waitFor({ timeout: 5_000 }), async () =>
+      `The cart asks for no delivery address, so ${path} is not a physical product; set DINKUS_E2E_PRODUCT_PATH.`);
+    const { shopper } = config;
+    await page.locator("[data-guest-cart-email]").fill(email);
+    await page.locator("[data-guest-cart-delivery-name]").fill(shopper.name);
+    await page.locator("[data-guest-cart-delivery-line1]").fill(shopper.line1);
+    await page.locator("[data-guest-cart-delivery-city]").fill(shopper.city);
+    await page.locator("[data-guest-cart-delivery-region]").fill(shopper.region);
+    await page.locator("[data-guest-cart-delivery-postal-code]").fill(shopper.postalCode);
+    await page.locator("[data-guest-cart-delivery-country]").selectOption("US");
+    await checkout.click();
+    await orFail(page.waitForURL(url => url.hostname === "checkout.stripe.com", { timeout: 60_000 }), async () =>
+      `The store did not open Stripe Checkout: ${await cartMessage(page)}`);
+  }
 
   await payOnStripe(page, email);
   // Payments sends Stripe back to <store>/checkout/success?session_id=cs_test_...; that page may not be deployed.
@@ -90,10 +99,14 @@ async function findPhysicalProduct(page) {
 
 /** Stripe's hosted Checkout keeps its fields on the page itself, not in frames, under stable ids. */
 async function payOnStripe(page, email) {
+  // Only ever a TEST session: its URL carries a cs_test_ session id. Anything else stops the run unpaid.
+  if (!/\/cs_test_/.test(new URL(page.url()).pathname)) throw new Error("Stripe opened a session that is not in test mode; nothing was paid.");
   const card = page.locator("#cardNumber");
   // A card-only session shows the card form at once; with more methods on, Card is an accordion row.
   const cardRow = page.locator('[data-testid="card-accordion-item-button"]');
-  await card.or(cardRow).first().waitFor({ timeout: 60_000 });
+  // Stripe also renders the accordion button, hidden, when Card is already open, and it comes first
+  // in the page, so `.or(...).first()` would wait on the hidden button: wait until either is visible.
+  await expect.poll(async () => await card.isVisible() || await cardRow.isVisible(), { timeout: 60_000 }).toBe(true);
   if (!await card.isVisible()) await cardRow.click();
   // A prefilled email is shown as text, not an input.
   const emailInput = page.locator("#email");
@@ -115,6 +128,8 @@ async function payOnStripe(page, email) {
   const back = url => url.origin === config.store;
   await page.waitForURL(back, { timeout: 120_000 }).catch(async () => {
     const problem = await texts(page, '[role="alert"], .FieldError');
+    // A visible captcha is for a person to answer, never the test.
+    if (await page.locator('iframe[title*="hCaptcha challenge"]').isVisible().catch(() => false)) throw new Error("Stripe showed a captcha challenge; stopped without answering it.");
     if (config.headless) throw new Error(`Stripe did not send the shopper back to the store: ${problem}`);
     console.log("\n>>> Finish paying on the Stripe page in this test's browser window (card 4242 4242 4242 4242, 12/34, CVC 123).\n");
     await page.waitForURL(back, { timeout: HUMAN_WAIT_MS });
@@ -126,8 +141,7 @@ async function payOnStripe(page, email) {
  * Commerce check the payment and record the order, so this runs even when the return page cannot.
  */
 async function settle(page) {
-  const plugin = config.ordersAdmin.match(/\/plugins\/([^/]+)\//)?.[1];
-  const routes = ["/api/checkout/status", ...(plugin ? [`/_emdash/api/plugins/${plugin}/checkout/guest/status`] : [])];
+  const routes = statusRoutes();
   const deadline = Date.now() + 90_000;
   let last;
   do {
@@ -136,6 +150,12 @@ async function settle(page) {
     await page.waitForTimeout(5_000);
   } while (Date.now() < deadline);
   return last;
+}
+
+/** Commerce's guest checkout status routes: the store's own proxy, then the plugin route. */
+function statusRoutes() {
+  const plugin = config.ordersAdmin.match(/\/plugins\/([^/]+)\//)?.[1];
+  return ["/api/checkout/status", ...(plugin ? [`/_emdash/api/plugins/${plugin}/checkout/guest/status`] : [])];
 }
 
 // Runs in the store page: the capability the cart saved is the only key to the checkout's status.

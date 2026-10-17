@@ -53,10 +53,12 @@ authorization the test needs.
 
 - TEST mode only. The checkout pays only with Stripe's test card
   4242 4242 4242 4242, and Ship makes sandbox labels only for TEST orders. Stop if
-  a page shows live mode or offers real postage.
+  a page shows live mode or offers real postage. The test itself stops unpaid if
+  Stripe opens a session that isn't in test mode or shows a captcha.
 - Never pay twice. If a payment went through and a later step failed, finish that
-  order with `npm run finish` and `DINKUS_E2E_ORDER=<its number>`. Never start a
-  checkout while another one is still pending in Commerce.
+  order with `npm run finish` and `DINKUS_E2E_ORDER=<its number>`. A full run never
+  starts a second checkout: when Commerce still holds one as pending, the test pays
+  that checkout's own Stripe session instead.
 - Read the test inbox only through the runner's mail command, which searches for
   the sign-in emails read-only. Never send mail or change mailbox settings.
 - Keep sign-in links, codes, cookies, store keys and passes out of chat, files and
