@@ -125,3 +125,11 @@ test("a cart that lists only unit prices shows no total", () => {
   assert.equal(cartTotal(cart), null);
   assert.equal(cartTotal("Total"), null);
 });
+
+test("a product whose name starts with Total is no cart total", () => {
+  assert.equal(cartTotal(["Cart", "Total Eclipse Mug", "$15.00", "Quantity", "Remove"].join("\n")), null);
+  assert.equal(cartTotal("Subtotal sale mug $15.00"), null);
+  assert.equal(cartTotal(["Subtotal", "Free shipping over $50.00"].join("\n")), null);
+  const cart = ["Cart", "Total Eclipse Mug", "$15.00", "Quantity", "Remove", "Subtotal", "$30.00"].join("\n");
+  assert.deepEqual(cartTotal(cart), { label: "Subtotal", cents: 3000 });
+});

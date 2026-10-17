@@ -8,6 +8,8 @@ const quick = { timeout: 5_000 };
 // innerText also reads an element the page hides, so only the first one a shopper can see counts.
 const text = async (locator) => (await locator.filter({ visible: true }).first().innerText(quick).catch(() => "")).replace(/\s+/g, " ").trim();
 const items = count => count === null ? "nothing readable" : `${count} item${count === 1 ? "" : "s"}`;
+/** How long a reload of a store page may take. */
+const load = { timeout: 30_000 };
 
 /** The header cart link's item count, once it reads `expected` or a few seconds have passed; null when unreadable. */
 async function headerCount(page, expected) {
@@ -75,8 +77,8 @@ async function cartLines(page) {
   await expect.poll(() => lines.evaluateAll(all => all.length > 0 && all.every(line => line.querySelector("[data-regular-price], [data-sale-price]"))), { timeout: 15_000 })
     .toBe(true).catch(() => {});
   return lines.evaluateAll(all => all.map(line => {
-    // Text the page hides counts as missing, as it is to a shopper.
-    const shown = el => el.getClientRects().length && getComputedStyle(el).visibility !== "hidden" ? el.innerText.trim() : "";
+    // Text the page hides counts as missing, as it is to a shopper; spacing is read as text() reads it.
+    const shown = el => el.getClientRects().length && getComputedStyle(el).visibility !== "hidden" ? el.innerText.replace(/\s+/g, " ").trim() : "";
     return {
       name: [...line.querySelectorAll("h2")].map(shown).find(Boolean) ?? "",
       price: [...line.querySelectorAll("[data-sale-price]"), ...line.querySelectorAll("[data-regular-price]")].map(shown).find(Boolean) ?? "",
@@ -117,7 +119,9 @@ test("Cart", { tag: "@next" }, journey(async () => {
     // A cart with nothing in it has nothing to change, so this step stops the journey too.
     await step(page, "Add to cart puts the product in the cart", async () => {
       const product = await findProduct(page);
-      await product.button.click();
+      // Without the price the shopper saw, the cart's price can't be checked.
+      if (money(product.price) === null) throw new Error(`${product.where} shows no price for "${product.name || "its product"}", so the cart's price couldn't be checked.`);
+      await product.button.click(quick);
       const status = product.button.locator("xpath=..").locator("[data-add-to-cart-status]");
       if (!await expect(status).toHaveText(/added to cart/i, { timeout: 10_000 }).then(() => true, () => false)) {
         const said = await text(status);
@@ -130,10 +134,12 @@ test("Cart", { tag: "@next" }, journey(async () => {
       if (lines.length !== 1) throw new Error(`After adding one product the cart lists ${lines.length} lines${await cartSays(page)}.`);
       const [line] = lines;
       const problems = [];
+      if (!line.name) problems.push("no name");
+      else if (line.name !== product.name) problems.push(`the name "${line.name}", though ${product.where} named it "${product.name}"`);
       if (line.quantity !== "1") problems.push(`quantity ${line.quantity || "none"}`);
       if (money(line.price) === null) problems.push("no price");
-      else if (money(product.price) !== null && money(line.price) !== money(product.price)) problems.push(`${line.price}, though ${product.where} showed ${product.price}`);
-      if (problems.length) throw new Error(`The cart lists "${line.name}" with ${problems.join(" and ")}${await cartSays(page)}.`);
+      else if (money(line.price) !== money(product.price)) problems.push(`${line.price}, though ${product.where} showed ${product.price}`);
+      if (problems.length) throw new Error(`The cart lists the product with ${problems.join(" and ")}${await cartSays(page)}.`);
       return `"${product.name}" at ${product.price} from ${product.where}: the header shows 1 item, and the cart lists "${line.name}" at ${line.price}, quantity 1`;
     });
 
@@ -141,15 +147,15 @@ test("Cart", { tag: "@next" }, journey(async () => {
 
     await step(page, "Changing the quantity updates the cart", async () => {
       const quantity = page.locator("[data-guest-cart-qty]").first();
-      await quantity.fill("2");
+      await quantity.fill("2", quick);
       // The cart applies a typed quantity when the field loses focus, as when a shopper tabs on.
-      await quantity.press("Tab");
+      await quantity.press("Tab", quick);
       const problems = [];
       const count = await headerCount(page, 2);
       if (count !== 2) problems.push(`the header's cart shows ${items(count)}`);
       const said = await cartSays(page);
       // The cart is kept in the shopper's browser, so coming back shows the same quantity.
-      await page.reload();
+      await page.reload(load);
       const [line] = await cartLines(page);
       if (line?.quantity !== "2") problems.push(`after a reload the cart shows quantity ${line?.quantity || "none"}`);
       if (problems.length) throw new Error(`The quantity was set to 2, but ${problems.join(" and ")}${said}.`);
@@ -159,7 +165,7 @@ test("Cart", { tag: "@next" }, journey(async () => {
     await step(page, "The cart total follows the new quantity", () => totalIsRight(page), soft);
 
     await step(page, "Removing the item empties the cart", async () => {
-      await page.locator("[data-guest-cart-remove]").first().click();
+      await page.locator("[data-guest-cart-remove]").first().click(quick);
       const lines = page.locator("[data-guest-cart-line]");
       const empty = page.locator("[data-guest-cart-empty]");
       const problems = [];
@@ -167,10 +173,12 @@ test("Cart", { tag: "@next" }, journey(async () => {
       if (!await empty.isVisible()) problems.push("the cart doesn't say it's empty");
       const count = await headerCount(page, 0);
       if (count !== 0) problems.push(`the header's cart shows ${items(count)}`);
-      await page.reload();
+      await page.reload(load);
       // The cart draws its lines from the browser's saved cart when its script runs, and shows the empty message then.
-      await empty.waitFor({ timeout: 10_000 }).catch(() => {});
+      if (!await empty.waitFor({ timeout: 10_000 }).then(() => true, () => false)) problems.push("after a reload the cart doesn't say it's empty");
       if (await lines.count()) problems.push("after a reload the cart lists the item again");
+      const reloaded = await headerCount(page, 0);
+      if (reloaded !== 0) problems.push(`after a reload the header's cart shows ${items(reloaded)}`);
       if (problems.length) throw new Error(`After Remove, ${problems.join(", ")}.`);
       return `the cart says "${(await text(empty)).split(/(?<=\.)\s/)[0]}" and the header shows no items, also after a reload`;
     }, soft);

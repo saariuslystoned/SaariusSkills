@@ -26,6 +26,11 @@ export function money(text) {
 /** Cents as the shopper reads them: 2500 is "$25.00". */
 export const dollars = cents => `$${(cents / 100).toFixed(2)}`;
 
+// A total's line holds only its label, perhaps an item count, and its amount, so a product named
+// "Total Eclipse Mug" is no total. An amount on a line of its own is a bare dollar figure.
+const TOTAL = /^((?:(?:estimated|order|cart)\s+)?(?:sub)?total)(?:\s*\(\d+\s+items?\))?:?(?:\s*(\$\s?\d[\d,]*(?:\.\d{1,2})?))?$/i;
+const AMOUNT = /^\$\s?\d[\d,]*(?:\.\d{1,2})?$/;
+
 /**
  * The total a cart shows, from its visible text: { label, cents } for its "Subtotal", or for its
  * "Total" when it has no subtotal; null when it shows neither. The amount may sit on the label's
@@ -34,8 +39,10 @@ export const dollars = cents => `$${(cents / 100).toFixed(2)}`;
 export function cartTotal(text) {
   const lines = String(text ?? "").split(/\n+/).map(line => line.trim()).filter(Boolean);
   const totals = lines.flatMap((line, i) => {
-    const label = line.match(/^(?:(?:estimated|order|cart)\s+)?(?:sub)?total\b/i)?.[0];
-    const cents = label === undefined ? null : money(line.slice(label.length)) ?? money(lines[i + 1]);
+    const [, label, amount] = line.match(TOTAL) ?? [];
+    if (!label) return [];
+    const next = lines[i + 1] ?? "";
+    const cents = amount ? money(amount) : AMOUNT.test(next) ? money(next) : null;
     return cents === null ? [] : [{ label: label[0].toUpperCase() + label.slice(1).toLowerCase(), cents }];
   });
   return totals.find(total => /subtotal/i.test(total.label)) ?? totals[0] ?? null;

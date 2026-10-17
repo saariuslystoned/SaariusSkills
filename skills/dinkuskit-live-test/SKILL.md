@@ -91,7 +91,8 @@ authorization the test needs.
 - Storefront and Cart stop at their first step when a new shopper can't open the
   store at all, such as a Cloudflare Access sign-in the test couldn't get past.
   Report that one finding; the other steps didn't run. Cart also stops when no
-  product can be added to the cart.
+  product can be added to the cart, when the product shows no price, or when the
+  cart lists it under another name or price than the shopper saw.
 - Storefront's other steps are soft, so one run lists every finding: a developer
   notice on the homepage, a product without a name, price or photo, a product
   link that doesn't open, a category page that doesn't list its products
@@ -99,7 +100,8 @@ authorization the test needs.
   the owner controls, such as a product without a photo, is still a finding.
 - Cart's steps after Add to cart are soft too: a cart that shows no total or the
   wrong one, a quantity the header or a reload doesn't keep, or a Remove that
-  leaves the item. Report each finding with the amounts the proof gives.
+  leaves the item or doesn't stay empty after a reload. Report each finding with
+  the amounts the proof gives.
 
 ## What each step proves
 
