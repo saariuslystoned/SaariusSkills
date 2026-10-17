@@ -1,7 +1,7 @@
 {
   "name": "saarius-skills",
-  "version": "0.5.0",
-  "description": "Experimental agent skills, product decisions, and local Cursor, Antigravity, Grok, and Muse ACP delegation routes.",
+  "version": "0.6.0",
+  "description": "Experimental agent skills, product decisions, and instructions for local Cursor, Antigravity, Grok, and Muse ACP delegation (MCP servers ship in the separate ai-shed plugin).",
   "author": {
     "name": "Bobby Bones",
     "url": "https://github.com/saariuslystoned"
@@ -21,11 +21,10 @@
     "bounded-delegation"
   ],
   "skills": "./skills/",
-  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Saarius Skills",
-    "shortDescription": "Product decisions plus local Cursor, Antigravity, Grok, and Muse ACP delegation.",
-    "longDescription": "Experimental Agent Skills for cumulative product decisions, bounded implementation, verification, honest closeout, phone UI proof, and additive local Cursor ACP, official Antigravity ACP, local Grok CLI ACP, and Muse ACP (MSP via muse-agent-acp) delegation routes.",
+    "shortDescription": "Product decisions plus instructions for local Cursor, Antigravity, Grok, and Muse ACP delegation.",
+    "longDescription": "Experimental Agent Skills for cumulative product decisions, bounded implementation, verification, honest closeout, phone UI proof, and instructions for the local Cursor ACP, official Antigravity ACP, local Grok CLI ACP, and Muse ACP delegation routes. The MCP servers for those routes ship in the separate ai-shed plugin.",
     "developerName": "Saariusly Stoned",
     "category": "Productivity",
     "capabilities": [

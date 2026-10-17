@@ -23,32 +23,42 @@ non-native substitutes.
 
 ## Discovery and setup
 
-The orchestrator model does not select the transport: Luna High, other Codex
-models, and Claude Code use the same installed MCP tools. Tool names may have a plugin/server
-prefix. Search the available/deferred tool catalog for `cursor_acp_readiness`
-before concluding it is unavailable; a short initial tool list is not proof.
+The `cursor-acp` MCP server comes from the separate `ai-shed` plugin
+([saari-co/ai-shed](https://github.com/saari-co/ai-shed)), not from this
+`saarius-skills` plugin, which ships skills and instructions only. Do not
+bundle or re-add the server here; both plugins would register it and start two
+brokers. Install, prepare, and reload steps are in
+[the ai-shed plugin reference](../acp-delegation/references/ai-shed-plugin.md).
 
-If no callable Cursor ACP tool is found, read the handoff and diagnose setup;
-do not stop before gathering the cause. From this installed skill's directory,
-the package check is:
+Tool names have a plugin/server prefix: in Claude Code this lane's readiness
+tool is `mcp__plugin_ai-shed_cursor-acp__cursor_acp_readiness`. Search the available/deferred
+tool catalog for `cursor_acp_readiness` before concluding the route is unavailable; a short
+initial tool list is not proof.
+
+If no callable tool is found, diagnose setup: confirm the `ai-shed` plugin is
+installed, then run the package check from the **installed** ai-shed root:
 
 ```bash
-node ../../bridge/cursor-acp/scripts/setup.mjs --check
+node "<ai-shed root>/cursor-acp/scripts/setup.mjs" --check
 ```
 
-Resolve that relative path against this SKILL.md, not the task's workspace.
 `DEPENDENCIES_MISSING` includes an exact repair command. When local setup is
 authorized, run that command with `--install`; it installs locked dependencies
 with lifecycle scripts disabled and verifies MCP initialization and all six
-tools, without opening Cursor or sending a model turn. Run it after every plugin
-install/update: copying the plugin does not install its Node dependencies.
+tools, without opening Cursor or sending a model turn. Prepare the persistent
+runtime after every ai-shed install/update (`npm run setup-runtime --prefix
+"<ai-shed root>/cursor-acp"`): copying the plugin does not install its Node
+dependencies.
+
+The orchestrator model does not select the transport: Luna High, other Codex
+models, and Claude Code use the same installed MCP tools.
 
 After repair, reload the Codex app or start a fresh task (in Claude Code, a
 fresh session; confirm with `/mcp`) so its native tool
 inventory is rebuilt. `MCP_READY` proves server startup, not that the current
 task has reloaded it; verify a native readiness tool call in the fresh task.
 If still unavailable, report `MCP_UNAVAILABLE` with the setup result and the
-specific reload/registration action needed. Do not replace this route with
+specific install/reload action needed. Do not replace this route with
 Puppet, Herdr, tmux, a different model, or a task-local client unless the user
 explicitly authorizes that alternative. Setup diagnosis is not worker execution.
 
@@ -165,7 +175,7 @@ Pass `model` alone for any of the three supported models. One conversation owns 
 {
   "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
   "model": "grok-4.6",
-  "prompt": "Run npm run check in bridge/cursor-acp and verify test output."
+  "prompt": "Run the Python test suite and verify zero failures."
 }
 
 // Example 2: Grok 4.7 (model base name only, effort omitted)

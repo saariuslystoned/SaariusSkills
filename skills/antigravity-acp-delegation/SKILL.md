@@ -38,18 +38,25 @@ non-native substitutes.
 
 ## Discovery and setup
 
-Tool names may have a plugin/server prefix. Search the available/deferred tool
-catalog for `antigravity_acp_readiness` before concluding the route is
-unavailable; a short initial tool list is not proof.
+The `antigravity-acp` MCP server comes from the separate `ai-shed` plugin
+([saari-co/ai-shed](https://github.com/saari-co/ai-shed)), not from this
+`saarius-skills` plugin, which ships skills and instructions only. Do not
+bundle or re-add the server here; both plugins would register it and start two
+brokers. Install, prepare, and reload steps are in
+[the ai-shed plugin reference](../acp-delegation/references/ai-shed-plugin.md).
 
-If no callable Antigravity ACP tool is found, diagnose setup. From this
-installed skill's directory, the package check is:
+Tool names have a plugin/server prefix: in Claude Code this lane's readiness
+tool is `mcp__plugin_ai-shed_antigravity-acp__antigravity_acp_readiness`. Search the available/deferred
+tool catalog for `antigravity_acp_readiness` before concluding the route is unavailable; a short
+initial tool list is not proof.
+
+If no callable tool is found, diagnose setup: confirm the `ai-shed` plugin is
+installed, then run the package check from the **installed** ai-shed root:
 
 ```bash
-node ../../bridge/antigravity-acp/scripts/setup.mjs --check
+node "<ai-shed root>/antigravity-acp/scripts/setup.mjs" --check
 ```
 
-Resolve that relative path against this SKILL.md, not the task's workspace.
 `DEPENDENCIES_MISSING` includes an exact repair command. When local setup is
 authorized, run that command with `--install`; it installs locked Node
 dependencies with lifecycle scripts disabled and verifies MCP initialization
@@ -71,7 +78,7 @@ After repair, reload the Codex app or start a fresh task (in Claude Code, a
 fresh session; confirm with `/mcp`) so its native tool
 inventory is rebuilt. `MCP_READY` proves server startup, not that the current
 task has reloaded it. If still unavailable, report `MCP_UNAVAILABLE` with the
-setup result and the specific reload/registration action needed. Do not replace
+setup result and the specific install/reload action needed. Do not replace
 this route with Cursor ACP, Puppet, native `agy-print`, Herdr, or tmux unless
 the user explicitly authorizes that alternative.
 

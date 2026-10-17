@@ -11,6 +11,7 @@
     "./skills/create-verification-skill/",
     "./skills/creating-plugins/",
     "./skills/dinkuskit-e2e-blackbox/",
+    "./skills/dinkuskit-live-test/",
     "./skills/emdash-ci-deploy/",
     "./skills/emdash-cli/",
     "./skills/emdash-commerce/",
@@ -28,6 +29,5 @@
     "./skills/unslop/",
     "./skills/upgrading-emdash/",
     "./skills/why/"
-  ],
-  "mcpServers": "./.cursor-plugin/mcp.json"
+  ]
 }

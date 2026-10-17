@@ -8,7 +8,7 @@ description: Use Muse ACP MCP to delegate bounded implementation or verification
 Use the `muse-acp` MCP server as an optional local worker route for one
 bounded implementation or verification slice. The parent harness stays the
 host. ACpx is the local ACP client. The ACP child is `muse-agent-acp`, the
-adapter in `bridge/muse-acp/adapter/` that translates ACP to Muse
+adapter in ai-shed's `muse-acp/adapter/` that translates ACP to Muse
 Session Protocol (MSP) over `muse serve` stdio; `muse` itself does not
 speak ACP natively. This is not the Cursor, Antigravity, or Grok ACP lane,
 and not archived Puppet. The same bridge also serves remote-shed HTTP mode
@@ -27,18 +27,25 @@ non-native substitutes.
 
 ## Discovery and setup
 
-Tool names may have a plugin/server prefix. Search the available/deferred tool
-catalog for `muse_acp_readiness` before concluding the route is unavailable; a
-short initial tool list is not proof.
+The `muse-acp` MCP server comes from the separate `ai-shed` plugin
+([saari-co/ai-shed](https://github.com/saari-co/ai-shed)), not from this
+`saarius-skills` plugin, which ships skills and instructions only. Do not
+bundle or re-add the server here; both plugins would register it and start two
+brokers. Install, prepare, and reload steps are in
+[the ai-shed plugin reference](../acp-delegation/references/ai-shed-plugin.md).
 
-If no callable Muse ACP tool is found, diagnose setup. From this installed
-skill's directory, the package check is:
+Tool names have a plugin/server prefix: in Claude Code this lane's readiness
+tool is `mcp__plugin_ai-shed_muse-acp__muse_acp_readiness`. Search the available/deferred
+tool catalog for `muse_acp_readiness` before concluding the route is unavailable; a short
+initial tool list is not proof.
+
+If no callable tool is found, diagnose setup: confirm the `ai-shed` plugin is
+installed, then run the package check from the **installed** ai-shed root:
 
 ```bash
-node ../../bridge/muse-acp/scripts/setup.mjs --check
+node "<ai-shed root>/muse-acp/scripts/setup.mjs" --check
 ```
 
-Resolve that relative path against this SKILL.md, not the task's workspace.
 `DEPENDENCIES_MISSING` includes an exact repair command. When local setup is
 authorized, run that command with `--install`; it installs locked Node
 dependencies with lifecycle scripts disabled and verifies MCP initialization
@@ -49,17 +56,17 @@ as `muse serve`. Optional adapter knobs: `MUSE_AGENT_ACP_PROVIDER`,
 `MUSE_AGENT_ACP_MODEL`, and `MUSE_AGENT_ACP_SERVE_ARGS` (a JSON array of
 extra `muse serve` flags). Plugin manifests do not ship a machine-specific
 path. Provider login is a precondition of the installed Muse CLI, not
-something this bridge starts. After every plugin install/update, prepare
+something this bridge starts. After every ai-shed install/update, prepare
 the persistent runtime:
 
 ```bash
-node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge muse-acp
+npm run setup-runtime --prefix "<ai-shed root>/muse-acp"
 ```
 
 After repair, reload the host app or start a fresh task so its native tool
 inventory is rebuilt. `MCP_READY` proves server startup, not that the current
 task has reloaded it. If still unavailable, report `MCP_UNAVAILABLE` with the
-setup result and the specific reload/registration action needed. Do not replace
+setup result and the specific install/reload action needed. Do not replace
 this route with another ACP lane, archived Puppet, Herdr, or tmux unless the user
 explicitly authorizes that alternative.
 

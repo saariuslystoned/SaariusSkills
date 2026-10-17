@@ -16,7 +16,7 @@ PR135 is historical proposal context, no longer the primary owner.
 | --- | --- |
 | [PR156](https://github.com/saariuslystoned/SaariusSkills/pull/156), merged `0a078332432c079cf628dbaa2e795648fa84218b` | Journey split, Storefront and Buy and ship. Canonical status records prior unattended live Buy and ship/finish evidence, but the new thank-you confirmation step has not passed. This does not qualify Cloudflare execution or every current assertion. |
 | [PR157](https://github.com/saariuslystoned/SaariusSkills/pull/157), merged/main `949091838e55b3861968ebf12f403cda48f86b48` | Adds Cart; local proof only, no live Cart pass. Canonical Storefront previously ran live and found page/content failures. |
-| [PR158](https://github.com/saariuslystoned/SaariusSkills/pull/158), OPEN `7e923c68f83d1f0c3effc92c97af8a6803b91c2b` | Manage products: ten local steps pass against Template Store `7b96c7e` and Commerce `0.3.0-beta.2`; not live or merged. The stated minimum is beta.2 or later, not proof of later versions. Its [candidate status](https://github.com/saariuslystoned/SaariusSkills/blob/7e923c68f83d1f0c3effc92c97af8a6803b91c2b/skills/dinkuskit-live-test/references/status.md) also records updated local Cart proof. |
+| [PR158](https://github.com/saariuslystoned/SaariusSkills/pull/158), OPEN `b459696412d1fe0aa2a1bf6520c946b1f1dda285` | Manage products: ten local steps pass against Template Store `7b96c7e` and Commerce `0.3.0-beta.2`; not live or merged. The stated minimum is beta.2 or later, not proof of later versions. Its [candidate status](https://github.com/saariuslystoned/SaariusSkills/blob/b459696412d1fe0aa2a1bf6520c946b1f1dda285/skills/dinkuskit-live-test/references/status.md) also records updated local Cart proof. |
 
 The broader seven-journey plan is not seven implemented/passing journeys.
 Preserve the selected spec's original assertions/hashes; do not silently pull
@@ -34,8 +34,8 @@ Nonsecret operational identity at observation:
   Crabbox `0.78.0`, upstream `2bd85693b5fdea67d352516e082b90f8cacfe07b`;
   image SHA-256 `74481895d8863cc2983e2d8ee491dd332dbeb7f4d0382198608c2ef657d4aea4`.
 - [PR721](https://github.com/saari-co/x-api/pull/721), OPEN at
-  `25b2a1865d55673537778c2955c52777e67c4412`: security trial5 passed:
-  stale-credential readiness/native create401, zero instances, cleanup404.
+  `25b2a1865d55673537778c2955c52777e67c4412`: security trial 5 passed:
+  stale-credential readiness/native create 401, zero instances, cleanup 404.
   Scoped refusal proof, not hosted journey proof.
 - [PR722](https://github.com/saari-co/x-api/pull/722), OPEN, source
   `f3075215452f70bc6410d3191fd09d4fbcf4876d`: active fixed CP-1 consumer.
@@ -43,8 +43,8 @@ Nonsecret operational identity at observation:
   links the bounded evidence.
 
 First routine request `issue715-routine-acceptance-20261017-01` passed in
-741.694s including preparation: smoke206.492s, two isolated synthetic merchant
-stage526.717s, actual journey intervals192.756s. All29 artifact hashes were
+741.694s including preparation: smoke 206.492s, two isolated synthetic merchant
+stage 526.717s, actual journey intervals 192.756s. All 29 artifact hashes were
 verified and six screenshots inspected by an independent source-blind
 validator, which returned bounded PASS. No human login or environment
 intervention was observed during this invocation; prior enrollment is separate.
@@ -58,8 +58,8 @@ was restored. These are bounded observations, not arbitrary-concurrency proof.
 This is a **synthetic developer fixture**, not hosted Stripe, Ship, Pitney
 Bowes, email, Registry install/upgrade or full-stack certification. Actual
 billing is unknown. The observed policy allowed seven routine reservations at
-$0.80 over30days, expiring `2026-11-16T22:40:01.490312Z`; one used/six remained.
-Global reservation cap was$25, prior reservations$5.717104. Read fresh policy
+$0.80 over 30 days, expiring `2026-11-16T22:40:01.490312Z`; one used/six remained.
+Global reservation cap was $25, prior reservations $5.717104. Read fresh policy
 and ledger; these historical numbers grant no new spend or capability.
 
 Authoritative private evidence is located by repo-relative paths (no private
@@ -70,7 +70,7 @@ outputs copied into this skill):
 - x-api runtime-owner checkout: `runs/e2e-blackbox-runs/20261017-runner-auth-caller/routine-activation-plan/f307-candidate/first-request/`;
   read its safe `PROOF.md`, `INVOCATION.md`, verification and timing diagnosis.
 
-Managed Browser Run remains optional/deferred; the October15 missing-consumer
+Managed Browser Run remains optional/deferred; the October 15 missing-consumer
 preflight did not prove unavailable account entitlement. Hetzner and the bundled
 public probes remain [historical qualification](qualification.md).
 
@@ -86,12 +86,16 @@ developer notice, external redirect and Access refusal. Canonical spec SHA-256:
 lock SHA-256:
 `51a538a6154719d5bebb4393b607303a175be28d18518b605e3dfaa47637f397`.
 The package is inactive: no active CP-1 Storefront capability or live Cloudflare
-Storefront run. Consult current PR review status separately from offline proof.
+Storefront run. At the final source handoff, CI and comprehensive OpenClaw
+passed; native review reported zero actionable code findings and accepted the
+offline proof. Overall handoff remains needs-human for CLI ownership and
+current-main integration after two repair cycles. These reviews do not activate
+the capability or establish hosted acceptance.
 
 | Explicit target | Worker | Observation and remaining gate |
 | --- | --- | --- |
-| `https://e2e-v2.sm0ky.dev` | `sm0ky-registry-test-store-v2-20261013` | Real hosted report target; anonymous root302 to Access. Qualified inbox consumer needed when Access applies. |
-| `https://e2e-beta-20261014.sm0ky.dev` | `sm0ky-registry-test-store-beta-20261014` | Separate real store; anonymous root200. Automatic main builds were pinned at old `0b39b431…` and owner-disabled; data untouched. Root200 proves neither all required public routes nor full journey acceptance. |
+| `https://e2e-v2.sm0ky.dev` | `sm0ky-registry-test-store-v2-20261013` | Real hosted report target; anonymous root 302 to Access. Qualified inbox consumer needed when Access applies. |
+| `https://e2e-beta-20261014.sm0ky.dev` | `sm0ky-registry-test-store-beta-20261014` | Separate real store; anonymous root 200. Automatic main builds were pinned at old `0b39b431…` and owner-disabled; data untouched. Root 200 proves neither all required public routes nor full journey acceptance. |
 
 No silent target switch. The prepared mail adapter fails closed. Public beta
 may avoid mail only after all required routes are proved public; v2 cannot

@@ -59,3 +59,25 @@ repository; no native verdict is claimed. Human merge gate remains.
 
 No runtime, provider, credential, installation, deployment, external send,
 automation or merge operation was performed by this documentation lane.
+
+## Current-main conflict resolution
+
+GitHub reported merge conflicts and no new-head CI. A fresh fetch confirmed
+main `949091838e55b3861968ebf12f403cda48f86b48`. A non-rewriting merge into
+this PR branch preserved both independent additions in README and the Cursor
+skill list: canonical `dinkuskit-live-test` and `dinkuskit-e2e-blackbox`.
+No canonical journey, assertion or upstream packaging change was altered.
+Full hermetic Python tests and canonical runner unit tests were rerun before
+the merge commit. The earlier epoch3 review of `e65f80e` is superseded;
+current-head CI/review remain separately required.
+
+Merge validation completed: `python3 -m unittest discover -s tests -q` passed
+164 tests in168.955s; canonical runner `npm run unit` passed16 tests. Quick
+validator and diff check passed. The canonical skill/package and upstream
+removed metadata match origin/main byte-for-byte; the diff against fresh main
+contains only this PR's blackbox files, test/package entry and README addition.
+Before committing, PR158 was refreshed once to OPEN `b459696412d1fe0aa2a1bf6520c946b1f1dda285`;
+its status file is unchanged from the earlier candidate. The PR723 final
+`PR152_SYNC_DELTA.json` handoff adds review results but retains inactive/offline
+status and owner/integration/runtime gates. Only these documentation facts
+changed after the suite; no runtime code changed.

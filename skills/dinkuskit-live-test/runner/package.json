@@ -1,0 +1,15 @@
+{
+  "name": "dinkuskit-live-test",
+  "private": true,
+  "type": "module",
+  "description": "Saved end-to-end journeys against the live DinkusKit services: storefront, store checkout, Commerce order, Ship sandbox label, Completed.",
+  "scripts": {
+    "test": "playwright test --grep @running",
+    "journey": "playwright test",
+    "unit": "node --test unit/*.test.mjs",
+    "finish": "DINKUS_E2E_MODE=finish playwright test tests/buy-and-ship.spec.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1"
+  }
+}

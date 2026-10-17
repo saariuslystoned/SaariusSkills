@@ -52,7 +52,7 @@ is an **offline-only preparation surface**. Its exact-source
 [operator contract](https://github.com/saari-co/x-api/blob/8ba255dae698208fa3cc78ecc0c264978c71d28f/docs/operations/storefront-port.md)
 owns plan/prepare/verify/offline-proof commands. It preserves Storefront's
 spec/assertions, overlays env/browser/mail transports, runs one spec with
-workers1/retries0 and disables auth-bearing traces. It does not launch hosted
+workers=1/retries=0 and disables auth-bearing traces. It does not launch hosted
 Storefront and is not installed as an active CP-1 capability.
 
 Before hosted activation, its owner must bind source/lock/archive/browser hashes,
@@ -75,7 +75,7 @@ identity. A fixture, quote or practice label cannot replace a provider result.
 
 ## Historical public probe
 
-The bundled `scripts/cloudflare-probe/` files preserve the October15 public
+The bundled `scripts/cloudflare-probe/` files preserve the October 15 public
 qualification with frozen Playwright dependencies. They do not implement the
 current fixture campaign or a merchant journey. Reuse needs its own assigned
 public-probe case and current admission, not a routine campaign fallback.
