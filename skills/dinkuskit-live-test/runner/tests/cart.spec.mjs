@@ -179,8 +179,9 @@ test("Cart", { tag: "@next" }, journey(async () => {
     }, soft);
 
     await step(page, "The cart total follows the new quantity", async () => {
-      // A quantity step that stopped early read no live total, so the cart's total is read now.
-      if (!liveTotal) return totalIsRight(page);
+      // A quantity step that stopped before reading the live total never got the cart to quantity 2,
+      // so there is no new total to check; the unchanged cart's total proves nothing here.
+      if (!liveTotal) throw new Error("The quantity couldn't be changed to 2, so the cart's total couldn't be checked after a change.");
       if (liveTotal.error) throw liveTotal.error;
       return liveTotal.detail;
     }, soft);
