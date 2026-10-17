@@ -186,13 +186,20 @@ test("Storefront", { tag: "@next" }, journey(async () => {
     // "checkout is unavailable" wrong, whether a page before it or the empty cart itself says it.
     const wording = "No page says checkout is unavailable on a store that takes checkouts";
     let admitted = null;
-    if (await open(page, "/cart").then(() => true, () => false)) {
+    let cartError = "";
+    try {
+      await open(page, "/cart");
       admitted = await page.locator("[data-guest-cart]").first().getAttribute("data-guest-checkout-admitted", quick).catch(() => null);
       seen.push({ where: "the empty cart", text: await page.locator("body").innerText() });
+    } catch (error) {
+      cartError = error.message.split("\n")[0];
     }
-    if (admitted !== "true") {
-      record(wording, "SKIP", admitted === "false" ? "the store takes no checkouts (its cart page says so), so saying so is true" : "the cart page didn't say whether the store takes checkouts");
+    // Only a cart page that says the store takes no checkouts skips the check; one that won't open or doesn't say fails it.
+    if (admitted === "false") {
+      record(wording, "SKIP", "the store takes no checkouts (its cart page says so), so saying so is true");
     } else await step(page, wording, async () => {
+      if (cartError) throw new Error(`The cart page didn't open, so the test couldn't tell whether the store takes checkouts: ${cartError}`);
+      if (admitted !== "true") throw new Error("The cart page doesn't say whether the store takes checkouts, so the wording couldn't be checked.");
       // Grouped by page, so every sentence is listed and a banner repeated on each page reads as such.
       const claims = seen.map(({ where, text: words }) => ({ where, said: cantBuyClaims(words) })).filter(({ said }) => said.length);
       if (claims.length) throw new Error(`The store takes checkouts, but ${claims.map(({ where, said }) => `${where} says ${said.map(line => `"${line}"`).join(", ")}`).join("; ")}.`);
