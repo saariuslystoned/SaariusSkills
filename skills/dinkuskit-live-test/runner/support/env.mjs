@@ -20,6 +20,9 @@ const origin = value => value && new URL(value).origin;
 const shellQuote = value => `'${value.replaceAll("'", "'\\''")}'`;
 
 const runId = read("DINKUS_E2E_RUN", new Date().toISOString().replace(/[:.]/g, "-"));
+// Playwright's worker process loads this file again; handing it the same run id keeps the
+// screenshots, PROOF.md and Playwright's own report in one proof folder.
+process.env.DINKUS_E2E_RUN = runId;
 const store = origin(read("DINKUS_E2E_STORE"));
 const mailAccount = read("DINKUS_E2E_MAIL_ACCOUNT");
 const gogMail = resolve(dirname(fileURLToPath(import.meta.url)), "../scripts/gog-mail.sh");

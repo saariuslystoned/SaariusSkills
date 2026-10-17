@@ -224,7 +224,8 @@ class PackagingTests(unittest.TestCase):
             self.assertTrue((DINKUSKIT_LIVE_TEST_SKILL / "references" / name).is_file())
         for name in ("package.json", "package-lock.json", "playwright.config.mjs"):
             self.assertTrue((runner / name).is_file(), name)
-        self.assertTrue((runner / "tests" / "e2e.spec.mjs").is_file())
+        for name in ("buy-and-ship.spec.mjs", "storefront.spec.mjs"):
+            self.assertTrue((runner / "tests" / name).is_file(), name)
         self.assertIn("Never pay twice", skill)
         self.assertIn("4242 4242 4242 4242", skill)
         # The test inbox is read, never written, and no machine's inbox or store is built in.
