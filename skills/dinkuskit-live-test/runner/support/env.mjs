@@ -1,16 +1,33 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { parseSettings } from "./settings-file.mjs";
+
+const home = join(homedir(), ".dinkus-e2e");
+
+// This machine's settings (store, site id, test inbox) live outside the repo, in ~/.dinkus-e2e/env.
+// A variable already set in the environment wins over the file.
+const settingsFile = resolve(process.env.DINKUS_E2E_ENV_FILE || join(home, "env"));
+if (existsSync(settingsFile)) {
+  for (const [key, value] of Object.entries(parseSettings(readFileSync(settingsFile, "utf8")))) {
+    if (!(process.env[key] ?? "").trim()) process.env[key] = value;
+  }
+}
 
 const read = (name, fallback = "") => (process.env[name] ?? "").trim() || fallback;
-const origin = value => new URL(value).origin;
+const origin = value => value && new URL(value).origin;
+const shellQuote = value => `'${value.replaceAll("'", "'\\''")}'`;
 
 const runId = read("DINKUS_E2E_RUN", new Date().toISOString().replace(/[:.]/g, "-"));
-const store = origin(read("DINKUS_E2E_STORE", "https://e2e-v2.sm0ky.dev"));
+const store = origin(read("DINKUS_E2E_STORE"));
+const mailAccount = read("DINKUS_E2E_MAIL_ACCOUNT");
+const gogMail = resolve(dirname(fileURLToPath(import.meta.url)), "../scripts/gog-mail.sh");
 
-/** Everything a run needs, from the environment; nothing secret lives here. */
+/** Everything a run needs, from the environment and the settings file; nothing secret lives here. */
 export const config = {
   runId,
+  settingsFile,
   mode: read("DINKUS_E2E_MODE", "full"),
   store,
   ship: origin(read("DINKUS_E2E_SHIP", "https://ship.dinkuskit.com")),
@@ -33,14 +50,15 @@ export const config = {
     postalCode: read("DINKUS_E2E_SHOPPER_ZIP", "20500"),
   },
   // A shell command that prints recent mail for $DINKUS_MAIL_QUERY (bodies included), newest first.
-  mailCmd: read("DINKUS_E2E_MAIL_CMD"),
+  // Naming the test inbox in DINKUS_E2E_MAIL_ACCOUNT picks the bundled read-only gogcli script.
+  mailCmd: read("DINKUS_E2E_MAIL_CMD", mailAccount ? shellQuote(gogMail) : ""),
   // The Gmail search for Cloudflare Access's one-time PIN email, when the store admin's Access app offers PIN login.
   accessMailQuery: read("DINKUS_E2E_ACCESS_MAIL_QUERY", "from:(notify.cloudflare.com OR cloudflareaccess.com) newer_than:1h"),
   completeWaitMs: Number(read("DINKUS_E2E_COMPLETE_WAIT_SECONDS", "420")) * 1000,
   headless: read("DINKUS_E2E_HEADLESS") === "1",
   channel: read("DINKUS_E2E_CHANNEL", "chrome"),
-  profileDir: resolve(read("DINKUS_E2E_PROFILE", join(homedir(), ".dinkus-e2e", "profile"))),
-  runDir: resolve(read("DINKUS_E2E_PROOF", "proof"), runId),
+  profileDir: resolve(read("DINKUS_E2E_PROFILE", join(home, "profile"))),
+  runDir: resolve(read("DINKUS_E2E_PROOF", join(home, "proof")), runId),
 };
 
 mkdirSync(config.runDir, { recursive: true });

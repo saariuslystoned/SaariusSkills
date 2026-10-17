@@ -28,7 +28,7 @@ function write() {
   const report = { run: config.runId, mode: config.mode, store: config.store, ship: config.ship, verdict, facts, steps };
   writeFileSync(join(config.runDir, "report.json"), JSON.stringify(report, null, 2));
   const lines = [
-    `# DinkusKit live e2e: ${verdict}`, "",
+    `# DinkusKit live test: ${verdict}`, "",
     `Run ${config.runId}, mode ${config.mode}, store ${config.store}.`, "",
     "| Step | Result | Detail |", "| --- | --- | --- |",
     ...steps.map(s => `| ${s.step} | ${s.status} | ${String(s.detail).replaceAll("|", "\\|").replaceAll("\n", " ")} |`),

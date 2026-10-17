@@ -72,8 +72,9 @@ async function labelRow(page) {
   };
 }
 
-test("DinkusKit live e2e: TEST order to sandbox label to Completed", async ({ page }) => {
-  expect(config.siteId, "DINKUS_E2E_SITE_ID must name the store's DinkusKit site id").not.toBe("");
+test("DinkusKit live test: TEST order to sandbox label to Completed", async ({ page }) => {
+  expect(config.store, `Set DINKUS_E2E_STORE to the store's address (in ${config.settingsFile})`).not.toBe("");
+  expect(config.siteId, `Set DINKUS_E2E_SITE_ID to the store's DinkusKit site id (in ${config.settingsFile})`).not.toBe("");
   let orderName = config.order;
 
   if (config.mode === "full") {

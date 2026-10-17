@@ -1,10 +1,11 @@
 {
-  "name": "dinkuskit-live-e2e",
+  "name": "dinkuskit-live-test",
   "private": true,
   "type": "module",
   "description": "Saved end-to-end test against the live DinkusKit services: store checkout, Commerce order, Ship sandbox label, Completed.",
   "scripts": {
     "test": "playwright test",
+    "unit": "node --test unit/*.test.mjs",
     "finish": "DINKUS_E2E_MODE=finish playwright test"
   },
   "devDependencies": {
