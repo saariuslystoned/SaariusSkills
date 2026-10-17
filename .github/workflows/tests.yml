@@ -97,3 +97,6 @@ jobs:
 
       - name: Run Jev decision bridge tests
         run: node --test bridge/jev-decision/test/*.test.mjs
+
+      - name: Run DinkusKit live test runner's offline checks
+        run: node --test skills/dinkuskit-live-test/runner/unit/*.test.mjs

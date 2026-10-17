@@ -25,6 +25,13 @@ approval gates. All seven use the same plugin installation paths
 below; see [EmDash packaging](docs/emdash-skills.md) for the upstream pin,
 standalone installation and version-specific corrections.
 
+[DinkusKit Live Test](skills/dinkuskit-live-test/SKILL.md) runs one saved
+Playwright test against a live DinkusKit test store, from a Stripe TEST checkout
+to a Pitney Bowes sandbox label and Commerce marking the order Completed, and
+hands back its proof. It signs in with emailed links and codes it reads from a
+read-only test inbox, so a run needs nobody. [Status](skills/dinkuskit-live-test/references/status.md)
+records what has passed live.
+
 ## Archived: Puppet and Herdr-Puppet
 
 The `puppet` and `herdr-puppet` skills are archived. The local Cursor ACP and
