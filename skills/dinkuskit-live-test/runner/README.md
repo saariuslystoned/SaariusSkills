@@ -14,9 +14,10 @@ moves to `@running` once it has passed on the test store.
 
 It runs in a visible Chrome window with its own saved profile
 (`~/.dinkus-e2e/profile`), so sign-ins carry over between runs. DinkusKit.com
-signs in with an emailed link, and the store admin's Cloudflare Access app signs
-in with an emailed one-time PIN. The test reads both emails itself through the
-mail command, so nobody has to step in. If the Access app offers only Google, set
+signs in with an emailed link, and the Cloudflare Access app in front of the
+store admin (or of the whole test store) signs in with an emailed one-time PIN.
+The test reads both emails itself through the mail command, so nobody has to
+step in. If the Access app offers only Google, set
 `DINKUS_E2E_ADMIN_SIGNIN=wait` and sign in once in the window.
 
 ## Run
@@ -30,8 +31,11 @@ npm run unit                  # the runner's own offline checks
 ```
 
 Storefront opens its own clean browser, with no sign-ins, cookies or saved
-cart, so it sees exactly what a new shopper sees. It needs only
-`DINKUS_E2E_STORE`.
+cart, so it sees exactly what a new shopper sees. When the test store keeps
+every page behind Cloudflare Access, that browser first signs in to Access with
+an emailed one-time PIN, as the admin sign-in does, and to nothing else. It
+needs `DINKUS_E2E_STORE`, plus the mail command and `DINKUS_E2E_OWNER_EMAIL`
+when Access fronts the store.
 
 The machine's settings come from `~/.dinkus-e2e/env`; see
 [setup](../references/setup.md).
@@ -82,12 +86,13 @@ Without a mail command, the test waits for a person to sign in in the window.
 
 ### Storefront
 
-Every step is soft: a finding is recorded and the journey goes on, so one run
-lists everything a shopper would trip over.
+Every step after the first is soft: a finding is recorded and the journey goes
+on, so one run lists everything a shopper would trip over.
 
 | Step | What it proves |
 | --- | --- |
-| The homepage loads with no developer notices | The homepage answers and shows no error box: no "Storefront composition is unavailable", no unknown content block, no alert |
+| A new shopper can open the store | The homepage answers HTTP 200 on the store's own address, after a Cloudflare Access sign-in when the test store keeps every page behind one. When it doesn't, the journey stops here, since nothing else can be checked |
+| The homepage shows no developer notices | The homepage shows no error box: no "Storefront composition is unavailable", no unknown content block, no alert |
 | The product list shows each product's name, price and photo | Every product in the Shop list has a name, a price and its own photo that loads (the store's placeholder or "No image" fails) |
 | Every product in the list opens its own page | Each product's link answers HTTP 200 |
 | The product page shows the name, price and photo and offers Add to cart | The first product's page (or `DINKUS_E2E_PRODUCT_PATH`) shows its name, price and photo, and its Add to cart button is ready |
@@ -97,7 +102,8 @@ lists everything a shopper would trip over.
 ## Proof
 
 A journey's verdict is PASS only when every step passed or was skipped for a
-stated reason; the run's verdict is PASS only when every journey passed, and
+stated reason; an error between steps, such as a page that won't open, fails it
+too. The run's verdict is PASS only when every journey passed, and
 `npx playwright test` exits non-zero otherwise. The run prints each journey's
 verdict, then `Verdict:` and the path to `PROOF.md`.
 

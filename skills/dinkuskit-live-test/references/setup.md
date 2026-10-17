@@ -16,7 +16,8 @@ in `~/.dinkus-e2e/`.
 ## The test inbox
 
 One mailbox receives both sign-in emails: DinkusKit.com's "Sign in to DinkusKit"
-link for the store owner, and Cloudflare Access's one-time PIN for the store admin.
+link for the store owner, and Cloudflare Access's one-time PIN for the store admin
+(or the whole store, when Access fronts every page).
 
 - Sign gogcli in to that inbox. The bundled `scripts/gog-mail.sh` runs
   `gog --readonly --gmail-no-send` searches for the two sign-in emails and reads
@@ -35,11 +36,13 @@ link for the store owner, and Cloudflare Access's one-time PIN for the store adm
   with an emailed link, so it has no password.
 - Ship turned on for the store, with a ship-from address and at least one box size
   in Ship Settings. Ship makes free Pitney Bowes sandbox labels for TEST orders.
-- The Cloudflare Access app in front of the store admin offers One-time PIN with
-  Instant Auth off, and its policy allows the test inbox's address. If the app
-  offers only Google, run once with `DINKUS_E2E_ADMIN_SIGNIN=wait` and sign in by
-  hand in the test's window. The saved profile keeps that sign-in until Access
-  ends the session.
+- The Cloudflare Access app in front of the store admin, or of the whole test
+  store, offers One-time PIN with Instant Auth off, and its policy allows the test
+  inbox's address. When it fronts every page, Storefront's clean browser signs in
+  to it the same way. If the app offers only Google, run once with
+  `DINKUS_E2E_ADMIN_SIGNIN=wait` and sign in by hand in the test's window. The
+  saved profile keeps that sign-in until Access ends the session, but Storefront
+  can't open a store behind a Google-only app.
 
 ## Settings file
 

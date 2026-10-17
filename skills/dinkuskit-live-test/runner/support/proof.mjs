@@ -1,20 +1,28 @@
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "./env.mjs";
 
-const journeys = [];
-const steps = [];
-const facts = {};
+const reportFile = join(config.runDir, "report.json");
+// Playwright starts a new worker after a journey fails, so the next journey's worker carries on
+// from the run's report so far instead of writing an empty one over it.
+const earlier = (() => { try { return JSON.parse(readFileSync(reportFile, "utf8")); } catch { return {}; } })();
+const journeys = (earlier.journeys ?? []).map(entry => entry.name);
+const steps = earlier.steps ?? [];
+const facts = earlier.facts ?? {};
+let current = "";
 
 /** Starts a journey; the steps recorded after it belong to it until the next one starts. */
 export function startJourney(name) {
-  journeys.push(name);
+  current = name;
+  // A journey run again under the same run id replaces its earlier steps.
+  steps.splice(0, steps.length, ...steps.filter(s => s.journey !== name));
+  if (!journeys.includes(name)) journeys.push(name);
   write();
 }
 
 /** Records one step's result; the report is rewritten after every step so a crash still leaves it. */
 export function record(step, status, detail = "") {
-  steps.push({ journey: journeys.at(-1) ?? "", step, status, detail, at: new Date().toISOString() });
+  steps.push({ journey: current, step, status, detail, at: new Date().toISOString() });
   write();
 }
 
@@ -36,10 +44,15 @@ function verdictOf(results) {
   return results.length && results.every(r => r === "PASS" || r === "SKIP") ? "PASS" : "INCOMPLETE";
 }
 
+/** A journey's verdict from the steps it has recorded so far. */
+export function journeyVerdict(name) {
+  return verdictOf(steps.filter(s => s.journey === name).map(s => s.status));
+}
+
 const cell = value => String(value).replaceAll("|", "\\|").replaceAll("\n", " ");
 
 function write() {
-  const results = journeys.map(name => ({ name, verdict: verdictOf(steps.filter(s => s.journey === name).map(s => s.status)) }));
+  const results = journeys.map(name => ({ name, verdict: journeyVerdict(name) }));
   const verdict = verdictOf(results.map(r => r.verdict));
   const report = { run: config.runId, mode: config.mode, store: config.store, ship: config.ship, verdict, journeys: results, facts, steps };
   writeFileSync(join(config.runDir, "report.json"), JSON.stringify(report, null, 2));

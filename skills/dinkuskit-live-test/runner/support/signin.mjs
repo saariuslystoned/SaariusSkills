@@ -67,6 +67,19 @@ export async function openStoreAdmin(page, url, { waitForPerson = true } = {}) {
 }
 
 /**
+ * Opens a store page as a shopper. A test store can put every page, not only its admin, behind
+ * Cloudflare Access; then the test signs in to Access with a one-time PIN, as it does for the
+ * admin, and opens the page again. Returns the page's response. When nobody could sign in, the
+ * page is left on Access's login, away from the store.
+ */
+export async function openStorePage(page, url) {
+  const response = await page.goto(url);
+  if (at(page, config.store) || !await signInToAccessByCode(page)) return response;
+  await page.waitForURL(next => next.href.startsWith(config.store), { timeout: 120_000 });
+  return page.goto(url);
+}
+
+/**
  * Cloudflare Access's one-time PIN login: email in, code from the test inbox, sign in.
  * Returns false, having changed nothing, when this isn't Access's login page or it
  * offers no PIN login (a Google-only app sends the browser straight to Google).

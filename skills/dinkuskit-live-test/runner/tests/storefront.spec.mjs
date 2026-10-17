@@ -1,14 +1,22 @@
 import { test, expect, shopperPage } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
 import { note, record } from "../support/proof.mjs";
+import { openStorePage } from "../support/signin.mjs";
 import { journey, step } from "../support/steps.mjs";
 import { cantBuyClaims } from "../support/storefront-text.mjs";
 
 const quick = { timeout: 5_000 };
+const accessLogin = url => /\.cloudflareaccess\.com$/.test(new URL(url).hostname);
+/** Where a request that left the store ended up, for a finding. */
+const elsewhere = url => accessLogin(url) ? "a Cloudflare Access sign-in" : new URL(url).hostname;
 
-/** Opens a store page; anything but HTTP 200 fails the step that opened it. */
+/** Opens a store page; ending up off the store (a sign-in elsewhere) or anything but HTTP 200 fails the step that opened it. */
 async function open(page, path) {
-  const response = await page.goto(new URL(path, config.store).href);
+  const response = await openStorePage(page, new URL(path, config.store).href);
+  if (new URL(page.url()).origin !== config.store) {
+    const how = accessLogin(page.url()) ? "; the test gets past Access only with a one-time PIN it reads from the test inbox" : "";
+    throw new Error(`${path} sent the shopper to ${elsewhere(page.url())} instead of the store${how}.`);
+  }
   if (response?.status() !== 200) throw new Error(`${path} answered HTTP ${response?.status() ?? "nothing"}.`);
 }
 
@@ -44,6 +52,7 @@ const photoProblem = {
 
 const short = (items, count = 5) => items.length > count ? [...items.slice(0, count), `${items.length - count} more`] : items;
 const products = count => `${count} product${count === 1 ? "" : "s"}`;
+const unlinked = count => `${products(count)} link${count === 1 ? "s" : ""} to no product page`;
 const text = async (locator) => (await locator.first().innerText(quick).catch(() => "")).replace(/\s+/g, " ").trim();
 // Pages are fully loaded when read, so a missing link is absent now rather than worth waiting for.
 const firstHref = async (locator) => await locator.count() ? locator.first().getAttribute("href") : null;
@@ -68,12 +77,13 @@ async function readCards(cards) {
   return { listed, problems, links };
 }
 
-/** The product pages among `links` that don't answer HTTP 200. */
+/** The product pages among `links` that don't answer HTTP 200 on the store. */
 async function brokenLinks(page, links) {
   const broken = [];
   for (const href of new Set(links)) {
     const response = await page.request.get(new URL(href, config.store).href);
-    if (response.status() !== 200) broken.push(`${href} answered HTTP ${response.status()}`);
+    if (new URL(response.url()).origin !== config.store) broken.push(`${href} sent the shopper to ${elsewhere(response.url())}`);
+    else if (response.status() !== 200) broken.push(`${href} answered HTTP ${response.status()}`);
   }
   return broken;
 }
@@ -84,18 +94,27 @@ test("Storefront", { tag: "@next" }, journey(async () => {
   const page = await shopperPage();
   // Each page's visible text, for the last step's check of what it says about buying.
   const seen = [];
-  let links = [];
+  // The Shop list's products and the product pages they link to.
+  let shop = { listed: [], links: [] };
   let category = null;
-  // Every step is soft: the checks don't depend on each other, so one finding never hides the next.
+  // After the first step every step is soft: the checks don't depend on each other, so one finding never hides the next.
   const soft = { soft: true };
   try {
-    await step(page, "The homepage loads with no developer notices", async () => {
+    // A store nobody can open has nothing else to check, so this step alone stops the journey.
+    await step(page, "A new shopper can open the store", async () => {
       await open(page, "/");
+      // A test store may keep every page behind Cloudflare Access; the shopper's browser then signed in to it first.
+      const gated = (await page.context().cookies(config.store)).some(cookie => cookie.name === "CF_Authorization");
+      if (gated) note("store access", "behind Cloudflare Access; the shopper's browser signed in to it with a one-time PIN");
+      return `the homepage "${await page.title()}" answered HTTP 200${gated ? " after a Cloudflare Access sign-in" : ""}`;
+    });
+
+    await step(page, "The homepage shows no developer notices", async () => {
       seen.push({ where: "the homepage", text: await page.locator("body").innerText() });
       category = await firstHref(page.locator('a[href^="/categories/"]'));
       const notices = await developerNotices(page);
       if (notices.length) throw new Error(`The homepage shows: ${notices.map(notice => `"${notice}"`).join("; ")}.`);
-      return `"${await page.title()}" with no developer notices`;
+      return "no developer notices";
     }, soft);
 
     await step(page, "The product list shows each product's name, price and photo", async () => {
@@ -104,21 +123,23 @@ test("Storefront", { tag: "@next" }, journey(async () => {
       const cards = catalog.locator("[data-commerce-product]");
       if (!await cards.count()) throw new Error(`The Shop list shows no products: "${await text(catalog)}".`);
       const found = await readCards(cards);
-      links = found.links;
+      shop = found;
       note("products listed", found.listed.length);
       if (found.problems.length) throw new Error(`${short(found.problems).join("; ")}.`);
       return `${products(found.listed.length)}: ${short(found.listed).join(", ")}`;
     }, soft);
 
     await step(page, "Every product in the list opens its own page", async () => {
-      if (!links.length) throw new Error("No product in the Shop list links to a product page.");
-      const broken = await brokenLinks(page, links);
-      if (broken.length) throw new Error(`${short(broken).join("; ")}.`);
-      return `${links.length} product page${links.length === 1 ? "" : "s"} answered HTTP 200`;
+      if (!shop.listed.length) throw new Error("The Shop list showed no products to open.");
+      const problems = [];
+      if (shop.links.length < shop.listed.length) problems.push(unlinked(shop.listed.length - shop.links.length));
+      problems.push(...await brokenLinks(page, shop.links));
+      if (problems.length) throw new Error(`${short(problems).join("; ")}.`);
+      return `${shop.links.length} product page${shop.links.length === 1 ? "" : "s"} answered HTTP 200`;
     }, soft);
 
     await step(page, "The product page shows the name, price and photo and offers Add to cart", async () => {
-      const path = config.productPath || links[0];
+      const path = config.productPath || shop.links[0];
       if (!path) throw new Error("No product page to open; set DINKUS_E2E_PRODUCT_PATH.");
       await open(page, path);
       seen.push({ where: path, text: await page.locator("body").innerText() });
@@ -135,8 +156,10 @@ test("Storefront", { tag: "@next" }, journey(async () => {
       if (!name) problems.push("no name");
       if (!/\$\s?\d/.test(price)) problems.push("no price");
       if (image !== "photo") problems.push(`the product ${photoProblem[image]}`);
+      // Ready means wired to the cart and pressable; the journey never presses it.
       const add = page.locator('[data-add-to-cart][data-guest-cart-ready="1"]').first();
       if (!await add.waitFor({ timeout: 15_000 }).then(() => true, () => false)) problems.push("no working Add to cart button");
+      else if (!await expect(add).toBeEnabled(quick).then(() => true, () => false)) problems.push("an Add to cart button shoppers can't press");
       if (problems.length) throw new Error(`${path} has ${problems.join(", ")}.`);
       return `"${name}" ${price} with its photo and Add to cart`;
     }, soft);
@@ -153,7 +176,7 @@ test("Storefront", { tag: "@next" }, journey(async () => {
       if (!await cards.count()) throw new Error(`${category} lists no products: "${await text(page.locator("main"))}".`);
       const found = await readCards(cards);
       const problems = [...found.problems];
-      if (found.links.length < found.listed.length) problems.push(`${products(found.listed.length - found.links.length)} link to no product page`);
+      if (found.links.length < found.listed.length) problems.push(unlinked(found.listed.length - found.links.length));
       problems.push(...await brokenLinks(page, found.links));
       if (problems.length) throw new Error(`${category}: ${short(problems).join("; ")}.`);
       return `${category} lists ${products(found.listed.length)}: ${short(found.listed).join(", ")}`;

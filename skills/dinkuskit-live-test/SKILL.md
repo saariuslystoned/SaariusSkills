@@ -17,9 +17,9 @@ pass on the beta store before a final release. A new journey starts as `@next` a
 moves to `@running` once it has passed on the test store. The
 [runner README](runner/README.md) lists the journeys and their stages.
 
-The test runs unattended. DinkusKit.com and the store admin's Cloudflare Access
-login both sign in with emailed links or codes, and the test reads them from the
-test inbox itself. Nobody types a password, opens a password manager or approves
+The test runs unattended. DinkusKit.com and the Cloudflare Access login in front
+of the store admin (or of the whole test store) both sign in with emailed links or
+codes, and the test reads them from the test inbox itself. Nobody types a password, opens a password manager or approves
 anything during a run. Read-only access to that inbox is the one standing
 authorization the test needs.
 
@@ -36,7 +36,8 @@ authorization the test needs.
    - `npm test` runs every `@running` journey. Buy and ship goes from a new
      Stripe TEST checkout to Completed.
    - `npm run journey -- storefront` runs one journey, named by its file in
-     `runner/tests`. Storefront only reads the store's public pages.
+     `runner/tests`. Storefront only reads the pages a shopper sees and places
+     no order.
    - `npm run finish` finishes a Buy and ship order that already exists. Set
      `DINKUS_E2E_ORDER=1001` to pick one, or leave it unset to pick the only TEST
      order still waiting for a label.
@@ -85,7 +86,10 @@ authorization the test needs.
 - A failure on "The thank-you page confirms the order and empties the cart" means
   a shopper who paid didn't see their order confirmed. The steps after it still
   run, so the proof also shows whether Commerce recorded and completed the order.
-- Storefront's steps are all soft, so one run lists every finding: a developer
+- Storefront stops at its first step when a new shopper can't open the store at
+  all, such as a Cloudflare Access sign-in the test couldn't get past. Report that
+  one finding; the other steps didn't run.
+- Storefront's other steps are soft, so one run lists every finding: a developer
   notice on the homepage, a product without a name, price or photo, a product
   link that doesn't open, a category page that doesn't list its products
   properly, or a page that says checkout is unavailable while the cart offers it. Report each finding with the page it came from. Store content

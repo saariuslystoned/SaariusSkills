@@ -1,8 +1,9 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { test, expect } from "./browser.mjs";
 import { config } from "./env.mjs";
-import { record, shot, startJourney } from "./proof.mjs";
+import { journeyVerdict, record, shot, startJourney } from "./proof.mjs";
+
+// Errors that stopped a journey inside a step, which recorded them already.
+const recorded = new WeakSet();
 
 /**
  * Runs one step, recording PASS or FAIL with the reason and a screenshot. A `soft` step's
@@ -18,7 +19,9 @@ export async function step(page, name, body, { soft = false } = {}) {
     } catch (error) {
       await shot(page, `fail-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`);
       record(name, "FAIL", error.message.split("\n")[0]);
-      if (!soft) throw error;
+      if (soft) return;
+      if (Object(error) === error) recorded.add(error);
+      throw error;
     }
   });
 }
@@ -35,9 +38,14 @@ export function journey(body, { profile = true } = {}) {
   const run = async page => {
     const name = test.info().title;
     startJourney(name);
-    await body({ page });
-    const report = JSON.parse(readFileSync(join(config.runDir, "report.json"), "utf8"));
-    const verdict = report.journeys.find(entry => entry.name === name)?.verdict ?? "INCOMPLETE";
+    try {
+      await body({ page });
+    } catch (error) {
+      // An error between steps (a page that wouldn't open) still fails the journey in its proof.
+      if (!recorded.has(error)) record("The journey finished without an error", "FAIL", String(error?.message ?? error).split("\n")[0]);
+      throw error;
+    }
+    const verdict = journeyVerdict(name);
     console.log(`\n${name}: ${verdict}\n`);
     // A step that failed softly still fails its journey, so "run the test" exits non-zero.
     expect(verdict, `see ${config.runDir}/PROOF.md`).toBe("PASS");
