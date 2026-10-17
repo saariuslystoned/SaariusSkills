@@ -5,6 +5,8 @@ import { config } from "./env.mjs";
 const CART_KEY = "dinkus.guest-cart.v1";
 const CHECKOUT_KEY = "dinkus.guest-checkout.v1";
 const HUMAN_WAIT_MS = 10 * 60 * 1000;
+// The Add to cart button findPhysicalProduct chose, when the page shows more than one.
+let productId = null;
 
 /**
  * Buys one physical product as a guest, the way a shopper does: product page, Add to cart,
@@ -27,9 +29,9 @@ export async function placeTestOrder(page) {
   const path = config.productPath || await findPhysicalProduct(page);
 
   await page.goto(new URL(path, config.store).href);
-  await orFail(page.locator('[data-add-to-cart][data-guest-cart-ready="1"]').waitFor({ timeout: 15_000 }), async () =>
+  await orFail(page.locator('[data-add-to-cart][data-guest-cart-ready="1"]').first().waitFor({ timeout: 15_000 }), async () =>
     `${path} offers no Add to cart: ${await texts(page, ".product-detail__notice, [data-product-status]")}`);
-  await page.locator("[data-add-to-cart]").click();
+  await page.locator(productId ? `[data-add-to-cart="${productId}"]` : "[data-add-to-cart]").first().click();
   await orFail(expect(page.locator("[data-add-to-cart-status]")).toHaveText(/added to cart/i, { timeout: 10_000 }), async () =>
     `Add to cart failed: ${await texts(page, "[data-add-to-cart-status]")}`);
 
@@ -66,16 +68,22 @@ export async function placeTestOrder(page) {
   };
 }
 
-/** With no DINKUS_E2E_PRODUCT_PATH: the first catalog product that can be added and is not digital. */
+/**
+ * With no DINKUS_E2E_PRODUCT_PATH: the first catalog product that can be added and is not digital.
+ * Product pages come first; a storefront whose shop cards carry Add to cart but no product links
+ * falls back to the page it is on, remembering which button to press.
+ */
 async function findPhysicalProduct(page) {
+  const listing = new URL(page.url()).pathname;
   const paths = await page.locator("a[data-product-link]").evaluateAll(links => links.map(link => link.getAttribute("href")));
-  for (const path of paths) {
+  for (const path of [...paths, listing]) {
     await page.goto(new URL(path, config.store).href);
-    const id = await page.locator("[data-add-to-cart]").getAttribute("data-add-to-cart", { timeout: 3_000 }).catch(() => null);
-    if (!id) continue;
-    const response = await page.request.get(`${config.store}/api/guest-cart/snapshot?ids=${encodeURIComponent(id)}`);
-    const product = response.ok() ? (await response.json()).products?.[0] : null;
-    if (product?.found && product.fulfillment !== "digital") return path;
+    const ids = await page.locator("[data-add-to-cart]").evaluateAll(buttons => buttons.map(button => button.getAttribute("data-add-to-cart")));
+    for (const id of ids.filter(Boolean)) {
+      const response = await page.request.get(`${config.store}/api/guest-cart/snapshot?ids=${encodeURIComponent(id)}`);
+      const product = response.ok() ? (await response.json()).products?.[0] : null;
+      if (product?.found && product.fulfillment !== "digital") { productId = id; return path; }
+    }
   }
   throw new Error(`No product on ${config.store} can be added to the cart and shipped; set DINKUS_E2E_PRODUCT_PATH.`);
 }
