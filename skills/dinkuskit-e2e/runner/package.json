@@ -1,0 +1,13 @@
+{
+  "name": "dinkuskit-live-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Saved end-to-end test against the live DinkusKit services: store checkout, Commerce order, Ship sandbox label, Completed.",
+  "scripts": {
+    "test": "playwright test",
+    "finish": "DINKUS_E2E_MODE=finish playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1"
+  }
+}
