@@ -93,6 +93,12 @@ async function cartSays(page) {
   return said ? ` (the cart says "${said}")` : "";
 }
 
+/** Checks the cart's total, giving a total that is still updating after a change a few seconds to catch up. */
+async function totalCatchesUp(page) {
+  await expect.poll(() => totalIsRight(page).then(() => true, () => false), { timeout: 10_000 }).toBe(true).catch(() => {});
+  return totalIsRight(page);
+}
+
 /** Checks the cart's total against its lines: each shown unit price times its quantity, added up. */
 async function totalIsRight(page) {
   const lines = await cartLines(page);
@@ -123,7 +129,8 @@ test("Cart", { tag: "@next" }, journey(async () => {
       if (money(product.price) === null) throw new Error(`${product.where} shows no price for "${product.name || "its product"}", so the cart's price couldn't be checked.`);
       await product.button.click(quick);
       const status = product.button.locator("xpath=..").locator("[data-add-to-cart-status]");
-      if (!await expect(status).toHaveText(/added to cart/i, { timeout: 10_000 }).then(() => true, () => false)) {
+      // The confirmation counts only when the shopper can see it.
+      if (!await expect(status.filter({ visible: true })).toHaveText(/added to cart/i, { timeout: 10_000 }).then(() => true, () => false)) {
         const said = await text(status);
         throw new Error(`Add to cart on ${product.where} ${said ? `said "${said}"` : "showed no message"} instead of "Added to cart."`);
       }
@@ -145,6 +152,8 @@ test("Cart", { tag: "@next" }, journey(async () => {
 
     await step(page, "The cart total matches the item's price", () => totalIsRight(page), soft);
 
+    // The cart's total as it read right after the quantity changed, before any reload.
+    let liveTotal = null;
     await step(page, "Changing the quantity updates the cart", async () => {
       const quantity = page.locator("[data-guest-cart-qty]").first();
       await quantity.fill("2", quick);
@@ -154,6 +163,8 @@ test("Cart", { tag: "@next" }, journey(async () => {
       const count = await headerCount(page, 2);
       if (count !== 2) problems.push(`the header's cart shows ${items(count)}`);
       const said = await cartSays(page);
+      // Read before the reload, so a total that only catches up on a reload is a finding.
+      liveTotal = await totalCatchesUp(page).then(detail => ({ detail }), error => ({ error }));
       // The cart is kept in the shopper's browser, so coming back shows the same quantity.
       await page.reload(load);
       const [line] = await cartLines(page);
@@ -162,7 +173,12 @@ test("Cart", { tag: "@next" }, journey(async () => {
       return "the cart keeps quantity 2 after a reload, and the header shows 2 items";
     }, soft);
 
-    await step(page, "The cart total follows the new quantity", () => totalIsRight(page), soft);
+    await step(page, "The cart total follows the new quantity", async () => {
+      // A quantity step that stopped early read no live total, so the cart's total is read now.
+      if (!liveTotal) return totalIsRight(page);
+      if (liveTotal.error) throw liveTotal.error;
+      return liveTotal.detail;
+    }, soft);
 
     await step(page, "Removing the item empties the cart", async () => {
       await page.locator("[data-guest-cart-remove]").first().click(quick);
