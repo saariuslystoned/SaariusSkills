@@ -7,7 +7,7 @@ journeys plan:
 | Journey | Stage | What it covers |
 | --- | --- | --- |
 | [Buy and ship](tests/buy-and-ship.spec.mjs) | `@running` | A Stripe TEST order on the store, the order in Commerce, a Pitney Bowes sandbox label in Ship, and Commerce marking the order Completed with the same tracking number |
-| [Storefront](tests/storefront.spec.mjs) | `@next` | A new shopper's first look: the homepage, the product list and a product page |
+| [Storefront](tests/storefront.spec.mjs) | `@next` | A new shopper's first look: the homepage, the product list, a product page and its category page |
 
 `npm test` runs every `@running` journey. A new journey starts as `@next` and
 moves to `@running` once it has passed on the test store.
@@ -91,7 +91,8 @@ lists everything a shopper would trip over.
 | The product list shows each product's name, price and photo | Every product in the Shop list has a name, a price and its own photo that loads (the store's placeholder or "No image" fails) |
 | Every product in the list opens its own page | Each product's link answers HTTP 200 |
 | The product page shows the name, price and photo and offers Add to cart | The first product's page (or `DINKUS_E2E_PRODUCT_PATH`) shows its name, price and photo, and its Add to cart button is ready |
-| No page says checkout is unavailable while the cart offers it | When the cart offers checkout, the homepage, the product page and its category page don't tell shoppers they can't check out or buy. Skipped, with the reason, when the cart offers no checkout |
+| A category page lists its products with name, price and photo | The product's category page (or the first one the homepage links) lists products with names, prices and their own photos, each opening its product page. Skipped when no category page is linked |
+| No page says checkout is unavailable while the cart offers it | When the cart offers checkout, the homepage, the product page and the category page don't tell shoppers they can't check out or buy. Skipped, with the reason, when the cart offers no checkout |
 
 ## Proof
 

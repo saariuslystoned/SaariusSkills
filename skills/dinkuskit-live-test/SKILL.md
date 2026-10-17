@@ -1,6 +1,6 @@
 ---
 name: dinkuskit-live-test
-description: Run the saved DinkusKit live test journeys (Buy and ship - Stripe TEST order, Commerce order, Pitney Bowes sandbox label in Ship, Completed; Storefront - homepage, product list, product page) and hand back their proof. Use when the owner says "run the test", asks to prove a DinkusKit release or plugin update works on a live store, asks for one journey, or wants a stuck TEST order finished.
+description: Run the saved DinkusKit live test journeys (Buy and ship - Stripe TEST order, Commerce order, Pitney Bowes sandbox label in Ship, Completed; Storefront - homepage, product list, product page, category page) and hand back their proof. Use when the owner says "run the test", asks to prove a DinkusKit release or plugin update works on a live store, asks for one journey, or wants a stuck TEST order finished.
 ---
 
 # DinkusKit live test
@@ -9,8 +9,8 @@ Saved Playwright journeys prove the DinkusKit stack works on a live test store.
 In Buy and ship, a shopper pays with Stripe's test card, the order shows up in
 Commerce, Ship makes a Pitney Bowes sandbox label with a real PDF and tracking
 number, and Commerce marks the order Completed with the same tracking number. In
-Storefront, a new shopper's homepage, product list and product page show no
-developer notices and every product's name, price and photo.
+Storefront, a new shopper's homepage, product list, product page and category
+page show no developer notices and every product's name, price and photo.
 
 Each journey has a stage. `@running` journeys run on every `npm test` and must all
 pass on the beta store before a final release. A new journey starts as `@next` and
@@ -87,8 +87,8 @@ authorization the test needs.
   run, so the proof also shows whether Commerce recorded and completed the order.
 - Storefront's steps are all soft, so one run lists every finding: a developer
   notice on the homepage, a product without a name, price or photo, a product
-  link that doesn't open, or a page that says checkout is unavailable while the
-  cart offers it. Report each finding with the page it came from. Store content
+  link that doesn't open, a category page that doesn't list its products
+  properly, or a page that says checkout is unavailable while the cart offers it. Report each finding with the page it came from. Store content
   the owner controls, such as a product without a photo, is still a finding.
 
 ## What each step proves
