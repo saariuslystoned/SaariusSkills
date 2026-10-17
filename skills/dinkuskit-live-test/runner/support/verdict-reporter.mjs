@@ -1,5 +1,5 @@
 import { config } from "./env.mjs";
-import { failUnrecorded, verdicts } from "./proof.mjs";
+import { TEST_RUN, failUnrecorded, startRun, verdicts } from "./proof.mjs";
 
 const firstLine = text => String(text ?? "").replace(/\u001b\[[0-9;]*m/g, "").split("\n").map(line => line.trim()).find(Boolean) ?? "";
 
@@ -12,6 +12,11 @@ const firstLine = text => String(text ?? "").replace(/\u001b\[[0-9;]*m/g, "").sp
 export default class VerdictReporter {
   errors = [];
 
+  constructor() {
+    // Playwright makes the reporter before it loads the journeys, so even a run that finds none starts clean.
+    startRun();
+  }
+
   onBegin(_config, suite) {
     this.suite = suite;
   }
@@ -23,14 +28,16 @@ export default class VerdictReporter {
   onEnd(result) {
     for (const test of this.suite?.allTests() ?? []) {
       const last = test.results.at(-1);
-      if (!last) failUnrecorded(test.title, "The journey ran", "the run stopped before this journey started");
-      else if (!["passed", "skipped"].includes(last.status)) {
+      // A journey with no result in a run Playwright calls passed was only listed (--list), not stopped.
+      if (!last) {
+        if (result.status !== "passed") failUnrecorded(test.title, "The journey ran", "the run stopped before this journey started");
+      } else if (!["passed", "skipped"].includes(last.status)) {
         failUnrecorded(test.title, "The journey finished without an error", firstLine(last.error?.message) || `Playwright reported it ${last.status}`);
       }
     }
-    for (const error of this.errors) failUnrecorded("Test run", "The test run finished without an error", firstLine(error.message));
+    for (const error of this.errors) failUnrecorded(TEST_RUN, "The test run finished without an error", firstLine(error.message));
     // A run Playwright reports interrupted or timed out fails, even when every journey it ran passed.
-    if (result.status !== "passed" && verdicts().verdict !== "FAIL") failUnrecorded("Test run", "The test run finished", `Playwright reported the run ${result.status}`);
+    if (result.status !== "passed" && verdicts().verdict !== "FAIL") failUnrecorded(TEST_RUN, "The test run finished", `Playwright reported the run ${result.status}`);
     const { verdict, journeys } = verdicts();
     if (!journeys.length) return;
     console.log(`\n${journeys.map(entry => `${entry.name}: ${entry.verdict}`).join("\n")}`);

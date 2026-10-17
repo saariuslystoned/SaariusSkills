@@ -18,6 +18,21 @@ function load() {
 }
 load();
 
+/** The proof's entry for what goes wrong outside every journey, such as a filter that matches none. */
+export const TEST_RUN = "Test run";
+
+/**
+ * Starts an invocation in Playwright's main process, before it loads the journeys or starts a worker.
+ * A run id used again keeps its journeys, but not the run-level failure an earlier invocation recorded.
+ */
+export function startRun() {
+  load();
+  if (!journeys.includes(TEST_RUN)) return;
+  journeys = journeys.filter(name => name !== TEST_RUN);
+  steps = steps.filter(s => s.journey !== TEST_RUN);
+  write();
+}
+
 /** Starts a journey; the steps recorded after it belong to it until the next one starts. */
 export function startJourney(name) {
   current = name;

@@ -57,7 +57,8 @@ const photoProblem = {
 const short = (items, count = 5) => items.length > count ? [...items.slice(0, count), `${items.length - count} more`] : items;
 const products = count => `${count} product${count === 1 ? "" : "s"}`;
 const unlinked = count => `${products(count)} link${count === 1 ? "s" : ""} to no product page`;
-const text = async (locator) => (await locator.first().innerText(quick).catch(() => "")).replace(/\s+/g, " ").trim();
+// innerText also reads an element the page hides, so only the first one a shopper can see counts.
+const text = async (locator) => (await locator.filter({ visible: true }).first().innerText(quick).catch(() => "")).replace(/\s+/g, " ").trim();
 // Pages are fully loaded when read, so a missing link is absent now rather than worth waiting for.
 const firstHref = async (locator) => await locator.count() ? locator.first().getAttribute("href") : null;
 
