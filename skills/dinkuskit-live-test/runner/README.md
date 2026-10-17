@@ -1,8 +1,16 @@
 # DinkusKit live test runner
 
-One saved Playwright test against the live services: a Stripe TEST order on the
-store, the order in Commerce, a Pitney Bowes sandbox label in Ship, and Commerce
-marking the order Completed with the same tracking number.
+Saved Playwright journeys against a live test store and the live services. Each
+journey is one spec file in [tests](tests/), tagged with its stage in the
+journeys plan:
+
+| Journey | Stage | What it covers |
+| --- | --- | --- |
+| [Buy and ship](tests/buy-and-ship.spec.mjs) | `@running` | A Stripe TEST order on the store, the order in Commerce, a Pitney Bowes sandbox label in Ship, and Commerce marking the order Completed with the same tracking number |
+| [Storefront](tests/storefront.spec.mjs) | `@next` | A new shopper's first look: the homepage, the product list and a product page |
+
+`npm test` runs every `@running` journey. A new journey starts as `@next` and
+moves to `@running` once it has passed on the test store.
 
 It runs in a visible Chrome window with its own saved profile
 (`~/.dinkus-e2e/profile`), so sign-ins carry over between runs. DinkusKit.com
@@ -15,10 +23,15 @@ mail command, so nobody has to step in. If the Access app offers only Google, se
 
 ```sh
 npm ci
-npm test            # full run: checkout to Completed
-npm run finish      # start from an existing order (DINKUS_E2E_ORDER=1001, or the only unfinished TEST order)
-npm run unit        # the runner's own offline checks
+npm test                      # every @running journey; Buy and ship goes from checkout to Completed
+npm run journey -- storefront # one journey, by its file name
+npm run finish                # Buy and ship from an existing order (DINKUS_E2E_ORDER=1001, or the only unfinished TEST order)
+npm run unit                  # the runner's own offline checks
 ```
+
+Storefront opens its own clean browser, with no sign-ins, cookies or saved
+cart, so it sees exactly what a new shopper sees. It needs only
+`DINKUS_E2E_STORE`.
 
 The machine's settings come from `~/.dinkus-e2e/env`; see
 [setup](../references/setup.md).
@@ -51,6 +64,8 @@ Without a mail command, the test waits for a person to sign in in the window.
 
 ## What it proves
 
+### Buy and ship
+
 | Step | What it proves |
 | --- | --- |
 | Place a Stripe TEST order on the store | A shopper can add a physical product to the cart and pay on Stripe's hosted Checkout with the test card |
@@ -65,10 +80,28 @@ Without a mail command, the test waits for a person to sign in in the window.
 | Commerce marks the order Completed with the same tracking | Ship shows Commerce completed the order with the label's tracking number |
 | Commerce Orders shows Completed in the store admin | The store admin agrees, with carrier and tracking |
 
-The verdict is PASS only when every step passed or was skipped for a stated
-reason, and `npx playwright test` exits non-zero otherwise.
+### Storefront
 
-Each run writes `~/.dinkus-e2e/proof/<run>/`: `PROOF.md` and `report.json` (the
-result and detail of every step, the order, tracking number and PDF hash, and the
-plugins and versions the store ran, read from its admin), a screenshot per step,
-`label.pdf` and, on macOS, its picture `label.pdf.png`.
+Every step is soft: a finding is recorded and the journey goes on, so one run
+lists everything a shopper would trip over.
+
+| Step | What it proves |
+| --- | --- |
+| The homepage loads with no developer notices | The homepage answers and shows no error box: no "Storefront composition is unavailable", no unknown content block, no alert |
+| The product list shows each product's name, price and photo | Every product in the Shop list has a name, a price and its own photo that loads (the store's placeholder or "No image" fails) |
+| Every product in the list opens its own page | Each product's link answers HTTP 200 |
+| The product page shows the name, price and photo and offers Add to cart | The first product's page (or `DINKUS_E2E_PRODUCT_PATH`) shows its name, price and photo, and its Add to cart button is ready |
+| No page says checkout is unavailable while the cart offers it | When the cart offers checkout, the homepage, the product page and its category page don't tell shoppers they can't check out or buy. Skipped, with the reason, when the cart offers no checkout |
+
+## Proof
+
+A journey's verdict is PASS only when every step passed or was skipped for a
+stated reason; the run's verdict is PASS only when every journey passed, and
+`npx playwright test` exits non-zero otherwise. The run prints each journey's
+verdict, then `Verdict:` and the path to `PROOF.md`.
+
+Each run writes `~/.dinkus-e2e/proof/<run>/`: `PROOF.md` and `report.json` (each
+journey's verdict, the result and detail of every step, the order, tracking
+number and PDF hash, and the plugins and versions the store ran, read from its
+admin), a screenshot per step, `label.pdf` and, on macOS, its picture
+`label.pdf.png`.

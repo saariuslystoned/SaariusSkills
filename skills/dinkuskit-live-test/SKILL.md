@@ -1,14 +1,21 @@
 ---
 name: dinkuskit-live-test
-description: Run the saved DinkusKit live test (Stripe TEST order, Commerce order, Pitney Bowes sandbox label in Ship, Commerce marks it Completed) and hand back its proof. Use when the owner says "run the test", asks to prove a DinkusKit release or plugin update works on a live store, or wants a stuck TEST order finished.
+description: Run the saved DinkusKit live test journeys (Buy and ship - Stripe TEST order, Commerce order, Pitney Bowes sandbox label in Ship, Completed; Storefront - homepage, product list, product page) and hand back their proof. Use when the owner says "run the test", asks to prove a DinkusKit release or plugin update works on a live store, asks for one journey, or wants a stuck TEST order finished.
 ---
 
 # DinkusKit live test
 
-One saved Playwright test proves the DinkusKit stack works on a live test store.
-A shopper pays with Stripe's test card, the order shows up in Commerce, Ship makes a
-Pitney Bowes sandbox label with a real PDF and tracking number, and Commerce marks
-the order Completed with the same tracking number.
+Saved Playwright journeys prove the DinkusKit stack works on a live test store.
+In Buy and ship, a shopper pays with Stripe's test card, the order shows up in
+Commerce, Ship makes a Pitney Bowes sandbox label with a real PDF and tracking
+number, and Commerce marks the order Completed with the same tracking number. In
+Storefront, a new shopper's homepage, product list and product page show no
+developer notices and every product's name, price and photo.
+
+Each journey has a stage. `@running` journeys run on every `npm test` and must all
+pass on the beta store before a final release. A new journey starts as `@next` and
+moves to `@running` once it has passed on the test store. The
+[runner README](runner/README.md) lists the journeys and their stages.
 
 The test runs unattended. DinkusKit.com and the store admin's Cloudflare Access
 login both sign in with emailed links or codes, and the test reads them from the
@@ -26,26 +33,32 @@ authorization the test needs.
    owner only for values you can't find yourself.
 3. Start the run and let it finish. It opens a Chrome window with its own saved
    profile.
-   - `npm test` runs the full test, from a new Stripe TEST checkout to Completed.
-   - `npm run finish` finishes an order that already exists. Set
+   - `npm test` runs every `@running` journey. Buy and ship goes from a new
+     Stripe TEST checkout to Completed.
+   - `npm run journey -- storefront` runs one journey, named by its file in
+     `runner/tests`. Storefront only reads the store's public pages.
+   - `npm run finish` finishes a Buy and ship order that already exists. Set
      `DINKUS_E2E_ORDER=1001` to pick one, or leave it unset to pick the only TEST
      order still waiting for a label.
 
-   A full run takes about 15 minutes, because it gives Commerce's 5-minute
-   background check up to 7 minutes to collect the label on its own.
-4. Read the proof. The run ends with `Verdict: PASS` or `Verdict: FAIL` and the path
-   to its `PROOF.md`. Read `PROOF.md` and `report.json`, and actually look at
-   `label.pdf.png` (macOS draws it from the label PDF).
-5. Hand back the verdict first. Then give one line per step with its result and
-   detail, the order number, the tracking number and the proof folder, and show the
-   label picture. On FAIL, lead with the failing step and its reason.
+   Buy and ship takes about 15 minutes, because it gives Commerce's 5-minute
+   background check up to 7 minutes to collect the label on its own. Storefront
+   takes under a minute.
+4. Read the proof. The run prints each journey's verdict, then `Verdict: PASS` or
+   `Verdict: FAIL` and the path to its `PROOF.md`. Read `PROOF.md` and
+   `report.json`, and actually look at `label.pdf.png` (macOS draws it from the
+   label PDF) when Buy and ship ran.
+5. Hand back the verdict first, with each journey's verdict. Then give one line per
+   step with its result and detail, the order number, the tracking number and the
+   proof folder, and show the label picture. On FAIL, lead with the failing steps
+   and their reasons.
 
 ## For a new plugin release
 
 1. Make sure the test store runs the release. The proof lists the store's plugins
    and their versions under "plugins". If it shows the old version, update the
    plugin from the store admin's Plugins page, then run the test again.
-2. Run the full test with `npm test`.
+2. Run every `@running` journey with `npm test`.
 3. Hand back the verdict with the plugin versions it covered, so the owner knows
    which release passed.
 
@@ -72,6 +85,11 @@ authorization the test needs.
 - A failure on "The thank-you page confirms the order and empties the cart" means
   a shopper who paid didn't see their order confirmed. The steps after it still
   run, so the proof also shows whether Commerce recorded and completed the order.
+- Storefront's steps are all soft, so one run lists every finding: a developer
+  notice on the homepage, a product without a name, price or photo, a product
+  link that doesn't open, or a page that says checkout is unavailable while the
+  cart offers it. Report each finding with the page it came from. Store content
+  the owner controls, such as a product without a photo, is still a finding.
 
 ## What each step proves
 
