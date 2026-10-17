@@ -1,4 +1,9 @@
-# Qualification ledger
+# Historical qualification ledger
+
+**Historical October 15 snapshot.** The outcomes below are retained as observed;
+then-unverified facts are not current blockers. Read [current status](current-status.md)
+for the selected Cloudflare route, canonical journeys and later proof. The
+bundled public probes reproduce this experiment only.
 
 This file distinguishes supported, prepared, tested and observed capabilities. Do not infer full E2E from a provider smoke test. Private account/resource identities belong in the run profile, not this portable ledger.
 
