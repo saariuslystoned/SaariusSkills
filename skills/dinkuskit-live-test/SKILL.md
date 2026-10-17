@@ -69,6 +69,9 @@ authorization the test needs.
   collects the label", with the steps after it passing, means the store's
   background check didn't collect the label and opening Commerce Orders did.
   Report it that way.
+- A failure on "The thank-you page confirms the order and empties the cart" means
+  a shopper who paid didn't see their order confirmed. The steps after it still
+  run, so the proof also shows whether Commerce recorded and completed the order.
 
 ## What each step proves
 

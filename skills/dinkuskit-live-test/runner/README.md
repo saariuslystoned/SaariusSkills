@@ -54,6 +54,7 @@ Without a mail command, the test waits for a person to sign in in the window.
 | Step | What it proves |
 | --- | --- |
 | Place a Stripe TEST order on the store | A shopper can add a physical product to the cart and pay on Stripe's hosted Checkout with the test card |
+| The thank-you page confirms the order and empties the cart | After Stripe sends the shopper back, the store's own page shows the confirmed order (pressing "Check status again" while it says pending, as a shopper would) and the header cart is empty. Recorded before the test asks Commerce itself, so the page gets no help |
 | Commerce Orders shows the paid TEST order | Commerce recorded the order as TEST, provider-paid and Processing |
 | Ship has the order | Commerce sent the order to Ship |
 | Make the Pitney Bowes sandbox label | Ship quotes sandbox prices and buys a sandbox label |
