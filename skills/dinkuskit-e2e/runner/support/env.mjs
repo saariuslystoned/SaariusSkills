@@ -34,6 +34,8 @@ export const config = {
   },
   // A shell command that prints recent mail for $DINKUS_MAIL_QUERY (bodies included), newest first.
   mailCmd: read("DINKUS_E2E_MAIL_CMD"),
+  // The Gmail search for Cloudflare Access's one-time PIN email, when the store admin's Access app offers PIN login.
+  accessMailQuery: read("DINKUS_E2E_ACCESS_MAIL_QUERY", "from:(notify.cloudflare.com OR cloudflareaccess.com) newer_than:1h"),
   completeWaitMs: Number(read("DINKUS_E2E_COMPLETE_WAIT_SECONDS", "420")) * 1000,
   headless: read("DINKUS_E2E_HEADLESS") === "1",
   channel: read("DINKUS_E2E_CHANNEL", "chrome"),
