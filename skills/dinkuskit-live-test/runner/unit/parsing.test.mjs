@@ -3,7 +3,7 @@ import test from "node:test";
 import { clean, extract } from "../support/mail-patterns.mjs";
 import { parseSettings } from "../support/settings-file.mjs";
 import { describePlugins } from "../support/store-plugins.mjs";
-import { cartCount } from "../support/storefront-text.mjs";
+import { cantBuyClaims, cartCount } from "../support/storefront-text.mjs";
 
 test("the DinkusKit sign-in link survives quoted-printable and HTML encoding", () => {
   const body = [
@@ -63,4 +63,38 @@ test("the header cart count reads the storefront's cart link label", () => {
   assert.equal(cartCount("Cart, 12 items"), 12);
   assert.equal(cartCount(null), null);
   assert.equal(cartCount("Basket"), null);
+});
+
+test("a product notice that says it can't be bought is a can't-buy claim", () => {
+  const product = ["Cart test mug", "$12.50", "In stock", "Add to cart", "This product can\u2019t be bought right now."].join("\n");
+  assert.deepEqual(cantBuyClaims(product), ["This product can\u2019t be bought right now."]);
+  assert.deepEqual(cantBuyClaims("Checkout is unavailable right now, so this product can't be bought."), ["Checkout is unavailable right now, so this product can't be bought."]);
+  assert.deepEqual(cantBuyClaims("It cannot be bought in stores."), ["It cannot be bought in stores."]);
+  assert.deepEqual(cantBuyClaims("Bought together often. Can be bought as a gift."), []);
+});
+
+test("a page's claims that shoppers can't buy are found sentence by sentence", () => {
+  const homepage = [
+    "Demo / Test Store — Synthetic demonstration. Purchases and checkout are unavailable.",
+    "Browse the current catalog.",
+    "Eligible products can be added to your cart. Checkout is unavailable, so no purchase will be completed.",
+    "Shop",
+    "Product browsing is available. Checkout is not available yet.",
+  ].join("\n");
+  assert.deepEqual(cantBuyClaims(homepage), [
+    "Purchases and checkout are unavailable.",
+    "Checkout is unavailable, so no purchase will be completed.",
+    "Checkout is not available yet.",
+  ]);
+  assert.deepEqual(cantBuyClaims("In stock\nAdd to cart\nThis is an editorial preview. It is not purchasable."), ["It is not purchasable."]);
+  assert.deepEqual(cantBuyClaims("Apparel\nExplore the apparel category. Editorial previews cannot be purchased.\nE2E Tee\nPreview only · not purchasable"), [
+    "Editorial previews cannot be purchased.",
+    "Preview only · not purchasable",
+  ]);
+  assert.deepEqual(cantBuyClaims("Cart\nYour cart is empty.\nCheckout unavailable\nCheckout is not available yet."), [
+    "Checkout unavailable",
+    "Checkout is not available yet.",
+  ]);
+  assert.deepEqual(cantBuyClaims("Test checkout is available. No live purchases.\nIn stock\nAdd to cart"), []);
+  assert.deepEqual(cantBuyClaims(null), []);
 });

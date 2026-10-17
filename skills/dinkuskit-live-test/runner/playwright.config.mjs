@@ -8,6 +8,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   outputDir: config.runDir + "/test-results",
-  reporter: [["list"], ["json", { outputFile: config.runDir + "/playwright.json" }]],
+  // The verdict reporter goes last, so the run's verdict prints after Playwright's own summary.
+  reporter: [["list"], ["json", { outputFile: config.runDir + "/playwright.json" }], ["./support/verdict-reporter.mjs"]],
   use: { trace: "retain-on-failure", screenshot: "only-on-failure" },
 });

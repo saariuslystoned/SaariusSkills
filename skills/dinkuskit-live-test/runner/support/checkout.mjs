@@ -1,5 +1,6 @@
 import { expect } from "@playwright/test";
 import { config } from "./env.mjs";
+import { openStorePage } from "./signin.mjs";
 import { cartCount } from "./storefront-text.mjs";
 
 // The storefront's own localStorage keys (template-store guest-cart intent.ts and checkout-protocol.ts).
@@ -25,7 +26,8 @@ export async function placeTestOrder(page) {
   if (!email) throw new Error("Set DINKUS_E2E_SHOPPER_EMAIL (or DINKUS_E2E_OWNER_EMAIL) for the checkout contact.");
 
   let path = config.productPath || null;
-  await page.goto(config.store + "/");
+  // A store behind Cloudflare Access sends the browser to Access's login once the saved sign-in lapses.
+  await openStorePage(page, config.store + "/");
   // Never two checkouts at once: a checkout an earlier run left pending in Commerce is paid on its
   // own Stripe session instead of starting another.
   const earlier = await page.evaluate(readStatus, { key: CHECKOUT_KEY, routes: statusRoutes() });

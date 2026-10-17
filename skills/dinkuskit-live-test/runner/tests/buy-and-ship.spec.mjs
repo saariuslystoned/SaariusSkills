@@ -1,34 +1,16 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test, expect } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
-import { note, record, shot } from "../support/proof.mjs";
+import { note, record } from "../support/proof.mjs";
+import { journey, step } from "../support/steps.mjs";
 import { openShip, openStoreAdmin } from "../support/signin.mjs";
 import { placeTestOrder } from "../support/checkout.mjs";
 import { describePlugins } from "../support/store-plugins.mjs";
 
 const sitePath = () => `/stores/${encodeURIComponent(config.siteId)}`;
-
-/**
- * Runs one step, recording PASS or FAIL with the reason and a screenshot. A `soft` step's
- * failure is recorded and the run goes on; it returns undefined.
- */
-async function step(page, name, body, { soft = false } = {}) {
-  return test.step(name, async () => {
-    try {
-      const detail = await body();
-      await shot(page, name.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
-      record(name, "PASS", detail && typeof detail === "object" ? JSON.stringify(detail) : detail ?? "");
-      return detail;
-    } catch (error) {
-      await shot(page, `fail-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`);
-      record(name, "FAIL", error.message.split("\n")[0]);
-      if (!soft) throw error;
-    }
-  });
-}
 
 let pluginsNoted = false;
 
@@ -93,7 +75,8 @@ async function labelRow(page) {
   };
 }
 
-test("DinkusKit live test: TEST order to sandbox label to Completed", async ({ page }) => {
+// A TEST order from checkout to a sandbox label and Completed.
+test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
   expect(config.store, `Set DINKUS_E2E_STORE to the store's address (in ${config.settingsFile})`).not.toBe("");
   expect(config.siteId, `Set DINKUS_E2E_SITE_ID to the store's DinkusKit site id (in ${config.settingsFile})`).not.toBe("");
   let orderName = config.order;
@@ -264,9 +247,4 @@ test("DinkusKit live test: TEST order to sandbox label to Completed", async ({ p
     if (label?.tracking) expect(tracking).toBe(label.tracking);
     return `#${orderName} Completed in Commerce, carrier ${text.match(/Carrier:\s*(.+)/)?.[1]?.trim() ?? "not shown"}, tracking ${tracking ?? "not shown"}`;
   });
-
-  const report = JSON.parse(readFileSync(join(config.runDir, "report.json"), "utf8"));
-  console.log(`\nVerdict: ${report.verdict}. Proof: ${config.runDir}/PROOF.md\n`);
-  // A step that failed softly still fails the run, so "run the test" exits non-zero.
-  expect(report.verdict, `see ${config.runDir}/PROOF.md`).toBe("PASS");
-});
+}));
