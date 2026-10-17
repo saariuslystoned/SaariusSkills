@@ -7,6 +7,7 @@ import { config } from "../support/env.mjs";
 import { note, record, shot } from "../support/proof.mjs";
 import { openShip, openStoreAdmin } from "../support/signin.mjs";
 import { placeTestOrder } from "../support/checkout.mjs";
+import { describePlugins } from "../support/store-plugins.mjs";
 
 const sitePath = () => `/stores/${encodeURIComponent(config.siteId)}`;
 
@@ -27,6 +28,26 @@ async function step(page, name, body, { soft = false } = {}) {
       if (!soft) throw error;
     }
   });
+}
+
+let pluginsNoted = false;
+
+/**
+ * Opens Commerce Orders in the store admin, signing in if needed. The first time it gets in, it
+ * also notes which plugin versions the store runs, so the proof says what it covers.
+ */
+async function openOrdersAdmin(page) {
+  const signedIn = await openStoreAdmin(page, config.ordersAdmin, { waitForPerson: config.adminSignIn === "wait" });
+  if (signedIn && !pluginsNoted) {
+    pluginsNoted = true;
+    try {
+      const response = await page.context().request.get(`${config.store}/_emdash/api/admin/plugins`, { headers: { "X-EmDash-Request": "1" } });
+      note("plugins", response.ok() ? describePlugins(await response.json()) : `couldn't read the plugin list (HTTP ${response.status()})`);
+    } catch (error) {
+      note("plugins", `couldn't read the plugin list (${error.message.split("\n")[0]})`);
+    }
+  }
+  return signedIn;
 }
 
 /** Ship's orders list as rows: link, number text, TEST flag and status. */
@@ -88,7 +109,7 @@ test("DinkusKit live test: TEST order to sandbox label to Completed", async ({ p
       // The store only learns Commerce's order id; null falls back to "the only unfinished TEST order" in Ship.
       return placed.number ?? placed.orderId;
     });
-    if (!await openStoreAdmin(page, config.ordersAdmin, { waitForPerson: config.adminSignIn === "wait" })) {
+    if (!await openOrdersAdmin(page)) {
       record("Commerce Orders shows the paid TEST order", "SKIP", "the saved profile has no store admin sign-in yet; Commerce's background check sends the order to Ship");
     } else await step(page, "Commerce Orders shows the paid TEST order", async () => {
       await expect(page.getByText(/#\d+ \(TEST\)/).first()).toBeVisible({ timeout: 60_000 });
@@ -204,7 +225,7 @@ test("DinkusKit live test: TEST order to sandbox label to Completed", async ({ p
 
   if (!done) {
     await step(page, "Opening Commerce Orders collects the label", async () => {
-      if (!await openStoreAdmin(page, config.ordersAdmin, { waitForPerson: config.adminSignIn === "wait" })) {
+      if (!await openOrdersAdmin(page)) {
         throw new Error("The store admin needs a sign-in the test can't make: its Access app offers no one-time PIN and the saved profile has no sign-in.");
       }
       // Loading the Orders list is what asks Ship for new labels.
@@ -225,7 +246,7 @@ test("DinkusKit live test: TEST order to sandbox label to Completed", async ({ p
     return `Completed with tracking ${tracking ?? "(none shown)"}`;
   });
 
-  if (!await openStoreAdmin(page, config.ordersAdmin, { waitForPerson: config.adminSignIn === "wait" })) {
+  if (!await openOrdersAdmin(page)) {
     record("Commerce Orders shows Completed in the store admin", "SKIP", "the saved profile has no store admin sign-in yet; Ship's page already shows Commerce completed the order");
   } else await step(page, "Commerce Orders shows Completed in the store admin", async () => {
     const text = await inspectOrder(page, orderName);

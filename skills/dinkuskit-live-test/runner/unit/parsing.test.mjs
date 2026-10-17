@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { clean, extract } from "../support/mail-patterns.mjs";
 import { parseSettings } from "../support/settings-file.mjs";
+import { describePlugins } from "../support/store-plugins.mjs";
 
 test("the DinkusKit sign-in link survives quoted-printable and HTML encoding", () => {
   const body = [
@@ -42,4 +43,15 @@ test("the settings file takes only DINKUS_E2E_ keys", () => {
     DINKUS_E2E_ACCESS_MAIL_QUERY: "from:a@example.com newer_than:1h",
     DINKUS_E2E_PRODUCT_PATH: "/p?x=1",
   });
+});
+
+test("the proof names each running plugin by its Registry slug and version", () => {
+  const body = { success: true, data: { items: [
+    { id: "r_commerce", name: "DinkusKit Commerce", version: "0.2.2", enabled: true, source: "registry", registrySlug: "dinkus-commerce" },
+    { id: "r_payments", name: "DinkusKit Payments", version: "0.2.8", enabled: true, source: "registry", registrySlug: "dinkus-payments" },
+    { id: "r_old", name: "Old plugin", version: "0.1.0", enabled: false, source: "registry", registrySlug: "old-plugin" },
+    { id: "forms", name: "Forms", version: "1.0.0", enabled: true, source: "config" },
+  ] } };
+  assert.equal(describePlugins(body), "dinkus-commerce 0.2.2, dinkus-payments 0.2.8, Forms 1.0.0");
+  assert.throws(() => describePlugins({ success: false }), /no items/);
 });

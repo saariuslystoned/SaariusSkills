@@ -40,6 +40,15 @@ authorization the test needs.
    detail, the order number, the tracking number and the proof folder, and show the
    label picture. On FAIL, lead with the failing step and its reason.
 
+## For a new plugin release
+
+1. Make sure the test store runs the release. The proof lists the store's plugins
+   and their versions under "plugins". If it shows the old version, update the
+   plugin from the store admin's Plugins page, then run the test again.
+2. Run the full test with `npm test`.
+3. Hand back the verdict with the plugin versions it covered, so the owner knows
+   which release passed.
+
 ## Rules
 
 - TEST mode only. The checkout pays only with Stripe's test card

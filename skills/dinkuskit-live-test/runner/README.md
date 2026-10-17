@@ -68,5 +68,6 @@ The verdict is PASS only when every step passed or was skipped for a stated
 reason, and `npx playwright test` exits non-zero otherwise.
 
 Each run writes `~/.dinkus-e2e/proof/<run>/`: `PROOF.md` and `report.json` (the
-result and detail of every step, the order, tracking number and PDF hash), a
-screenshot per step, `label.pdf` and, on macOS, its picture `label.pdf.png`.
+result and detail of every step, the order, tracking number and PDF hash, and the
+plugins and versions the store ran, read from its admin), a screenshot per step,
+`label.pdf` and, on macOS, its picture `label.pdf.png`.
