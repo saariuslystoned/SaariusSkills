@@ -1,6 +1,6 @@
 ---
 name: dinkuskit-live-test
-description: Run the saved DinkusKit live test journeys (Buy and ship - Stripe TEST order, Commerce order, Pitney Bowes sandbox label in Ship, Completed; Storefront - homepage, product list, product page, category page; Cart - add, change quantity, remove, cart total) and hand back their proof. Use when the owner says "run the test", asks to prove a DinkusKit release or plugin update works on a live store, asks for one journey, or wants a stuck TEST order finished.
+description: Run the saved DinkusKit live test journeys (Buy and ship - Stripe TEST order, Commerce order, Pitney Bowes sandbox label in Ship, Completed; Storefront - homepage, product list, product page, category page; Cart - add, change quantity, remove, cart total; Manage products - add a product with a photo, page in a category, new price and name, archive and restore) and hand back their proof. Use when the owner says "run the test", asks to prove a DinkusKit release or plugin update works on a live store, asks for one journey, or wants a stuck TEST order finished.
 ---
 
 # DinkusKit live test
@@ -12,7 +12,10 @@ number, and Commerce marks the order Completed with the same tracking number. In
 Storefront, a new shopper's homepage, product list, product page and category
 page show no developer notices and every product's name, price and photo. In
 Cart, a new shopper adds a product, changes its quantity and removes it, and the
-cart's count and total follow each change.
+cart's count and total follow each change. In Manage products, the owner adds a
+product with a photo, gives it a page in a new category, changes its price and
+name, and archives and restores it, and the Shop list, product page and category
+page follow each change.
 
 Each journey has a stage. `@running` journeys run on every `npm test` and must all
 pass on the beta store before a final release. A new journey starts as `@next` and
@@ -40,13 +43,16 @@ authorization the test needs.
    - `npm run journey -- storefront` runs one journey, named by its file in
      `runner/tests`. Storefront only reads the pages a shopper sees and places
      no order. Cart fills and empties a new shopper's cart and never checks out.
+     Manage products works in the store admin and takes its product, page and
+     category off the store again, leaving one archived product and its photo.
    - `npm run finish` finishes a Buy and ship order that already exists. Set
      `DINKUS_E2E_ORDER=1001` to pick one, or leave it unset to pick the only TEST
      order still waiting for a label.
 
    Buy and ship takes about 15 minutes, because it gives Commerce's 5-minute
    background check up to 7 minutes to collect the label on its own. Storefront
-   and Cart each take about a minute.
+   and Cart each take about a minute, and Manage products about two, plus up to a
+   minute for each change the store is slow to show.
 4. Read the proof. The run prints each journey's verdict, then `Verdict: PASS` or
    `Verdict: FAIL` and the path to its `PROOF.md`. Read `PROOF.md` and
    `report.json`, and actually look at `label.pdf.png` (macOS draws it from the
@@ -81,6 +87,9 @@ authorization the test needs.
   logs. The proof never needs them.
 - Don't change Cloudflare, Access, Stripe, Pitney Bowes, Ship or store settings to
   make a run pass. A failed step is a finding: report it with its reason.
+- Manage products changes only the product, page and category it adds, each named
+  "Live test" with the run's date and time. Never edit or archive the store's
+  other products to make it pass.
 - A failed run exits non-zero. A failure only on "Commerce's 5-minute check
   collects the label", with the steps after it passing, means the store's
   background check didn't collect the label and opening Commerce Orders did.
@@ -102,6 +111,13 @@ authorization the test needs.
   wrong one, a quantity the header or a reload doesn't keep, or a Remove that
   leaves the item or doesn't stay empty after a reload. Report each finding with
   the amounts the proof gives.
+- Manage products stops at its first step when Commerce on the store can't
+  rename or archive a product yet. Report that the store needs a Commerce release
+  with both (dinkus-commerce-beta 0.3.0-beta.2 or later) and that nothing was
+  added. It also stops when the product can't be added. Its other steps are soft:
+  report each page that didn't follow a change, with how long the test waited.
+  When the last step fails, name what it couldn't take off the store, so the
+  owner can archive or trash it by hand.
 
 ## What each step proves
 

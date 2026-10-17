@@ -39,6 +39,15 @@ link for the store owner, and Cloudflare Access's one-time PIN for the store adm
   products entry links to it; otherwise its Shop card has no page to open.
 - For Cart, at least one listed product with a price that shoppers can add to
   the cart. Cart adds it to its own clean browser's cart and removes it again.
+- For Manage products, Commerce with rename and archive (dinkus-commerce-beta
+  0.3.0-beta.2 or later), Template Store's products and categories collections,
+  and a store admin sign-in allowed to add products, upload media and publish
+  content. A store whose admin asks for EmDash's own sign-in (a passkey or an
+  emailed link) needs it made once by hand: run with
+  `DINKUS_E2E_ADMIN_SIGNIN=wait`. Each run leaves one archived product named
+  "Live test product <date and time> renamed" and its photo in the Media library;
+  its product page and category go to EmDash's Trash. Empty the Trash or delete
+  the photos by hand whenever you like.
 - Ship turned on for the store, with a ship-from address and at least one box size
   in Ship Settings. Ship makes free Pitney Bowes sandbox labels for TEST orders.
 - The Cloudflare Access app in front of the store admin, or of the whole test
