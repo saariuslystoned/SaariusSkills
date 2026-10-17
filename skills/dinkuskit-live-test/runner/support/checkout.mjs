@@ -88,24 +88,28 @@ export async function placeTestOrder(page) {
  * the checkout is still pending, it presses "Check status again" the way a shopper would.
  */
 async function readThankYou(page) {
+  // Every read here is optional. The runner sets no action timeout, so without a short one a page
+  // missing this markup would hold the order step, and the label and Completed checks after it,
+  // until the 30-minute test timeout.
+  const quick = { timeout: 5_000 };
   const root = page.locator("[data-guest-checkout-return]");
-  const heading = async () => (await page.locator("main h1").first().innerText().catch(() => "")).trim();
+  const heading = async () => (await page.locator("main h1").first().innerText(quick).catch(() => "")).trim();
   if (!await root.count()) return { shown: false, heading: await heading() };
   const status = root.locator("[data-guest-checkout-return-status]");
   const recheck = root.locator("[data-guest-checkout-status-retry]");
   for (let presses = 0; ; presses++) {
     await expect(status).not.toHaveText(/^Checking the saved checkout status/, { timeout: 30_000 }).catch(() => {});
-    if (presses === 4 || !await recheck.isVisible() || !await recheck.isEnabled()) break;
+    if (presses === 4 || !await recheck.isVisible() || !await recheck.isEnabled(quick).catch(() => false)) break;
     await page.waitForTimeout(5_000);
-    await recheck.click();
+    if (!await recheck.click(quick).then(() => true, () => false)) break;
   }
   return {
     shown: true,
     heading: await heading(),
-    message: (await status.innerText().catch(() => "")).trim(),
+    message: (await status.innerText(quick).catch(() => "")).trim(),
     confirmed: await root.locator("[data-guest-checkout-order]").isVisible(),
     items: await root.locator("[data-guest-checkout-order-items] li").count(),
-    cart: cartCount(await page.locator("[data-guest-cart-nav]").first().getAttribute("aria-label").catch(() => null)),
+    cart: cartCount(await page.locator("[data-guest-cart-nav]").first().getAttribute("aria-label", quick).catch(() => null)),
   };
 }
 
