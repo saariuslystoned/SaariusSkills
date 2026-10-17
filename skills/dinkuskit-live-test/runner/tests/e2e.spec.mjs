@@ -109,6 +109,14 @@ test("DinkusKit live test: TEST order to sandbox label to Completed", async ({ p
       // The store only learns Commerce's order id; null falls back to "the only unfinished TEST order" in Ship.
       return placed.number ?? placed.orderId;
     });
+    // Soft: a broken thank-you page fails the run, and the steps after it still show the rest.
+    await step(page, "The thank-you page confirms the order and empties the cart", async () => {
+      const shown = placed.thankYou;
+      if (!shown?.shown) throw new Error(`Stripe sent the shopper to a page without the store's order confirmation ("${shown?.heading || "no heading"}").`);
+      if (!shown.confirmed) throw new Error(`The shopper saw "${shown.heading}: ${shown.message}" instead of their order.`);
+      if (shown.cart !== 0) throw new Error(`The order is confirmed, but the cart shows ${shown.cart ?? "an unreadable number of"} item(s).`);
+      return `"${shown.message}" with ${shown.items} item(s) listed; cart empty`;
+    }, { soft: true });
     if (!await openOrdersAdmin(page)) {
       record("Commerce Orders shows the paid TEST order", "SKIP", "the saved profile has no store admin sign-in yet; Commerce's background check sends the order to Ship");
     } else await step(page, "Commerce Orders shows the paid TEST order", async () => {
@@ -126,6 +134,7 @@ test("DinkusKit live test: TEST order to sandbox label to Completed", async ({ p
     });
   } else {
     record("Place a Stripe TEST order on the store", "SKIP", "finish mode: starting from the order that already exists");
+    record("The thank-you page confirms the order and empties the cart", "SKIP", "finish mode: no checkout in this run");
   }
 
   const order = await step(page, "Ship has the order", async () => {

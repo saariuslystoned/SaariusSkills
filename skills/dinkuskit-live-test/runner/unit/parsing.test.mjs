@@ -3,6 +3,7 @@ import test from "node:test";
 import { clean, extract } from "../support/mail-patterns.mjs";
 import { parseSettings } from "../support/settings-file.mjs";
 import { describePlugins } from "../support/store-plugins.mjs";
+import { cartCount } from "../support/storefront-text.mjs";
 
 test("the DinkusKit sign-in link survives quoted-printable and HTML encoding", () => {
   const body = [
@@ -54,4 +55,12 @@ test("the proof names each running plugin by its Registry slug and version", () 
   ] } };
   assert.equal(describePlugins(body), "dinkus-commerce 0.2.2, dinkus-payments 0.2.8, Forms 1.0.0");
   assert.throws(() => describePlugins({ success: false }), /no items/);
+});
+
+test("the header cart count reads the storefront's cart link label", () => {
+  assert.equal(cartCount("Cart"), 0);
+  assert.equal(cartCount("Cart, 1 item"), 1);
+  assert.equal(cartCount("Cart, 12 items"), 12);
+  assert.equal(cartCount(null), null);
+  assert.equal(cartCount("Basket"), null);
 });

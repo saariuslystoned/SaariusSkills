@@ -1,5 +1,6 @@
 import { expect } from "@playwright/test";
 import { config } from "./env.mjs";
+import { cartCount } from "./storefront-text.mjs";
 
 // The storefront's own localStorage keys (template-store guest-cart intent.ts and checkout-protocol.ts).
 const CART_KEY = "dinkus.guest-cart.v1";
@@ -63,8 +64,11 @@ export async function placeTestOrder(page) {
   }
 
   await payOnStripe(page, email);
-  // Payments sends Stripe back to <store>/checkout/success?session_id=cs_test_...; that page may not be deployed.
+  // Payments sends Stripe back to <store>/checkout/success?session_id=cs_test_...
   const sessionId = new URL(page.url()).searchParams.get("session_id");
+  // What the shopper sees comes first: the test's own status call below would record the order
+  // even when the thank-you page can't.
+  const thankYou = await readThankYou(page);
   const status = await settle(page);
   const shown = await page.locator("main").innerText({ timeout: 5_000 }).catch(() => "");
   // A number only, never the digits that start a UUID ("Order 1234abcd-...").
@@ -74,6 +78,34 @@ export async function placeTestOrder(page) {
     orderId: status.checkout?.order?.orderId ?? (status.attemptId ? `order:${status.attemptId}` : null),
     checkoutToken: sessionId ?? status.attemptId ?? null,
     state: status.checkout?.state ?? "unknown",
+    thankYou,
+  };
+}
+
+/**
+ * The store's thank-you page as the shopper sees it once its own status check has answered:
+ * heading, message, whether the order is shown, and the cart count in the header. While it says
+ * the checkout is still pending, it presses "Check status again" the way a shopper would.
+ */
+async function readThankYou(page) {
+  const root = page.locator("[data-guest-checkout-return]");
+  const heading = async () => (await page.locator("main h1").first().innerText().catch(() => "")).trim();
+  if (!await root.count()) return { shown: false, heading: await heading() };
+  const status = root.locator("[data-guest-checkout-return-status]");
+  const recheck = root.locator("[data-guest-checkout-status-retry]");
+  for (let presses = 0; ; presses++) {
+    await expect(status).not.toHaveText(/^Checking the saved checkout status/, { timeout: 30_000 }).catch(() => {});
+    if (presses === 4 || !await recheck.isVisible() || !await recheck.isEnabled()) break;
+    await page.waitForTimeout(5_000);
+    await recheck.click();
+  }
+  return {
+    shown: true,
+    heading: await heading(),
+    message: (await status.innerText().catch(() => "")).trim(),
+    confirmed: await root.locator("[data-guest-checkout-order]").isVisible(),
+    items: await root.locator("[data-guest-checkout-order-items] li").count(),
+    cart: cartCount(await page.locator("[data-guest-cart-nav]").first().getAttribute("aria-label").catch(() => null)),
   };
 }
 
@@ -138,7 +170,7 @@ async function payOnStripe(page, email) {
 
 /**
  * Asks Commerce for this checkout's status until it leaves "pending". Status is also what makes
- * Commerce check the payment and record the order, so this runs even when the return page cannot.
+ * Commerce check the payment and record the order, so this runs even when the thank-you page cannot.
  */
 async function settle(page) {
   const routes = statusRoutes();
