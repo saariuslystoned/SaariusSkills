@@ -182,15 +182,20 @@ test("Storefront", { tag: "@next" }, journey(async () => {
       return `${category} lists ${products(found.listed.length)}: ${short(found.listed).join(", ")}`;
     }, soft);
 
-    // The cart says whether this store takes checkouts; only then is "checkout is unavailable" wrong.
-    const cart = "No page says checkout is unavailable while the cart offers it";
-    await open(page, "/cart").catch(() => {});
-    const admitted = await page.locator("[data-guest-cart]").first().getAttribute("data-guest-checkout-admitted", quick).catch(() => null);
+    // The cart page carries the store's checkout admission; only on a store that takes checkouts is
+    // "checkout is unavailable" wrong, whether a page before it or the empty cart itself says it.
+    const wording = "No page says checkout is unavailable on a store that takes checkouts";
+    let admitted = null;
+    if (await open(page, "/cart").then(() => true, () => false)) {
+      admitted = await page.locator("[data-guest-cart]").first().getAttribute("data-guest-checkout-admitted", quick).catch(() => null);
+      seen.push({ where: "the empty cart", text: await page.locator("body").innerText() });
+    }
     if (admitted !== "true") {
-      record(cart, "SKIP", admitted === "false" ? "the cart offers no checkout on this store, so saying so is true" : "the cart page didn't say whether checkout is open");
-    } else await step(page, cart, async () => {
-      const claims = seen.flatMap(({ where, text: words }) => cantBuyClaims(words).map(claim => `${where} says "${claim}"`));
-      if (claims.length) throw new Error(`The cart offers checkout, but ${short(claims, 8).join("; ")}.`);
+      record(wording, "SKIP", admitted === "false" ? "the store takes no checkouts (its cart page says so), so saying so is true" : "the cart page didn't say whether the store takes checkouts");
+    } else await step(page, wording, async () => {
+      // Grouped by page, so every sentence is listed and a banner repeated on each page reads as such.
+      const claims = seen.map(({ where, text: words }) => ({ where, said: cantBuyClaims(words) })).filter(({ said }) => said.length);
+      if (claims.length) throw new Error(`The store takes checkouts, but ${claims.map(({ where, said }) => `${where} says ${said.map(line => `"${line}"`).join(", ")}`).join("; ")}.`);
       return `checked ${seen.map(({ where }) => where).join(", ")}`;
     }, soft);
   } finally {

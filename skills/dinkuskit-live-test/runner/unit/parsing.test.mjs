@@ -83,6 +83,10 @@ test("a page's claims that shoppers can't buy are found sentence by sentence", (
     "Editorial previews cannot be purchased.",
     "Preview only · not purchasable",
   ]);
+  assert.deepEqual(cantBuyClaims("Cart\nYour cart is empty.\nCheckout unavailable\nCheckout is not available yet."), [
+    "Checkout unavailable",
+    "Checkout is not available yet.",
+  ]);
   assert.deepEqual(cantBuyClaims("Test checkout is available. No live purchases.\nIn stock\nAdd to cart"), []);
   assert.deepEqual(cantBuyClaims(null), []);
 });

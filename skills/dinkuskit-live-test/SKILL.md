@@ -92,7 +92,7 @@ authorization the test needs.
 - Storefront's other steps are soft, so one run lists every finding: a developer
   notice on the homepage, a product without a name, price or photo, a product
   link that doesn't open, a category page that doesn't list its products
-  properly, or a page that says checkout is unavailable while the cart offers it. Report each finding with the page it came from. Store content
+  properly, or a page that says checkout is unavailable on a store that takes checkouts. Report each finding with the page it came from. Store content
   the owner controls, such as a product without a photo, is still a finding.
 
 ## What each step proves

@@ -3,21 +3,48 @@ import { join } from "node:path";
 import { config } from "./env.mjs";
 
 const reportFile = join(config.runDir, "report.json");
-// Playwright starts a new worker after a journey fails, so the next journey's worker carries on
-// from the run's report so far instead of writing an empty one over it.
-const earlier = (() => { try { return JSON.parse(readFileSync(reportFile, "utf8")); } catch { return {}; } })();
-const journeys = (earlier.journeys ?? []).map(entry => entry.name);
-const steps = earlier.steps ?? [];
-const facts = earlier.facts ?? {};
+let journeys, steps, facts;
 let current = "";
+
+/**
+ * Loads the run's report so far. Playwright starts a new worker after a journey fails, so the next
+ * journey's worker carries on from it instead of writing an empty report over it.
+ */
+function load() {
+  const earlier = (() => { try { return JSON.parse(readFileSync(reportFile, "utf8")); } catch { return {}; } })();
+  journeys = (earlier.journeys ?? []).map(entry => entry.name);
+  steps = earlier.steps ?? [];
+  facts = earlier.facts ?? {};
+}
+load();
 
 /** Starts a journey; the steps recorded after it belong to it until the next one starts. */
 export function startJourney(name) {
   current = name;
   // A journey run again under the same run id replaces its earlier steps.
-  steps.splice(0, steps.length, ...steps.filter(s => s.journey !== name));
+  steps = steps.filter(s => s.journey !== name);
   if (!journeys.includes(name)) journeys.push(name);
   write();
+}
+
+/**
+ * Fails a journey in the proof when Playwright failed it but the journey recorded no failure of its
+ * own, as when the saved profile wouldn't open before its first step. The reporter runs this once
+ * every worker has finished.
+ */
+export function failUnrecorded(name, step, detail) {
+  load();
+  if (journeyVerdict(name) === "FAIL") return;
+  current = name;
+  if (!journeys.includes(name)) journeys.push(name);
+  record(step, "FAIL", detail);
+}
+
+/** The run's verdict and each journey's, as the report on disk has them. */
+export function verdicts() {
+  load();
+  const results = journeys.map(name => ({ name, verdict: journeyVerdict(name) }));
+  return { verdict: verdictOf(results.map(r => r.verdict)), journeys: results };
 }
 
 /** Records one step's result; the report is rewritten after every step so a crash still leaves it. */

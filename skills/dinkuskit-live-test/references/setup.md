@@ -34,6 +34,9 @@ link for the store owner, and Cloudflare Access's one-time PIN for the store adm
   name the product, set `DINKUS_E2E_PRODUCT_PATH` to its page.
 - The owner's DinkusKit.com account uses the test inbox's address. It signs in
   with an emailed link, so it has no password.
+- For Storefront, at least one product with its own photo, a published product
+  page and a category. A Commerce product gets its own page only when a published
+  products entry links to it; otherwise its Shop card has no page to open.
 - Ship turned on for the store, with a ship-from address and at least one box size
   in Ship Settings. Ship makes free Pitney Bowes sandbox labels for TEST orders.
 - The Cloudflare Access app in front of the store admin, or of the whole test
