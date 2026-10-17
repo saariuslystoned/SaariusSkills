@@ -1,0 +1,6 @@
+interface:
+  display_name: "DinkusKit Live Test"
+  short_description: "Run the saved live test and hand back its proof"
+  default_prompt: "Use $dinkuskit-live-test to run the saved DinkusKit live test and hand back its proof."
+policy:
+  allow_implicit_invocation: true
