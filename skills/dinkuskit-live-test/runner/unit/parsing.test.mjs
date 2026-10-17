@@ -3,7 +3,7 @@ import test from "node:test";
 import { clean, extract } from "../support/mail-patterns.mjs";
 import { parseSettings } from "../support/settings-file.mjs";
 import { describePlugins } from "../support/store-plugins.mjs";
-import { cantBuyClaims, cartCount } from "../support/storefront-text.mjs";
+import { cantBuyClaims, cartCount, cartTotal, dollars, money } from "../support/storefront-text.mjs";
 
 test("the DinkusKit sign-in link survives quoted-printable and HTML encoding", () => {
   const body = [
@@ -97,4 +97,39 @@ test("a page's claims that shoppers can't buy are found sentence by sentence", (
   ]);
   assert.deepEqual(cantBuyClaims("Test checkout is available. No live purchases.\nIn stock\nAdd to cart"), []);
   assert.deepEqual(cantBuyClaims(null), []);
+});
+
+test("prices read as cents, whatever their commas and cents", () => {
+  assert.equal(money("$12.50"), 1250);
+  assert.equal(money("Now $15 (was $20.00)"), 1500);
+  assert.equal(money("$1,234.5"), 123450);
+  assert.equal(money("$ 1234.05"), 123405);
+  assert.equal(money("Free"), null);
+  assert.equal(money(undefined), null);
+  assert.equal(dollars(123405), "$1234.05");
+  assert.equal(dollars(0), "$0.00");
+});
+
+test("the cart's total is its subtotal, on the label's line or the next", () => {
+  const cart = ["Cart", "Cart test mug", "$12.50", "Quantity", "Remove", "Subtotal", "$25.00", "Shipping", "$5.00", "Total", "$30.00"].join("\n");
+  assert.deepEqual(cartTotal(cart), { label: "Subtotal", cents: 2500 });
+  assert.deepEqual(cartTotal("Order total: $30.00"), { label: "Order total", cents: 3000 });
+  assert.deepEqual(cartTotal("Estimated total (2 items) $41.20"), { label: "Estimated total", cents: 4120 });
+});
+
+test("a cart that lists only unit prices shows no total", () => {
+  const cart = [
+    "Cart", "Cart test mug", "$12.50", "Quantity", "Remove",
+    "Totals are confirmed at checkout", "Checkout", "Commerce will confirm the final amount and availability.",
+  ].join("\n");
+  assert.equal(cartTotal(cart), null);
+  assert.equal(cartTotal("Total"), null);
+});
+
+test("a product whose name starts with Total is no cart total", () => {
+  assert.equal(cartTotal(["Cart", "Total Eclipse Mug", "$15.00", "Quantity", "Remove"].join("\n")), null);
+  assert.equal(cartTotal("Subtotal sale mug $15.00"), null);
+  assert.equal(cartTotal(["Subtotal", "Free shipping over $50.00"].join("\n")), null);
+  const cart = ["Cart", "Total Eclipse Mug", "$15.00", "Quantity", "Remove", "Subtotal", "$30.00"].join("\n");
+  assert.deepEqual(cartTotal(cart), { label: "Subtotal", cents: 3000 });
 });

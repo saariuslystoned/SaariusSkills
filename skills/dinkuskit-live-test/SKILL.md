@@ -1,6 +1,6 @@
 ---
 name: dinkuskit-live-test
-description: Run the saved DinkusKit live test journeys (Buy and ship - Stripe TEST order, Commerce order, Pitney Bowes sandbox label in Ship, Completed; Storefront - homepage, product list, product page, category page) and hand back their proof. Use when the owner says "run the test", asks to prove a DinkusKit release or plugin update works on a live store, asks for one journey, or wants a stuck TEST order finished.
+description: Run the saved DinkusKit live test journeys (Buy and ship - Stripe TEST order, Commerce order, Pitney Bowes sandbox label in Ship, Completed; Storefront - homepage, product list, product page, category page; Cart - add, change quantity, remove, cart total) and hand back their proof. Use when the owner says "run the test", asks to prove a DinkusKit release or plugin update works on a live store, asks for one journey, or wants a stuck TEST order finished.
 ---
 
 # DinkusKit live test
@@ -10,7 +10,9 @@ In Buy and ship, a shopper pays with Stripe's test card, the order shows up in
 Commerce, Ship makes a Pitney Bowes sandbox label with a real PDF and tracking
 number, and Commerce marks the order Completed with the same tracking number. In
 Storefront, a new shopper's homepage, product list, product page and category
-page show no developer notices and every product's name, price and photo.
+page show no developer notices and every product's name, price and photo. In
+Cart, a new shopper adds a product, changes its quantity and removes it, and the
+cart's count and total follow each change.
 
 Each journey has a stage. `@running` journeys run on every `npm test` and must all
 pass on the beta store before a final release. A new journey starts as `@next` and
@@ -37,14 +39,14 @@ authorization the test needs.
      Stripe TEST checkout to Completed.
    - `npm run journey -- storefront` runs one journey, named by its file in
      `runner/tests`. Storefront only reads the pages a shopper sees and places
-     no order.
+     no order. Cart fills and empties a new shopper's cart and never checks out.
    - `npm run finish` finishes a Buy and ship order that already exists. Set
      `DINKUS_E2E_ORDER=1001` to pick one, or leave it unset to pick the only TEST
      order still waiting for a label.
 
    Buy and ship takes about 15 minutes, because it gives Commerce's 5-minute
    background check up to 7 minutes to collect the label on its own. Storefront
-   takes under a minute.
+   and Cart each take about a minute.
 4. Read the proof. The run prints each journey's verdict, then `Verdict: PASS` or
    `Verdict: FAIL` and the path to its `PROOF.md`. Read `PROOF.md` and
    `report.json`, and actually look at `label.pdf.png` (macOS draws it from the
@@ -86,14 +88,20 @@ authorization the test needs.
 - A failure on "The thank-you page confirms the order and empties the cart" means
   a shopper who paid didn't see their order confirmed. The steps after it still
   run, so the proof also shows whether Commerce recorded and completed the order.
-- Storefront stops at its first step when a new shopper can't open the store at
-  all, such as a Cloudflare Access sign-in the test couldn't get past. Report that
-  one finding; the other steps didn't run.
+- Storefront and Cart stop at their first step when a new shopper can't open the
+  store at all, such as a Cloudflare Access sign-in the test couldn't get past.
+  Report that one finding; the other steps didn't run. Cart also stops when no
+  product can be added to the cart, when the product shows no price, or when the
+  cart lists it under another name or price than the shopper saw.
 - Storefront's other steps are soft, so one run lists every finding: a developer
   notice on the homepage, a product without a name, price or photo, a product
   link that doesn't open, a category page that doesn't list its products
   properly, or a page that says checkout is unavailable on a store that takes checkouts. Report each finding with the page it came from. Store content
   the owner controls, such as a product without a photo, is still a finding.
+- Cart's steps after Add to cart are soft too: a cart that shows no total or the
+  wrong one, a quantity the header or a reload doesn't keep, or a Remove that
+  leaves the item or doesn't stay empty after a reload. Report each finding with
+  the amounts the proof gives.
 
 ## What each step proves
 

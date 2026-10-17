@@ -8,6 +8,7 @@ journeys plan:
 | --- | --- | --- |
 | [Buy and ship](tests/buy-and-ship.spec.mjs) | `@running` | A Stripe TEST order on the store, the order in Commerce, a Pitney Bowes sandbox label in Ship, and Commerce marking the order Completed with the same tracking number |
 | [Storefront](tests/storefront.spec.mjs) | `@next` | A new shopper's first look: the homepage, the product list, a product page and its category page |
+| [Cart](tests/cart.spec.mjs) | `@next` | A new shopper adds a product to the cart, changes its quantity and removes it, with the cart total right each time |
 
 `npm test` runs every `@running` journey. A new journey starts as `@next` and
 moves to `@running` once it has passed on the test store.
@@ -25,7 +26,7 @@ step in. If the Access app offers only Google, set
 ```sh
 npm ci
 npm test                      # every @running journey; Buy and ship goes from checkout to Completed
-npm run journey -- storefront # one journey, by its file name
+npm run journey -- storefront # one journey, by its file name (storefront, cart, buy-and-ship)
 npm run finish                # Buy and ship from an existing order (DINKUS_E2E_ORDER=1001, or the only unfinished TEST order)
 npm run unit                  # the runner's own offline checks
 ```
@@ -36,6 +37,10 @@ every page behind Cloudflare Access, that browser first signs in to Access with
 an emailed one-time PIN, as the admin sign-in does, and to nothing else. It
 needs `DINKUS_E2E_STORE`, plus the mail command and `DINKUS_E2E_OWNER_EMAIL`
 when Access fronts the store.
+
+Cart opens its own clean browser the same way. It adds one product to that
+browser's cart, changes it and removes it again, and never checks out, so it
+places no order and leaves nothing behind in the store.
 
 The machine's settings come from `~/.dinkus-e2e/env`; see
 [setup](../references/setup.md).
@@ -98,6 +103,20 @@ on, so one run lists everything a shopper would trip over.
 | The product page shows the name, price and photo and offers Add to cart | The first product's page (or `DINKUS_E2E_PRODUCT_PATH`) shows its name, price and photo, and its Add to cart button is ready |
 | A category page lists its products with name, price and photo | The product's category page (or the first one the homepage links) lists products with names, prices and their own photos, each opening its product page. Skipped when no category page is linked |
 | No page says checkout is unavailable on a store that takes checkouts | When the store takes checkouts (its cart page admits guest checkout), the homepage, the product page, the category page and the empty cart don't tell shoppers they can't check out or buy. Skipped, with the reason, when the cart page says the store takes none; a cart page that won't open or doesn't say fails it |
+
+### Cart
+
+Once the product is in the cart every step is soft, so one run lists every
+finding.
+
+| Step | What it proves |
+| --- | --- |
+| A new shopper can open the store | As in Storefront. When it doesn't, the journey stops here |
+| Add to cart puts the product in the cart | The first product in the Shop list with a working Add to cart (on its own page, or on its Shop card when it has no page; or `DINKUS_E2E_PRODUCT_PATH`) says "Added to cart", the header's cart shows 1 item, and the cart page lists the product once, under the name and at the price the shopper saw, quantity 1. When it doesn't, or the product shows no price to compare, the journey stops here, since the cart has nothing to check |
+| The cart total matches the item's price | The cart shows a subtotal (or a total) equal to the line's price times its quantity |
+| Changing the quantity updates the cart | Typing 2 in the quantity field and moving on updates the header's cart to 2 items, and the cart still shows 2 after a reload |
+| The cart total follows the new quantity | The cart's subtotal (or total) is the price times 2 as soon as the quantity changes, before any reload |
+| Removing the item empties the cart | Remove leaves no lines, the cart says it is empty and the header's cart shows no items, and all three still hold after a reload |
 
 ## Proof
 
