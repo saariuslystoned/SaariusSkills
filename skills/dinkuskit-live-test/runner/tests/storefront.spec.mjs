@@ -1,24 +1,11 @@
 import { test, expect, shopperPage } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
 import { note, record } from "../support/proof.mjs";
-import { openStorePage } from "../support/signin.mjs";
+import { STORE_OPENS, elsewhere, openShopperPage as open, storeOpens } from "../support/shopper.mjs";
 import { journey, step } from "../support/steps.mjs";
 import { cantBuyClaims } from "../support/storefront-text.mjs";
 
 const quick = { timeout: 5_000 };
-const accessLogin = url => /\.cloudflareaccess\.com$/.test(new URL(url).hostname);
-/** Where a request that left the store ended up, for a finding. */
-const elsewhere = url => accessLogin(url) ? "a Cloudflare Access sign-in" : new URL(url).hostname;
-
-/** Opens a store page; ending up off the store (a sign-in elsewhere) or anything but HTTP 200 fails the step that opened it. */
-async function open(page, path) {
-  const response = await openStorePage(page, new URL(path, config.store).href);
-  if (new URL(page.url()).origin !== config.store) {
-    const how = accessLogin(page.url()) ? "; the test gets past Access only with a one-time PIN it reads from the test inbox" : "";
-    throw new Error(`${path} sent the shopper to ${elsewhere(page.url())} instead of the store${how}.`);
-  }
-  if (response?.status() !== 200) throw new Error(`${path} answered HTTP ${response?.status() ?? "nothing"}.`);
-}
 
 /** The visible error boxes a shopper would see: a missing home page, unknown content blocks, alerts. */
 async function developerNotices(page) {
@@ -111,13 +98,7 @@ test("Storefront", { tag: "@next" }, journey(async () => {
   const soft = { soft: true };
   try {
     // A store nobody can open has nothing else to check, so this step alone stops the journey.
-    await step(page, "A new shopper can open the store", async () => {
-      await open(page, "/");
-      // A test store may keep every page behind Cloudflare Access; the shopper's browser then signed in to it first.
-      const gated = (await page.context().cookies(config.store)).some(cookie => cookie.name === "CF_Authorization");
-      if (gated) note("store access", "behind Cloudflare Access; the shopper's browser signed in to it with a one-time PIN");
-      return `the homepage "${await page.title()}" answered HTTP 200${gated ? " after a Cloudflare Access sign-in" : ""}`;
-    });
+    await step(page, STORE_OPENS, () => storeOpens(page));
 
     await step(page, "The homepage shows no developer notices", async () => {
       seen.push({ where: "the homepage", text: await page.locator("body").innerText() });

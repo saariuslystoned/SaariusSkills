@@ -37,15 +37,17 @@ link for the store owner, and Cloudflare Access's one-time PIN for the store adm
 - For Storefront, at least one product with its own photo, a published product
   page and a category. A Commerce product gets its own page only when a published
   products entry links to it; otherwise its Shop card has no page to open.
+- For Cart, at least one listed product with a price that shoppers can add to
+  the cart. Cart adds it to its own clean browser's cart and removes it again.
 - Ship turned on for the store, with a ship-from address and at least one box size
   in Ship Settings. Ship makes free Pitney Bowes sandbox labels for TEST orders.
 - The Cloudflare Access app in front of the store admin, or of the whole test
   store, offers One-time PIN with Instant Auth off, and its policy allows the test
-  inbox's address. When it fronts every page, Storefront's clean browser signs in
-  to it the same way. If the app offers only Google, run once with
+  inbox's address. When it fronts every page, the clean browsers of Storefront and
+  Cart sign in to it the same way. If the app offers only Google, run once with
   `DINKUS_E2E_ADMIN_SIGNIN=wait` and sign in by hand in the test's window. The
   saved profile keeps that sign-in until Access ends the session, but Storefront
-  can't open a store behind a Google-only app.
+  and Cart can't open a store behind a Google-only app.
 
 ## Settings file
 
