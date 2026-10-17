@@ -10,8 +10,11 @@ import { placeTestOrder } from "../support/checkout.mjs";
 
 const sitePath = () => `/stores/${encodeURIComponent(config.siteId)}`;
 
-/** Runs one step, recording PASS or FAIL with the reason and a screenshot. */
-async function step(page, name, body) {
+/**
+ * Runs one step, recording PASS or FAIL with the reason and a screenshot. A `soft` step's
+ * failure is recorded and the run goes on; it returns undefined.
+ */
+async function step(page, name, body, { soft = false } = {}) {
   return test.step(name, async () => {
     try {
       const detail = await body();
@@ -21,7 +24,7 @@ async function step(page, name, body) {
     } catch (error) {
       await shot(page, `fail-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`);
       record(name, "FAIL", error.message.split("\n")[0]);
-      throw error;
+      if (!soft) throw error;
     }
   });
 }
@@ -175,27 +178,44 @@ test("DinkusKit live e2e: TEST order to sandbox label to Completed", async ({ pa
     });
   }
 
-  await step(page, "Commerce marks the order Completed with the same tracking", async () => {
-    const shipPage = config.ship + order.href;
-    const completedText = async () => {
-      await page.goto(shipPage);
-      const text = await page.locator("main").innerText();
-      return text.match(/This order is Completed in Commerce(?: with tracking (\S+?))?\./);
-    };
-    let done = await completedText();
-    const deadline = Date.now() + config.completeWaitMs;
-    let nudged = false;
+  // Ship's page says so once Commerce has marked the order Completed and told Ship.
+  const shipPage = config.ship + order.href;
+  const completedOnShip = async () => {
+    await page.goto(shipPage);
+    return (await page.locator("main").innerText()).match(/This order is Completed in Commerce(?: with tracking (\S+?))?\./);
+  };
+  let done = await completedOnShip();
+  const alreadyDone = !!done;
+
+  // Two ways Commerce collects a label: its 5-minute background check, and an owner opening
+  // Commerce Orders. The test waits for the first without touching the store admin, so the
+  // proof shows whether it works on its own; then it opens Orders the way an owner would.
+  await step(page, "Commerce's 5-minute check collects the label", async () => {
+    if (alreadyDone) return "the order was already Completed";
+    const started = Date.now(), deadline = started + config.completeWaitMs;
     while (!done && Date.now() < deadline) {
-      // Commerce collects labels on its 5-minute background check, or when someone opens Commerce Orders.
-      if (!nudged && Date.now() > deadline - config.completeWaitMs / 2) {
-        const opened = await openStoreAdmin(page, config.ordersAdmin, { waitForPerson: false }).catch(() => false);
-        note("Commerce Orders opened to collect the label", opened ? "yes" : "no (store admin not signed in)");
-        nudged = true;
-      }
       await page.waitForTimeout(30_000);
-      done = await completedText();
+      done = await completedOnShip();
     }
-    if (!done) throw new Error(`Ship still shows the order not Completed after ${config.completeWaitMs / 1000}s.`);
+    if (!done) throw new Error(`Commerce had not collected the label after ${config.completeWaitMs / 1000}s without anyone opening Commerce Orders.`);
+    return `collected ${Math.round((Date.now() - started) / 1000)}s into the wait`;
+  }, { soft: true });
+
+  if (!done) {
+    await step(page, "Opening Commerce Orders collects the label", async () => {
+      if (!await openStoreAdmin(page, config.ordersAdmin, { waitForPerson: config.adminSignIn === "wait" })) {
+        throw new Error("The store admin needs a sign-in the test can't make: its Access app offers no one-time PIN and the saved profile has no sign-in.");
+      }
+      // Loading the Orders list is what asks Ship for new labels.
+      await expect(page.getByText(/#\d+ \(TEST\)/).first()).toBeVisible({ timeout: 60_000 });
+      const deadline = Date.now() + 120_000;
+      while (!(done = await completedOnShip()) && Date.now() < deadline) await page.waitForTimeout(15_000);
+      if (!done) throw new Error("Ship still shows the order not Completed two minutes after Commerce Orders opened.");
+      return "Completed right after Commerce Orders opened";
+    });
+  }
+
+  await step(page, "Commerce marks the order Completed with the same tracking", async () => {
     const tracking = done[1];
     const expected = label?.tracking;
     if (expected) expect(tracking).toBe(expected);
@@ -216,4 +236,6 @@ test("DinkusKit live e2e: TEST order to sandbox label to Completed", async ({ pa
 
   const report = JSON.parse(readFileSync(join(config.runDir, "report.json"), "utf8"));
   console.log(`\nVerdict: ${report.verdict}. Proof: ${config.runDir}/PROOF.md\n`);
+  // A step that failed softly still fails the run, so "run the test" exits non-zero.
+  expect(report.verdict, `see ${config.runDir}/PROOF.md`).toBe("PASS");
 });
