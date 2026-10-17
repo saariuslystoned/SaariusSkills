@@ -49,6 +49,13 @@ function chooseOrder(rows, wanted) {
   return candidates[0];
 }
 
+/** Opens one order in Commerce Orders (already on the Orders page) and returns its detail text. */
+async function inspectOrder(page, number) {
+  await page.getByRole("button", { name: new RegExp(`^Inspect #${number}\\b`) }).first().click();
+  await expect(page.getByText(/Order ID:/).first()).toBeVisible({ timeout: 30_000 });
+  return page.locator("main").innerText();
+}
+
 /** The first label row on Ship's order page. */
 async function labelRow(page) {
   const row = page.locator("h2:has-text('Labels') + table tbody tr").first();
@@ -67,30 +74,50 @@ test("DinkusKit live e2e: TEST order to sandbox label to Completed", async ({ pa
   let orderName = config.order;
 
   if (config.mode === "full") {
+    let placed;
     orderName = await step(page, "Place a Stripe TEST order on the store", async () => {
-      const placed = await placeTestOrder(page);
-      note("order", `#${placed.number}`);
-      return placed.number;
+      placed = await placeTestOrder(page);
+      if (["pending", "failed", "expired", "cancelled", "canceled"].includes(placed.state)) throw new Error(`Commerce reports this checkout as "${placed.state}", not paid.`);
+      note("order", placed.number ? `#${placed.number}` : placed.orderId ?? "unknown");
+      if (placed.checkoutToken) note("stripe session", placed.checkoutToken);
+      note("checkout state", placed.state);
+      // The store only learns Commerce's order id; null falls back to "the only unfinished TEST order" in Ship.
+      return placed.number ?? placed.orderId;
     });
-    await step(page, "Commerce Orders shows the paid TEST order", async () => {
-      await openStoreAdmin(page, config.ordersAdmin);
-      const row = page.getByText(`#${orderName}`, { exact: false }).first();
-      await expect(row).toBeVisible({ timeout: 60_000 });
-      const text = await page.locator("main").innerText();
-      expect(text).toMatch(/TEST/);
-      expect(text).toMatch(/Processing/i);
-      return `#${orderName} listed as TEST and Processing; opening Orders also sends it to Ship`;
+    if (!await openStoreAdmin(page, config.ordersAdmin, { waitForPerson: config.adminSignIn === "wait" })) {
+      record("Commerce Orders shows the paid TEST order", "SKIP", "the saved profile has no store admin sign-in yet; Commerce's background check sends the order to Ship");
+    } else await step(page, "Commerce Orders shows the paid TEST order", async () => {
+      await expect(page.getByText(/#\d+ \(TEST\)/).first()).toBeVisible({ timeout: 60_000 });
+      if (orderName && !/^\d+$/.test(orderName)) {
+        // Orders numbers orders as they are paid, so the newest TEST order has the highest number.
+        const numbers = [...(await page.locator("main").innerText()).matchAll(/#(\d+) \(TEST\)/g)].map(m => Number(m[1]));
+        orderName = String(Math.max(...numbers));
+      }
+      const text = await inspectOrder(page, orderName);
+      if (placed.orderId) expect(text, "the newest TEST order should be this checkout's order").toContain(placed.orderId);
+      expect(text).toMatch(/Status:\s*Processing/);
+      expect(text).toMatch(/Payment:\s*Provider-paid/);
+      return `#${orderName} is TEST, provider-paid and Processing; opening Orders also sends it to Ship`;
     });
   } else {
     record("Place a Stripe TEST order on the store", "SKIP", "finish mode: starting from the order that already exists");
   }
 
   const order = await step(page, "Ship has the order", async () => {
-    await openShip(page, `${sitePath()}/orders`);
-    const chosen = chooseOrder(await shipOrders(page), orderName);
-    note("order", chosen.name);
-    note("ship order page", config.ship + chosen.href);
-    return chosen;
+    // A new order reaches Ship on Commerce's next background check (or when Commerce Orders opens).
+    const deadline = Date.now() + (config.mode === "full" ? config.completeWaitMs : 0);
+    for (;;) {
+      await openShip(page, `${sitePath()}/orders`);
+      try {
+        const chosen = chooseOrder(await shipOrders(page), orderName);
+        note("order", chosen.name);
+        note("ship order page", config.ship + chosen.href);
+        return chosen;
+      } catch (error) {
+        if (Date.now() >= deadline) throw error;
+        await page.waitForTimeout(30_000);
+      }
+    }
   });
   orderName = order.name.replace(/^#/, "");
 
@@ -180,10 +207,11 @@ test("DinkusKit live e2e: TEST order to sandbox label to Completed", async ({ pa
   if (!await openStoreAdmin(page, config.ordersAdmin, { waitForPerson: config.adminSignIn === "wait" })) {
     record("Commerce Orders shows Completed in the store admin", "SKIP", "the saved profile has no store admin sign-in yet; Ship's page already shows Commerce completed the order");
   } else await step(page, "Commerce Orders shows Completed in the store admin", async () => {
-    await expect(page.getByText(`#${orderName}`).first()).toBeVisible({ timeout: 60_000 });
-    const text = await page.locator("body").innerText();
-    expect(text).toMatch(/Completed/i);
-    return "order listed as Completed";
+    const text = await inspectOrder(page, orderName);
+    expect(text).toMatch(/Status:\s*Completed/);
+    const tracking = text.match(/Tracking number:\s*(\S+)/)?.[1];
+    if (label?.tracking) expect(tracking).toBe(label.tracking);
+    return `#${orderName} Completed in Commerce, carrier ${text.match(/Carrier:\s*(.+)/)?.[1]?.trim() ?? "not shown"}, tracking ${tracking ?? "not shown"}`;
   });
 
   const report = JSON.parse(readFileSync(join(config.runDir, "report.json"), "utf8"));
