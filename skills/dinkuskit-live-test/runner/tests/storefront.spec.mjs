@@ -53,6 +53,9 @@ const photoProblem = {
   hidden: "has a photo shoppers can't see (the page hides it)",
 };
 
+/** A page's developer notices as one finding, so they're listed with the page's other findings. */
+const shows = notices => notices.length ? [`shows ${notices.map(notice => `"${notice}"`).join(", ")}`] : [];
+
 // Passing summaries name the first few products; a failure names every finding.
 const short = (items, count = 5) => items.length > count ? [...items.slice(0, count), `${items.length - count} more`] : items;
 const products = count => `${count} product${count === 1 ? "" : "s"}`;
@@ -86,8 +89,10 @@ async function readCards(cards) {
 async function brokenLinks(page, links) {
   const broken = [];
   for (const href of new Set(links)) {
-    const response = await page.request.get(new URL(href, config.store).href);
-    if (new URL(response.url()).origin !== config.store) broken.push(`${href} sent the shopper to ${elsewhere(response.url())}`);
+    // A link that gets no answer at all is a finding too, and the rest are still checked.
+    const response = await page.request.get(new URL(href, config.store).href).catch(error => error);
+    if (response instanceof Error) broken.push(`${href} didn't answer (${response.message.split("\n")[0]})`);
+    else if (new URL(response.url()).origin !== config.store) broken.push(`${href} sent the shopper to ${elsewhere(response.url())}`);
     else if (response.status() !== 200) broken.push(`${href} answered HTTP ${response.status()}`);
   }
   return broken;
@@ -150,14 +155,12 @@ test("Storefront", { tag: "@next" }, journey(async () => {
       seen.push({ where: path, text: await page.locator("body").innerText() });
       // The product's own category comes first for the category step.
       category = await firstHref(page.locator('.browse-breadcrumb a[href^="/categories/"]')) ?? category;
-      const notices = await developerNotices(page);
-      if (notices.length) throw new Error(`${path} shows: ${notices.map(notice => `"${notice}"`).join("; ")}.`);
+      const problems = shows(await developerNotices(page));
       const product = page.locator("[data-product-page]");
-      if (!await product.count()) throw new Error(`${path} shows no product.`);
+      if (!await product.count()) throw new Error(`${path}: ${[...problems, "shows no product"].join("; ")}.`);
       const name = await text(product.locator("h1"));
       const price = await text(product.locator("[data-product-price]"));
       const image = await photo(product.locator(".product-detail__visual"));
-      const problems = [];
       if (!name) problems.push("no name");
       if (!/\$\s?\d/.test(price)) problems.push("no price");
       if (image !== "photo") problems.push(`the product ${photoProblem[image]}`);
@@ -175,12 +178,11 @@ test("Storefront", { tag: "@next" }, journey(async () => {
     } else await step(page, categoryStep, async () => {
       await open(page, category);
       seen.push({ where: category, text: await page.locator("body").innerText() });
-      const notices = await developerNotices(page);
-      if (notices.length) throw new Error(`${category} shows: ${notices.map(notice => `"${notice}"`).join("; ")}.`);
+      const problems = shows(await developerNotices(page));
       const cards = page.locator("main").locator("[data-commerce-product], [data-merch-item]");
-      if (!await cards.count()) throw new Error(`${category} lists no products: "${await text(page.locator("main"))}".`);
+      if (!await cards.count()) throw new Error(`${category}: ${[...problems, `lists no products: "${await text(page.locator("main"))}"`].join("; ")}.`);
       const found = await readCards(cards);
-      const problems = [...found.problems];
+      problems.push(...found.problems);
       if (found.links.length < found.listed.length) problems.push(unlinked(found.listed.length - found.links.length));
       problems.push(...await brokenLinks(page, found.links));
       if (problems.length) throw new Error(`${category}: ${problems.join("; ")}.`);

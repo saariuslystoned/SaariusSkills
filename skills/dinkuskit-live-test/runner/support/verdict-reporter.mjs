@@ -11,10 +11,12 @@ const firstLine = text => String(text ?? "").replace(/\u001b\[[0-9;]*m/g, "").sp
  */
 export default class VerdictReporter {
   errors = [];
+  // Listing the journeys (--list) runs none, so it leaves the proof as it is and gives no verdict.
+  listOnly = process.argv.includes("--list");
 
   constructor() {
     // Playwright makes the reporter before it loads the journeys, so even a run that finds none starts clean.
-    startRun();
+    if (!this.listOnly) startRun();
   }
 
   onBegin(_config, suite) {
@@ -26,12 +28,11 @@ export default class VerdictReporter {
   }
 
   onEnd(result) {
+    if (this.listOnly) return;
     for (const test of this.suite?.allTests() ?? []) {
       const last = test.results.at(-1);
-      // A journey with no result in a run Playwright calls passed was only listed (--list), not stopped.
-      if (!last) {
-        if (result.status !== "passed") failUnrecorded(test.title, "The journey ran", "the run stopped before this journey started");
-      } else if (!["passed", "skipped"].includes(last.status)) {
+      if (!last) failUnrecorded(test.title, "The journey ran", "the run stopped before this journey started");
+      else if (!["passed", "skipped"].includes(last.status)) {
         failUnrecorded(test.title, "The journey finished without an error", firstLine(last.error?.message) || `Playwright reported it ${last.status}`);
       }
     }

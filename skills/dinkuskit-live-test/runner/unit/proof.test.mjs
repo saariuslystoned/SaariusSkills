@@ -17,31 +17,52 @@ const proof = await import("../support/proof.mjs");
 const { default: VerdictReporter } = await import("../support/verdict-reporter.mjs");
 
 const quiet = t => t.mock.method(console, "log", () => {});
+const saved = () => ["report.json", "PROOF.md"].map(name => readFileSync(join(dir, "reused", name), "utf8"));
 
-test("a run id used again keeps its journeys but drops an earlier invocation's run-level failure", (t) => {
-  quiet(t);
+/** A passing Storefront under the run id, then an invocation that matched no journey. */
+function passThenNoJourney() {
   proof.startJourney("Storefront");
   proof.record("A new shopper can open the store", "PASS");
-  // The invocation before matched no journey.
   const first = new VerdictReporter();
   first.onError({ message: "Error: No tests found" });
   first.onEnd({ status: "failed" });
   assert.equal(proof.verdicts().verdict, "FAIL");
-  // The next one, under the same run id, starts without it.
-  new VerdictReporter();
-  assert.deepEqual(proof.verdicts(), { verdict: "PASS", journeys: [{ name: "Storefront", verdict: "PASS" }] });
-  assert.doesNotMatch(readFileSync(join(dir, "reused", "PROOF.md"), "utf8"), /Test run|No tests found/);
+}
+
+/** Runs `body` as Playwright's main process does for `playwright test --list`. */
+function listing(body) {
+  const argv = process.argv;
+  process.argv = [...argv, "--list"];
+  try { body(); } finally { process.argv = argv; }
+}
+
+test("listing the journeys leaves the proof as it is and prints no verdict", (t) => {
+  const log = quiet(t);
+  passThenNoJourney();
+  const before = saved();
+  log.mock.resetCalls();
+  listing(() => {
+    const listed = new VerdictReporter();
+    listed.onBegin({}, { allTests: () => [{ title: "Storefront", results: [] }, { title: "Cart", results: [] }] });
+    listed.onEnd({ status: "passed" });
+  });
+  assert.deepEqual(saved(), before);
+  assert.equal(log.mock.callCount(), 0);
 });
 
-test("listing the journeys fails none of them, but a run that stops before one fails it", (t) => {
+test("a run id used again keeps its journeys but drops an earlier invocation's run-level failure", (t) => {
   quiet(t);
-  const unstarted = { allTests: () => [{ title: "Cart", results: [] }] };
-  const listed = new VerdictReporter();
-  listed.onBegin({}, unstarted);
-  listed.onEnd({ status: "passed" });
-  assert.ok(!proof.verdicts().journeys.some(entry => entry.name === "Cart"));
+  passThenNoJourney();
+  // The next invocation, under the same run id, starts without it.
+  new VerdictReporter();
+  assert.deepEqual(proof.verdicts(), { verdict: "PASS", journeys: [{ name: "Storefront", verdict: "PASS" }] });
+  assert.doesNotMatch(saved()[1], /Test run|No tests found/);
+});
+
+test("a run that stops before a journey starts fails that journey", (t) => {
+  quiet(t);
   const stopped = new VerdictReporter();
-  stopped.onBegin({}, unstarted);
+  stopped.onBegin({}, { allTests: () => [{ title: "Cart", results: [] }] });
   stopped.onEnd({ status: "interrupted" });
   assert.equal(proof.journeyVerdict("Cart"), "FAIL");
 });
