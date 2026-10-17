@@ -20,7 +20,8 @@ Storefront preparation and historical public probes. The dated
 records exact sources, evidence locators and gates. Its synchronization rule
 requires future milestone closeouts to refresh both that status and PR152.
 
-The October15 proof and all public probe/helper bytes are unchanged. Historical
+The October15 proof and public fixture/producer/dependency bytes are unchanged.
+The decoder later received the bounded-record repair described below. Historical
 qualification and optional browser research are labeled historical/deferred.
 No historical verdict is silently replaced by a current runtime claim.
 
@@ -49,7 +50,8 @@ comes from existing consumer preflight/state, without invented command flags.
 - `python3 -m unittest tests.test_packaging tests.test_blackbox_artifacts -q`: 27 tests PASS.
 - Local Markdown references: 51 checked, all exist. Canonical and x-api links use verified repository/commit identities.
 - Secret/token/private-key/home-path marker scan: PASS. Explicit nonsecret runner account/version and CP-1 command path are intentional operational references; no credential values, browser state or raw authentication records added.
-- `git diff --check`: PASS. Public probe helpers and October15 proof are byte-unchanged.
+- `git diff --check`: PASS. Public probe producer/dependency bytes and October15 proof are unchanged;
+  the decoder repair is recorded below.
 
 Generated validation/state records remain in
 `runs/dinkuskit-e2e-blackbox-runs/20261017-pr152-sync/` in the task worktree.
@@ -81,3 +83,25 @@ its status file is unchanged from the earlier candidate. The PR723 final
 `PR152_SYNC_DELTA.json` handoff adds review results but retains inactive/offline
 status and owner/integration/runtime gates. Only these documentation facts
 changed after the suite; no runtime code changed.
+
+## Exact-head review repair1: bound chunk records
+
+Comprehensive Spark/OpenClaw epoch4 request
+`req-20261017T234426Z-23238836746`, base `949091838e55b3861968ebf12f403cda48f86b48`,
+head `20ce4e4e516ca79627e3b6432945ae0b134b37b8`, returned one P3: a capture
+could declare unbounded chunks while remaining under the byte cap.
+Disposition: `required_fix` accepted. The local historical-probe decoder now
+requires integer size/count and count equal to ceil(size/32768), refuses a
+chunk beyond the declared count, and requires each chunk's exact remaining
+length. It fails before reading the next record for impossible declarations,
+empty chunks or a zero-byte artifact's extra chunk. This bounds accepted
+artifact records as well as bytes; it does not claim a global cap on arbitrary
+non-artifact lifecycle text in the input file.
+
+The new regression was observed failing first in eight subcases, then passed
+with the repair. `python3 -m unittest tests.test_blackbox_artifacts
+tests.test_packaging -q`:31 tests PASS, including valid multichunk transfer,
+hashes, truncation, ZIP expansion, output preservation and immediate rejection.
+No provider rerun or new historical-runtime success is claimed. The original
+October15 proof remains intact and revision-bound. This repaired head requires
+fresh CI and exact-head review. One review-triggered repair cycle used.

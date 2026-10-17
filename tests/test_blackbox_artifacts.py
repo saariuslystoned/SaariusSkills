@@ -101,6 +101,38 @@ class PublicArtifactTransferTests(unittest.TestCase):
                 decoder.decode(self.capture(root, records), output, "run1")
             self.assertEqual((output / "keep.txt").read_text(), "prior evidence")
 
+    def test_invalid_chunk_count_rejected_before_reading_more_records(self):
+        for size, chunks in ((0, 10**12), (1, 0), (32768, 2),
+                             (decoder.CAP, 513), (1, 1.0), (1, True)):
+            with self.subTest(size=size, chunks=chunks), tempfile.TemporaryDirectory() as temp:
+                begin = dict(kind="begin", runId="run1", name="result.json",
+                             size=size, chunks=chunks, sha256="0" * 64)
+
+                def unconsumed_tail():
+                    yield begin
+                    self.fail("decoder consumed records after an invalid chunk count")
+
+                output = Path(temp) / "output"
+                with mock.patch.object(decoder, "records", return_value=unconsumed_tail()):
+                    with self.assertRaisesRegex(ValueError, "chunk count"):
+                        decoder.decode("unused", output, "run1")
+                self.assertFalse(output.exists())
+
+    def test_extra_or_empty_chunk_rejected_before_reading_more_records(self):
+        for size, chunks in ((0, 0), (1, 1)):
+            with self.subTest(size=size), tempfile.TemporaryDirectory() as temp:
+                def unconsumed_tail():
+                    yield dict(kind="begin", runId="run1", name="result.json",
+                               size=size, chunks=chunks, sha256="0" * 64)
+                    yield dict(kind="chunk", runId="run1", name="result.json", n=0, data="")
+                    self.fail("decoder consumed records after an impossible empty chunk")
+
+                output = Path(temp) / "output"
+                with mock.patch.object(decoder, "records", return_value=unconsumed_tail()):
+                    with self.assertRaises(ValueError):
+                        decoder.decode("unused", output, "run1")
+                self.assertFalse(output.exists())
+
     def test_trace_expansion_limits_rejected_before_decompression(self):
         cases = (
             ("entry", [2048], 1024, 4096, 8),

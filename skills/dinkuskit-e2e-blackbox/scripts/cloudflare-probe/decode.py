@@ -10,6 +10,7 @@ import zipfile
 PREFIX = 'E2E_PUBLIC_ARTIFACT_V1 '
 NAMES = {'page.png', 'trace.zip', 'result.json'}
 CAP = 16 * 1024 * 1024
+CHUNK_SIZE = 32768
 MAX_LINE = 65536
 TRACE_ENTRY_CAP = 16 * 1024 * 1024
 TRACE_TOTAL_CAP = 64 * 1024 * 1024
@@ -46,15 +47,19 @@ def decode(source, destination, run_id):
         if terminal is not None or name not in NAMES:
             raise ValueError('Unexpected artifact')
         if kind == 'begin':
-            if name in active or name in completed or not 0 <= item['size'] <= CAP:
+            if (name in active or name in completed or type(item['size']) is not int
+                    or not 0 <= item['size'] <= CAP):
                 raise ValueError('Duplicate or oversized artifact')
+            if (type(item['chunks']) is not int
+                    or item['chunks'] != (item['size'] + CHUNK_SIZE - 1) // CHUNK_SIZE):
+                raise ValueError('Invalid chunk count')
             active[name] = {**item, 'bytes': bytearray(), 'next': 0}
         elif kind == 'chunk':
             entry = active[name]
-            if item['n'] != entry['next']:
+            if item['n'] != entry['next'] or entry['next'] >= entry['chunks']:
                 raise ValueError('Out-of-order chunk')
             part = base64.b64decode(item['data'], validate=True)
-            if len(part) > 32768 or len(entry['bytes']) + len(part) > entry['size']:
+            if len(part) != min(CHUNK_SIZE, entry['size'] - len(entry['bytes'])):
                 raise ValueError('Chunk size exceeded')
             entry['bytes'].extend(part)
             entry['next'] += 1
