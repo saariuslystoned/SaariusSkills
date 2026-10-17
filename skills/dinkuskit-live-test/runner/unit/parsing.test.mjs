@@ -65,6 +65,14 @@ test("the header cart count reads the storefront's cart link label", () => {
   assert.equal(cartCount("Basket"), null);
 });
 
+test("a product notice that says it can't be bought is a can't-buy claim", () => {
+  const product = ["Cart test mug", "$12.50", "In stock", "Add to cart", "This product can\u2019t be bought right now."].join("\n");
+  assert.deepEqual(cantBuyClaims(product), ["This product can\u2019t be bought right now."]);
+  assert.deepEqual(cantBuyClaims("Checkout is unavailable right now, so this product can't be bought."), ["Checkout is unavailable right now, so this product can't be bought."]);
+  assert.deepEqual(cantBuyClaims("It cannot be bought in stores."), ["It cannot be bought in stores."]);
+  assert.deepEqual(cantBuyClaims("Bought together often. Can be bought as a gift."), []);
+});
+
 test("a page's claims that shoppers can't buy are found sentence by sentence", () => {
   const homepage = [
     "Demo / Test Store — Synthetic demonstration. Purchases and checkout are unavailable.",

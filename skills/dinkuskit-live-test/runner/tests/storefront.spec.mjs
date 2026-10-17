@@ -30,7 +30,7 @@ async function developerNotices(page) {
 
 /**
  * "photo", "placeholder" (the store's stand-in image), "illustration" (a picture that isn't the
- * product's own), "none" or "broken" for a product's image area. The store marks a product's own
+ * product's own), "none", "broken" or "hidden" for a product's image area. The store marks a product's own
  * photo from Commerce with data-commerce-image.
  */
 async function photo(media) {
@@ -40,6 +40,8 @@ async function photo(media) {
   await img.scrollIntoViewIfNeeded(quick).catch(() => {});
   const loaded = await expect.poll(() => img.evaluate(el => el.complete && el.naturalWidth > 0), { timeout: 15_000 }).toBe(true).then(() => true, () => false);
   if (!loaded) return "broken";
+  // A photo the page's styles hide is no photo to a shopper.
+  if (!await img.isVisible()) return "hidden";
   return await img.getAttribute("data-placeholder") === "true" ? "placeholder" : "photo";
 }
 
@@ -48,8 +50,10 @@ const photoProblem = {
   illustration: "shows a stand-in drawing instead of its photo",
   none: 'has no photo ("No image")',
   broken: "has a photo that didn't load",
+  hidden: "has a photo shoppers can't see (the page hides it)",
 };
 
+// Passing summaries name the first few products; a failure names every finding.
 const short = (items, count = 5) => items.length > count ? [...items.slice(0, count), `${items.length - count} more`] : items;
 const products = count => `${count} product${count === 1 ? "" : "s"}`;
 const unlinked = count => `${products(count)} link${count === 1 ? "s" : ""} to no product page`;
@@ -125,7 +129,7 @@ test("Storefront", { tag: "@next" }, journey(async () => {
       const found = await readCards(cards);
       shop = found;
       note("products listed", found.listed.length);
-      if (found.problems.length) throw new Error(`${short(found.problems).join("; ")}.`);
+      if (found.problems.length) throw new Error(`${found.problems.join("; ")}.`);
       return `${products(found.listed.length)}: ${short(found.listed).join(", ")}`;
     }, soft);
 
@@ -134,7 +138,7 @@ test("Storefront", { tag: "@next" }, journey(async () => {
       const problems = [];
       if (shop.links.length < shop.listed.length) problems.push(unlinked(shop.listed.length - shop.links.length));
       problems.push(...await brokenLinks(page, shop.links));
-      if (problems.length) throw new Error(`${short(problems).join("; ")}.`);
+      if (problems.length) throw new Error(`${problems.join("; ")}.`);
       return `${shop.links.length} product page${shop.links.length === 1 ? "" : "s"} answered HTTP 200`;
     }, soft);
 
@@ -160,7 +164,7 @@ test("Storefront", { tag: "@next" }, journey(async () => {
       const add = page.locator('[data-add-to-cart][data-guest-cart-ready="1"]').first();
       if (!await add.waitFor({ timeout: 15_000 }).then(() => true, () => false)) problems.push("no working Add to cart button");
       else if (!await expect(add).toBeEnabled(quick).then(() => true, () => false)) problems.push("an Add to cart button shoppers can't press");
-      if (problems.length) throw new Error(`${path} has ${problems.join(", ")}.`);
+      if (problems.length) throw new Error(`${path}: ${problems.join("; ")}.`);
       return `"${name}" ${price} with its photo and Add to cart`;
     }, soft);
 
@@ -178,7 +182,7 @@ test("Storefront", { tag: "@next" }, journey(async () => {
       const problems = [...found.problems];
       if (found.links.length < found.listed.length) problems.push(unlinked(found.listed.length - found.links.length));
       problems.push(...await brokenLinks(page, found.links));
-      if (problems.length) throw new Error(`${category}: ${short(problems).join("; ")}.`);
+      if (problems.length) throw new Error(`${category}: ${problems.join("; ")}.`);
       return `${category} lists ${products(found.listed.length)}: ${short(found.listed).join(", ")}`;
     }, soft);
 
