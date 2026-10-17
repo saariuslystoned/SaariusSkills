@@ -114,7 +114,10 @@ authorization the test needs.
 - Manage products stops at its first step when Commerce on the store can't
   rename or archive a product yet. Report that the store needs a Commerce release
   with both (dinkus-commerce-beta 0.3.0-beta.2 or later) and that nothing was
-  added. It also stops when the product can't be added. Its other steps are soft:
+  added. On a store with no products yet it finds that out on the product it
+  added, before giving it a price, so report that product as left in Commerce
+  Products without a price, where the store doesn't list it. It also stops when
+  the product can't be added. Its other steps are soft:
   report each page that didn't follow a change, with how long the test waited.
   When the last step fails, name what it couldn't take off the store, so the
   owner can archive or trash it by hand.

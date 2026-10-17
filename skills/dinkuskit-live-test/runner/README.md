@@ -141,7 +141,7 @@ step.
 
 | Step | What it proves |
 | --- | --- |
-| The owner can open Commerce Products | Commerce Products opens in the store admin with its Add product form, and its product pages offer Rename and Archive product (or Restore). When they don't, the journey stops before adding a product it couldn't take off the store again |
+| The owner can open Commerce Products | Commerce Products opens in the store admin with its Add product form, and its product pages offer Rename and Archive product (or Restore). When they don't, the journey stops before adding a product it couldn't take off the store again. On a store with no products yet, the new product's page gets this check before it has a price, since the store doesn't list an unpriced product |
 | The owner adds a product with a price, a weight and a photo | The owner uploads a photo to the Media library, adds a physical product in Commerce Products, saves its price ($12.00) and weight (8 oz) and chooses the photo. Commerce confirms each save and shows the product's ID. When it doesn't, the journey stops here |
 | The Shop list shows the new product with its name, price and photo | The homepage's Shop list shows the product's name, $12.00 and its own photo |
 | The owner gives the product its own page in a new category | The owner makes and publishes a category in EmDash, then a product page linked to the product by the Product ID Commerce shows, puts the page in the category and publishes it |
@@ -150,7 +150,7 @@ step.
 | A new name shows on the store | After the owner renames the product in Commerce, the Shop list, the product page's heading and the category card all show the new name |
 | Archiving the product takes it off the store | After the owner archives it, the Shop list and the category page stop listing it, and its page answers HTTP 404 saying the product is no longer available |
 | Restoring the product puts it back on the store | After the owner restores it, the Shop list, its page and its category page show it again with its new name and price. Skipped when it wasn't archived |
-| The test takes its product, page and category off the store | The test archives the product and moves its page and category to EmDash's Trash; the store then lists none of them and their addresses stop answering HTTP 200. Runs whenever the journey added anything |
+| The test takes its product, page and category off the store | The test archives the product, under whatever name and state Commerce shows for it then, and moves its page and category to EmDash's Trash; within a minute the store lists none of them and their addresses stop answering HTTP 200. Runs whenever the journey added anything, or pressed Add product |
 
 ## Proof
 
