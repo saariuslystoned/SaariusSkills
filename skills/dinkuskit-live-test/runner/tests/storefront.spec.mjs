@@ -3,9 +3,8 @@ import { config } from "../support/env.mjs";
 import { note, record } from "../support/proof.mjs";
 import { STORE_OPENS, elsewhere, openShopperPage as open, storeOpens } from "../support/shopper.mjs";
 import { journey, step } from "../support/steps.mjs";
+import { firstHref, photo, photoProblem, quick, readCard, text } from "../support/storefront-page.mjs";
 import { cantBuyClaims } from "../support/storefront-text.mjs";
-
-const quick = { timeout: 5_000 };
 
 /** The visible error boxes a shopper would see: a missing home page, unknown content blocks, alerts. */
 async function developerNotices(page) {
@@ -15,31 +14,6 @@ async function developerNotices(page) {
   ]);
 }
 
-/**
- * "photo", "placeholder" (the store's stand-in image), "illustration" (a picture that isn't the
- * product's own), "none", "broken" or "hidden" for a product's image area. The store marks a product's own
- * photo from Commerce with data-commerce-image.
- */
-async function photo(media) {
-  const img = media.locator("img[data-commerce-image]").first();
-  if (!await img.count()) return await media.locator("img").count() ? "illustration" : "none";
-  // Product photos load lazily, so bring each into view first.
-  await img.scrollIntoViewIfNeeded(quick).catch(() => {});
-  const loaded = await expect.poll(() => img.evaluate(el => el.complete && el.naturalWidth > 0), { timeout: 15_000 }).toBe(true).then(() => true, () => false);
-  if (!loaded) return "broken";
-  // A photo the page's styles hide is no photo to a shopper.
-  if (!await img.isVisible()) return "hidden";
-  return await img.getAttribute("data-placeholder") === "true" ? "placeholder" : "photo";
-}
-
-const photoProblem = {
-  placeholder: "has no photo of its own (the store shows its placeholder)",
-  illustration: "shows a stand-in drawing instead of its photo",
-  none: 'has no photo ("No image")',
-  broken: "has a photo that didn't load",
-  hidden: "has a photo shoppers can't see (the page hides it)",
-};
-
 /** A page's developer notices as one finding, so they're listed with the page's other findings. */
 const shows = notices => notices.length ? [`shows ${notices.map(notice => `"${notice}"`).join(", ")}`] : [];
 
@@ -47,10 +21,6 @@ const shows = notices => notices.length ? [`shows ${notices.map(notice => `"${no
 const short = (items, count = 5) => items.length > count ? [...items.slice(0, count), `${items.length - count} more`] : items;
 const products = count => `${count} product${count === 1 ? "" : "s"}`;
 const unlinked = count => `${products(count)} link${count === 1 ? "s" : ""} to no product page`;
-// innerText also reads an element the page hides, so only the first one a shopper can see counts.
-const text = async (locator) => (await locator.filter({ visible: true }).first().innerText(quick).catch(() => "")).replace(/\s+/g, " ").trim();
-// Pages are fully loaded when read, so a missing link is absent now rather than worth waiting for.
-const firstHref = async (locator) => await locator.count() ? locator.first().getAttribute("href") : null;
 
 /** Each product card's name, price and photo, and the product page it links to. */
 async function readCards(cards) {
@@ -58,15 +28,12 @@ async function readCards(cards) {
   const problems = [];
   const links = [];
   for (const card of await cards.all()) {
-    const name = await text(card.locator("h2, h3, h4"));
-    const price = await text(card.locator(".price, [data-product-price]"));
-    const image = await photo(card);
+    const { name, price, image, href } = await readCard(card);
     const label = name || `product ${listed.length + 1}`;
     if (!name) problems.push(`${label} has no name`);
     if (!/\$\s?\d/.test(price)) problems.push(`"${label}" shows no price`);
     if (image !== "photo") problems.push(`"${label}" ${photoProblem[image]}`);
     listed.push(`${label} ${price}`.trim());
-    const href = await card.getAttribute("href") ?? await firstHref(card.locator('a[href^="/products/"]'));
     if (href) links.push(href);
   }
   return { listed, problems, links };

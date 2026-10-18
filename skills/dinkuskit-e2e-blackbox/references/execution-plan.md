@@ -49,15 +49,24 @@ new-installation distinctions, and each journey's hard/soft step behavior.
 
 The x-api Storefront package in [PR723](https://github.com/saari-co/x-api/pull/723)
 is an **offline-only preparation surface**. Its exact-source
-[operator contract](https://github.com/saari-co/x-api/blob/8ba255dae698208fa3cc78ecc0c264978c71d28f/docs/operations/storefront-port.md)
+[operator contract](https://github.com/saari-co/x-api/blob/519afb5c60cc47b0c9cc7bc9db6d17ba1fa10e01/docs/operations/storefront-port.md)
 owns plan/prepare/verify/offline-proof commands. It preserves Storefront's
 spec/assertions, overlays env/browser/mail transports, runs one spec with
 workers=1/retries=0 and disables auth-bearing traces. It does not launch hosted
 Storefront and is not installed as an active CP-1 capability.
 
+PR723 merged this inactive helper under the owned Smoky CLI; SaariusSkills
+owns canonical assertions and upstream Crabbox owns lifecycle. The next
+source/local-proof/review assignment adds one fixed public-beta operation
+through the existing consumer/lifecycle/exporter. It does not authorize
+activation, a live lease, or a hosted run.
+
 Before hosted activation, its owner must bind source/lock/archive/browser hashes,
-actual deployment/site identity, explicit target, route/asset allowlists, inbox
-posture, proof privacy, budget/lifetime and cleanup. The synthetic allowance
+account/Worker/version/origin, explicit target, route/asset allowlists, inbox
+posture, proof privacy, budget/lifetime and cleanup. Internal `site_id` is
+optional for Storefront because the canonical journey does not read it.
+Record configured source pin and observed deployment-trigger provenance
+separately; neither alone proves compiled source. Keep unknowns explicit. The synthetic allowance
 does not cover this new capability. Keep v2 and beta separate; never substitute
 a public origin to get past Access.
 

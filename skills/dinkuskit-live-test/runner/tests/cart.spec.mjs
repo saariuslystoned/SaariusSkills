@@ -2,11 +2,9 @@ import { test, expect, shopperPage } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
 import { STORE_OPENS, openShopperPage, storeOpens } from "../support/shopper.mjs";
 import { journey, step } from "../support/steps.mjs";
+import { quick, text } from "../support/storefront-page.mjs";
 import { cartCount, cartTotal, dollars, money } from "../support/storefront-text.mjs";
 
-const quick = { timeout: 5_000 };
-// innerText also reads an element the page hides, so only the first one a shopper can see counts.
-const text = async (locator) => (await locator.filter({ visible: true }).first().innerText(quick).catch(() => "")).replace(/\s+/g, " ").trim();
 const items = count => count === null ? "nothing readable" : `${count} item${count === 1 ? "" : "s"}`;
 /** How long a reload of a store page may take. */
 const load = { timeout: 30_000 };
