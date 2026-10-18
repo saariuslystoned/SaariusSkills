@@ -12,28 +12,17 @@ const launch = () => ({
 const video = () => config.video ? { recordVideo: { dir: join(config.runDir, "video"), size: SIZE } } : {};
 
 /**
- * Every window's limits. Playwright Test lets a click or a page load wait forever, so a button the
- * page never shows, or a page that never finishes loading, would hold the run until the 30-minute
- * test timeout. With these it fails its step within a minute or two instead.
- */
-function limit(context) {
-  context.setDefaultTimeout(60_000);
-  context.setDefaultNavigationTimeout(90_000);
-  return context;
-}
-
-/**
  * One saved browser profile for every run, so sign-ins to DinkusKit.com, Ship
  * and the store's admin carry over and most runs need no email at all.
  */
 export const test = base.extend({
   persistent: [async ({}, use) => {
-    const context = limit(await chromium.launchPersistentContext(config.profileDir, {
+    const context = await chromium.launchPersistentContext(config.profileDir, {
       ...launch(),
       ...video(),
       viewport: SIZE,
       acceptDownloads: true,
-    }));
+    });
     await use(context);
     await context.close();
   }, { scope: "worker" }],
@@ -49,7 +38,7 @@ export const test = base.extend({
  */
 export async function shopperPage() {
   const browser = await chromium.launch(launch());
-  const context = limit(await browser.newContext({ viewport: SIZE, ...video() }));
+  const context = await browser.newContext({ viewport: SIZE, ...video() });
   return context.newPage();
 }
 
