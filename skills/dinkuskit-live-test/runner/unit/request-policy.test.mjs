@@ -180,3 +180,25 @@ test("pages, files the store wants rechecked and other sites still reach the net
     assert.deepEqual(await answer(unstored), { fallback: true }, value);
   }
 });
+
+test("a kept copy lasts only while the store says the file is fresh", async () => {
+  const { answer, loaded } = await contextRoute();
+  for (const headers of [{ "cache-control": "public, max-age=0, must-revalidate, immutable" },
+    { "cache-control": "max-age=60, immutable", age: "60" }, { "cache-control": "immutable" }]) {
+    const stale = settings.store + `/_astro/${encodeURIComponent(JSON.stringify(headers))}.synthetic.js`;
+    await loaded(stale, headers);
+    assert.deepEqual(await answer(stale), { fallback: true }, JSON.stringify(headers));
+  }
+  const script = settings.store + "/_astro/short.synthetic.js";
+  await loaded(script, { "cache-control": "max-age=60, immutable", age: "30" });
+  assert.equal((await answer(script)).fulfilled.status, 200);
+  const now = Date.now;
+  Date.now = () => now() + 31_000;
+  try {
+    assert.deepEqual(await answer(script), { fallback: true });
+    await loaded(script, { "cache-control": "max-age=60, immutable" });
+    assert.equal((await answer(script)).fulfilled.status, 200);
+  } finally {
+    Date.now = now;
+  }
+});
