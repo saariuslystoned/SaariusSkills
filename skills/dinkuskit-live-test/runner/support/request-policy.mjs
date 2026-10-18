@@ -107,13 +107,11 @@ function immutableCopies(context, policy) {
       const url = response.url();
       if (copies.has(url) || !policy.isStore(url) || response.status() !== 200 || response.request().method() !== "GET") return;
       const headers = response.headers();
-      const directives = new Map((headers["cache-control"] ?? "").toLowerCase().split(",").map(part => {
-        const [name, value = ""] = part.split("=");
-        return [name.trim(), value.trim()];
-      }));
+      const sent = cacheDirectives(headers["cache-control"]);
       // immutable never overrides a store's no-store or no-cache, and holds only while the file is fresh.
-      const fresh = Number(directives.get("max-age")) - (Number(headers.age) || 0);
-      if (!directives.has("immutable") || directives.has("no-store") || directives.has("no-cache") || !(fresh > 0)) return;
+      const fresh = Number(sent.get("max-age")) - (Number(headers.age) || 0);
+      if (!sent.has("immutable") || sent.has("no-store") || sent.has("no-cache") || !(fresh > 0)) return;
+      if (cacheDirectives(await response.request().headerValue("cache-control")).has("no-store")) return;
       // A file that varies answers only requests sending the same values for the headers it names. The
       // kept body is already decoded, so Accept-Encoding never matters, and Playwright sets its length.
       const vary = (headers.vary ?? "").toLowerCase().split(",").map(name => name.trim()).filter(name => name && name !== "accept-encoding");
@@ -126,14 +124,35 @@ function immutableCopies(context, policy) {
     } catch {} // The page closed before the body arrived, say; the next load fetches the file again.
   });
   return {
-    /** The copy to answer this request with, if any; a stale copy is dropped so the next load is kept. */
+    /**
+     * The copy to answer this request with, if any. A stale copy, or one the page asks the store about
+     * again, is dropped so the next load is kept in its place.
+     */
     async answer(request) {
       const copy = copies.get(request.url());
-      if (!copy || copy.until <= Date.now()) return void copies.delete(request.url());
+      if (!copy || copy.until <= Date.now() || await asksAgain(request)) return void copies.delete(request.url());
       for (const [name, value] of copy.chosenBy) if (await request.headerValue(name) !== value) return;
       return copy.answer;
     },
   };
+}
+
+function cacheDirectives(value) {
+  return new Map((value ?? "").toLowerCase().split(",").map(part => {
+    const [name, directive = ""] = part.split("=");
+    return [name.trim(), directive.trim()];
+  }));
+}
+
+/**
+ * A request the page itself sent with Cache-Control no-cache, no-store or max-age=0, or Pragma
+ * no-cache. Chromium adds no-cache to every request while Playwright has the cache off, but only after
+ * the route sees it, so ordinary requests never look like this here.
+ */
+async function asksAgain(request) {
+  const asked = cacheDirectives(await request.headerValue("cache-control"));
+  return asked.has("no-cache") || asked.has("no-store") || asked.get("max-age") === "0"
+    || cacheDirectives(await request.headerValue("pragma")).has("no-cache");
 }
 
 async function intercept(session, context, policy) {

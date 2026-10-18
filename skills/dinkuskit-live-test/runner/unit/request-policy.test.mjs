@@ -216,3 +216,18 @@ test("a kept copy that varies answers only requests asking for the same version"
   await loaded(any, { ...immutable, vary: "*" });
   assert.deepEqual(await answer(any), { fallback: true });
 });
+
+test("a request the page sends with no-cache asks the store again, and its answer replaces the copy", async () => {
+  const { answer, loaded } = await contextRoute();
+  const script = settings.store + "/_astro/refresh.synthetic.js";
+  await loaded(script, immutable, { body: Buffer.from("old") });
+  assert.equal((await answer(script)).fulfilled.body.toString(), "old");
+  assert.deepEqual(await answer(script, "GET", { "cache-control": "no-cache" }), { fallback: true });
+  await loaded(script, immutable, { body: Buffer.from("new"), requestHeaders: { "cache-control": "no-cache" } });
+  assert.equal((await answer(script)).fulfilled.body.toString(), "new");
+  for (const asked of [{ pragma: "no-cache" }, { "cache-control": "max-age=0" }, { "cache-control": "no-store" }]) {
+    assert.deepEqual(await answer(script, "GET", asked), { fallback: true }, JSON.stringify(asked));
+  }
+  await loaded(script, immutable, { requestHeaders: { "cache-control": "no-store" } });
+  assert.deepEqual(await answer(script), { fallback: true });
+});
