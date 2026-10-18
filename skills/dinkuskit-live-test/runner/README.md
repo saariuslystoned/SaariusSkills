@@ -134,7 +134,7 @@ Without a mail command, the test waits for a person to sign in in the window.
 | Ship has the order | Commerce sent the order to Ship |
 | Make the Pitney Bowes sandbox label | Ship quotes sandbox prices and buys a sandbox label |
 | Label is a TEST SANDBOX label with a tracking number | The label is a sandbox label, not a practice one, and carries a tracking number |
-| Label PDF downloads and is a real PDF | Ship serves the provider's PDF |
+| Label PDF downloads and renders | Ship serves the provider's PDF, and its first page draws as a picture of the label, shown in the browser for the step's screenshot and the video |
 | Commerce's 5-minute check collects the label | Commerce's background check collects the label without anyone opening the store admin |
 | Opening Commerce Orders collects the label | Runs only when the check above didn't: an owner opening Commerce Orders collects it |
 | Commerce marks the order Completed with the same tracking | Ship shows Commerce completed the order with the label's tracking number |
@@ -251,9 +251,14 @@ verdict, then `Verdict:` and the path to `PROOF.md`.
 Each run writes `~/.dinkus-e2e/proof/<run>/`: `PROOF.md` and `report.json` (each
 journey's verdict, the result and detail of every step, the order, tracking
 number and PDF hash, and the plugins and versions the store ran, read from its
-admin), a screenshot per step, `label.pdf` and, on macOS, its picture
+admin), a screenshot per step, `label.pdf` and its rendered first-page picture
 `label.pdf.png`. With `DINKUS_E2E_VIDEO=1` it also keeps a `.webm` video of each
 browser window under `video/`. The saved profile's window stays open for the
 whole run, so for one video per journey, run the journeys one at a time
 (`npm run journey -- cart`). The test hides the code it types
 into Cloudflare Access's sign-in, so neither screenshots nor videos show it.
+
+On Linux, label rendering requires Poppler's `pdftoppm`; macOS uses Quick Look.
+A missing renderer, failed render or invalid picture fails the label-PDF step
+rather than silently omitting visual proof. The run records image dimensions
+and SHA-256; inspect the picture to verify the label is legible.
