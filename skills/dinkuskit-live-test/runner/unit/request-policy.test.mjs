@@ -135,7 +135,7 @@ async function contextRoute() {
   const answer = async (url, method = "GET", requestHeaders = {}) => {
     const outcome = {};
     lastRequest = { url: () => url, method: () => method, frame: () => null, headers: () => ({}),
-      headerValue: async name => requestHeaders[name] ?? null };
+      headerValue: async name => requestHeaders[name] ?? null, timing: () => ({ startTime: Date.now(), responseStart: -1 }) };
     await handler({
       request: () => lastRequest,
       fulfill: async value => { outcome.fulfilled = value; },
@@ -144,10 +144,14 @@ async function contextRoute() {
     });
     return outcome;
   };
-  const loaded = (url, headers, { status = 200, body = Buffer.from("synthetic"), requestHeaders = {}, request } = {}) => listener({
-    url: () => url, status: () => status, headers: () => headers, body: async () => body,
-    request: () => request ?? { method: () => "GET", headerValue: async name => requestHeaders[name] ?? null },
-  });
+  const loaded = (url, headers, { status = 200, body = Buffer.from("synthetic"), requestHeaders = {}, request, responseStart = -1 } = {}) => {
+    const sent = Date.now();
+    return listener({
+      url: () => url, status: () => status, headers: () => headers, body: async () => body,
+      request: () => request ?? { method: () => "GET", headerValue: async name => requestHeaders[name] ?? null,
+        timing: () => ({ startTime: sent, responseStart }) },
+    });
+  };
   return { answer, loaded, lastRequest: () => lastRequest };
 }
 
@@ -203,6 +207,42 @@ test("a kept copy lasts only while the store says the file is fresh", async () =
     assert.deepEqual(await answer(script), { fallback: true });
     await loaded(script, { "cache-control": "max-age=60, immutable" });
     assert.equal((await answer(script)).fulfilled.status, 200);
+  } finally {
+    Date.now = now;
+  }
+});
+
+test("a kept copy's age counts from its Date and the time it took to arrive", async () => {
+  const { answer, loaded } = await contextRoute();
+  const dated = settings.store + "/_astro/dated.synthetic.js";
+  await loaded(dated, { "cache-control": "max-age=60, immutable", date: new Date(Date.now() - 120_000).toUTCString(), age: "0" });
+  assert.deepEqual(await answer(dated), { fallback: true });
+  const slow = settings.store + "/_astro/slow.synthetic.js";
+  await loaded(slow, { "cache-control": "max-age=60, immutable", age: "50" }, { responseStart: 20_000 });
+  assert.deepEqual(await answer(slow), { fallback: true });
+  const script = settings.store + "/_astro/recent.synthetic.js";
+  await loaded(script, { "cache-control": "max-age=60, immutable", date: new Date(Date.now() - 30_000).toUTCString() });
+  assert.equal((await answer(script)).fulfilled.status, 200);
+  const now = Date.now;
+  Date.now = () => now() + 31_000;
+  try {
+    assert.deepEqual(await answer(script), { fallback: true });
+  } finally {
+    Date.now = now;
+  }
+});
+
+test("a page asking for a younger or longer-lasting copy than the kept one asks the store again", async () => {
+  const { answer, loaded } = await contextRoute();
+  const replays = { "max-age=300": true, "min-fresh=300": true, "max-age=60": false, "min-fresh=500": false, "max-age=soon": false };
+  const file = asked => settings.store + `/_astro/${encodeURIComponent(asked)}.synthetic.js`;
+  for (const asked of Object.keys(replays)) await loaded(file(asked), { "cache-control": "max-age=600, immutable" });
+  const now = Date.now;
+  Date.now = () => now() + 120_000;
+  try {
+    for (const [asked, replayed] of Object.entries(replays)) {
+      assert.equal(Boolean((await answer(file(asked), "GET", { "cache-control": asked })).fulfilled), replayed, asked);
+    }
   } finally {
     Date.now = now;
   }

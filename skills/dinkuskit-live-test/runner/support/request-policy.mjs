@@ -106,14 +106,16 @@ function immutableCopies(context, policy) {
   context.on("response", async response => {
     try {
       const url = response.url();
+      const received = Date.now();
       // A store answer that came from the network replaces the copy for its URL; a replay never does,
       // so it can't stretch the copy's lifetime.
       if (replayed.has(response.request()) || !policy.isStore(url) || response.status() !== 200 || response.request().method() !== "GET") return;
       const headers = response.headers();
       const sent = cacheDirectives(headers["cache-control"]);
       // immutable never overrides a store's no-store or no-cache, and holds only while the file is fresh.
-      const fresh = Number(sent.get("max-age")) - (Number(headers.age) || 0);
-      if (!sent.has("immutable") || sent.has("no-store") || sent.has("no-cache") || !(fresh > 0)) return;
+      const lifetime = Number(sent.get("max-age"));
+      const age = ageOnArrival(headers, received, response.request().timing());
+      if (!sent.has("immutable") || sent.has("no-store") || sent.has("no-cache") || !(lifetime > age)) return;
       if (cacheDirectives(await response.request().headerValue("cache-control")).has("no-store")) return;
       // A file that varies answers only requests sending the same values for the headers it names. The
       // kept body is already decoded, so Accept-Encoding never matters, and Playwright sets its length.
@@ -122,8 +124,7 @@ function immutableCopies(context, policy) {
       const chosenBy = await Promise.all(vary.map(async name => [name, await response.request().headerValue(name)]));
       const kept = Object.fromEntries(Object.entries(headers).filter(([name]) =>
         !["content-encoding", "content-length", "transfer-encoding", "set-cookie"].includes(name)));
-      const until = Date.now() + fresh * 1000;
-      copies.set(url, { until, chosenBy, answer: { status: 200, headers: kept, body: await response.body() } });
+      copies.set(url, { received, age, lifetime, chosenBy, answer: { status: 200, headers: kept, body: await response.body() } });
     } catch {} // The page closed before the body arrived, say; the next load fetches the file again.
   });
   return {
@@ -133,12 +134,23 @@ function immutableCopies(context, policy) {
      */
     async answer(request) {
       const copy = copies.get(request.url());
-      if (!copy || copy.until <= Date.now() || await asksAgain(request)) return void copies.delete(request.url());
+      if (!copy) return;
+      const age = copy.age + (Date.now() - copy.received) / 1000;
+      if (!(copy.lifetime > age) || await asksAgain(request, age, copy.lifetime - age)) return void copies.delete(request.url());
       for (const [name, value] of copy.chosenBy) if (await request.headerValue(name) !== value) return;
       replayed.add(request);
       return copy.answer;
     },
   };
+}
+
+/**
+ * How old a store answer already was when it arrived, as RFC 9111 4.2.3 counts it: its Age plus the
+ * time it took to arrive, or how long before its arrival its Date says it was sent, whichever is more.
+ */
+function ageOnArrival(headers, received, timing) {
+  const travel = Math.max(0, timing?.responseStart ?? 0) / 1000;
+  return Math.max(0, (Number(headers.age) || 0) + travel, (received - Date.parse(headers.date)) / 1000 || 0);
 }
 
 function cacheDirectives(value) {
@@ -149,13 +161,18 @@ function cacheDirectives(value) {
 }
 
 /**
- * A request the page itself sent with Cache-Control no-cache, no-store or max-age=0, or Pragma
- * no-cache. Chromium adds no-cache to every request while Playwright has the cache off, but only after
- * the route sees it, so ordinary requests never look like this here.
+ * Whether the page itself asked for more than this copy, so old and with so many fresh seconds left,
+ * can give. Cache-Control no-cache, no-store or max-age=0, or Pragma no-cache, ask the store again; any
+ * other max-age wants a copy no older than it says, and min-fresh one that stays fresh at least that
+ * long. Chromium adds no-cache to every request while Playwright has the cache off, but only after the
+ * route sees it, so ordinary requests never look like this here.
  */
-async function asksAgain(request) {
+async function asksAgain(request, age, left) {
   const asked = cacheDirectives(await request.headerValue("cache-control"));
-  return asked.has("no-cache") || asked.has("no-store") || (asked.has("max-age") && Number(asked.get("max-age")) === 0)
+  // A value that isn't a number of seconds rules the copy out too.
+  const allows = (name, test) => !asked.has(name) || test(Number(asked.get(name)));
+  return asked.has("no-cache") || asked.has("no-store")
+    || !allows("max-age", most => most > 0 && age <= most) || !allows("min-fresh", least => left >= least)
     || cacheDirectives(await request.headerValue("pragma")).has("no-cache");
 }
 
