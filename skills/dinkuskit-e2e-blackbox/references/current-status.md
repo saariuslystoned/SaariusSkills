@@ -176,10 +176,10 @@ Parent independently verified all 21 artifact sizes/hashes and inspected the
 failure screenshot. Exact lease `cbx_fe2aa0c77a74` reached terminal state with
 native stop accepted; `provider_absence_verified=false` remains explicit.
 
-Only one $0.80 request of the approved two-request batch was consumed. The last
-reported cumulative reservation was $7.317104 against $25; actual billing is
-unknown. Request02 is held; no second live lease has run. This is not unused
-allowance that may be reset or moved to a new generation automatically.
+After Run1, one $0.80 request of the two-request batch was consumed and
+request02 was held. The then-reported cumulative reservation was $7.317104
+against $25; actual billing was unknown. The later Run2 outcome and exhausted
+batch are recorded below; this historical checkpoint grants no spare request.
 
 After the first run, the approved parcel photo was added, but the saved page
 remained unpublished. The build dashboard displayed trigger `8aa5ce3…` while
@@ -201,16 +201,55 @@ Only saved parcel page `01M56GSK05R6K6XD5ZHP8RYQPV` was published. The parent's
 authorized-browser inspection showed the correct product association, loaded
 600×600 parcel image, $12 price and In stock. Twelve evidence files have recorded
 hashes. Checkout-unavailable text remained visible; no cart or purchase action
-was performed. This page observation is not a second E2E run, an anonymous
-access proof, or a full Storefront PASS.
+was performed. That page observation alone was not a second E2E run, anonymous
+access proof or full Storefront PASS; the subsequent Run2 is separate below.
 
-[PR728](https://github.com/saari-co/x-api/pull/728) remains unmerged at
-`7e5e808ec8b7acc4d9a9221a1d67e14b21ff1b26`. Its CI and comprehensive P3 are
-clean, but native processing was blocked twice before review and the owner
-stopped. The new-generation transfer is not merged or activated. Request02
-has **not run**; the new deployed version cannot borrow the old target binding.
-Do not infer an earlier transport denial was the beacon: the first run did
-not retain that blocked URL.
+The earlier native-input hold was resolved after engine39 merged
+`cf5737a738793fd435f7df0dca021461078e0a3e` and
+[Spark-DGX pin260](https://github.com/saari-co/spark-dgx/pull/260) merged
+`2cd8419df2091ac1cc12ec3bb7a4f420b7a5d5a0`.
+[PR728](https://github.com/saari-co/x-api/pull/728) then merged as
+`4770b561477e265d6497df1056ff84d5bcb77e64` after native/comprehensive P3 passed.
+The explicitly bound generation transfer supplied Run2; the old target binding
+was not silently reused. Do not infer an earlier transport denial was the
+beacon: the first run did not retain that blocked URL.
+
+### Run2 and local width repair — 2026-10-18
+
+Request `issue715-storefront-beta-pair-20261017-02-transfer`, run
+`5e60bdb27207427fa1e93b8181beb5d0`, executed the selected canonical Storefront
+journey through merged caller `4770b561…` against the frozen beta pair and new
+version `6777343c-03ba-4504-a8fc-cae0c686b398`. Result: **FAIL in 83.177s —
+3 PASS, 2 image FAIL, 2 SKIP**. Homepage, no developer notices and product link
+passed; catalog/product-detail photos failed; category and checkout skipped.
+No checkout or product-record mutation occurred.
+
+Parent verified 14 exported artifacts and the exact terminal lease
+`cbx_554c688acf31`; native stop accepted and terminal state observed,
+`provider_absence_verified=false`. Original enrollment was restored, and Run1,
+its ledger row, policy history and both receipts remain preserved. Both slots
+are consumed: $1.60 batch reservations, zero remaining runs. Reservations are
+not measured billing and do not authorize a third request.
+
+The denied URL is redacted in the live receipt. Independent observed DOM plus
+the same Linux Chromium at DPR1 showed selection of the 600px image from the
+300/600/1200 candidates; the old policy allowed only 1200. Controlled local
+canonical proof went FAIL→PASS with 600, while unapproved 601 remained FAIL.
+[PR729](https://github.com/saari-co/x-api/pull/729), reviewed head
+`9dd2a1a2bd0117f5325803947994a86f6f8e08d3`, merged as
+`ce93c1998fa251fd3e27c3fe561a177bceba7298` after exact-head CI/comprehensive
+P3/native passed. It only changes the allowed image widths to 300/600/1200;
+42 Storefront and 15 port tests passed. This is local repair proof, not recovery
+of the omitted historical URL and **not a new Cloudflare PASS**.
+
+The current caller's fixed Storefront ledger/policy-digest contract cannot
+admit a fresh batch after exhaustion. The runtime's
+`proposed-new-batch-after729/PLAN.md` describes that source requirement; its
+older pending-merge wording predates PR729's merge. A new reviewed, explicitly
+approved batch-admission route is needed. Do not bypass the refusal by resetting,
+rotating, relocating or editing the old ledger, replacing its policy digest,
+or reusing a consumed ID. PR729's merge authorized no new live request, and
+none has started. The unattended end-to-end mission is not complete.
 
 Authoritative safe evidence: x-api
 `runs/e2e-blackbox-runs/20261017-payments-release-watch/{STATE.md,last-observed.json,PROOF.md,parent-installed-pair-verification.json,parent-live-run01-verification.json,BUILD-PIN-FINDING.md}`;
@@ -218,8 +257,12 @@ source candidate: `proof/storefront-final-slot-20261017/` in the assigned PR728
 worktree. Correction proof: runtime-owner
 `runs/e2e-blackbox-runs/20261017-runner-auth-caller/storefront-beta-two-runs-20261017/MATCHED-CORRECTION-RESULT.md`
 and parent `parent-parcel-publication-proof.json` in the payments-release-watch
-root. These are dated observations; the original failure is preserved and
-remaining E2E qualification is not inferred from the correction.
+root. Run2/repair evidence: parent `parent-run02-verification.json`,
+`parent-image-width-followup.json`, `approved-729-merge.json` in that same root;
+runtime-owner `run-02-transfer-4770b561/PROOF.md` and
+`proposed-new-batch-after729/PLAN.md` under the Storefront runtime proof root.
+These are dated observations; neither correction nor source merge proves a
+later hosted pass or resets the exhausted batch.
 
 No silent target switch. The prepared mail adapter fails closed. Public beta
 may avoid mail only after all required routes are proved public; v2 cannot

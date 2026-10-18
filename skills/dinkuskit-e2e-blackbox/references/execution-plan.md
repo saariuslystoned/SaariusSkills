@@ -104,6 +104,14 @@ Any explicitly approved transfer must bind the old and new target generations
 through reviewed source and current activation; a pending PR is insufficient.
 Use the existing consumer/lifecycle/exporter, not a new runner or ledger reset.
 
+Once all batch slots are consumed, a source fix does not grant another run.
+At the Run2 checkpoint the caller's fixed ledger and policy-digest binding
+refuse a fresh batch; use a reviewed new-batch admission route with explicit
+authority, preserving the exhausted batch and original receipts. Do not reset,
+rotate, relocate or edit the ledger to manufacture unused allowance. Keep a
+local FAIL→PASS repair result separate from a later, independently admitted
+Cloudflare execution.
+
 ## Shared-store batch discipline
 
 - Run the same canonical tests locally, then in Cloudflare. Keep the selected
