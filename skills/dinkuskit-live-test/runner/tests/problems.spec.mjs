@@ -103,7 +103,7 @@ async function cartWayBack(page, shopper) {
 // A shopper's checkout going wrong: Stripe turns down cards that can't pay, the shopper leaves Stripe
 // for the cart and comes back, and pays once with the test card. One checkout and one order per run,
 // which the owner then completes so no open TEST order is left for Buy and ship to trip over.
-test("Problems", { tag: "@next" }, journey(async ({ page }) => {
+test("Problems", { tag: "@running" }, journey(async ({ page }) => {
   expect(config.store, `Set DINKUS_E2E_STORE to the store's address (in ${config.settingsFile})`).not.toBe("");
   // Every action gets a limit, so a control that never shows fails its step instead of holding the run.
   page.context().setDefaultTimeout(60_000);

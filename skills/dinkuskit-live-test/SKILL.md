@@ -46,8 +46,10 @@ authorization the test needs.
    owner only for values you can't find yourself.
 3. Start the run and let it finish. It opens a Chrome window with its own saved
    profile.
-   - `npm test` runs every `@running` journey. Buy and ship goes from a new
-     Stripe TEST checkout to Completed.
+   - `npm test` runs every `@running` journey: Buy and ship, Storefront, Cart,
+     Mark as completed and Problems, in about 25 minutes. Buy and ship goes from
+     a new Stripe TEST checkout to Completed. The run places four TEST orders and
+     leaves each one Completed.
    - `npm run journey -- storefront` runs one journey, named by its file in
      `runner/tests`. Storefront only reads the pages a shopper sees and places
      no order. Cart fills and empties a new shopper's cart and never checks out.
@@ -83,7 +85,8 @@ authorization the test needs.
 1. Make sure the test store runs the release. The proof lists the store's plugins
    and their versions under "plugins". If it shows the old version, update the
    plugin from the store admin's Plugins page, then run the test again.
-2. Run every `@running` journey with `npm test`.
+2. Run every `@running` journey with `npm test`. For a Commerce release, also run
+   `npm run journey -- manage-products` while Manage products is still `@next`.
 3. Hand back the verdict with the plugin versions it covered, so the owner knows
    which release passed.
 

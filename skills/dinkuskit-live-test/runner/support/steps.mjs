@@ -33,7 +33,7 @@ export async function step(page, name, body, { soft = false } = {}) {
  * `@running` journey. The body gets the saved profile's page, signed in to the store admin and
  * Ship, unless `profile` is false (a shopper journey that opens its own clean browser).
  *
- *   test("Storefront", { tag: "@next" }, journey(async () => { ... }, { profile: false }));
+ *   test("Storefront", { tag: "@running" }, journey(async () => { ... }, { profile: false }));
  */
 export function journey(body, { profile = true } = {}) {
   const run = async page => {
