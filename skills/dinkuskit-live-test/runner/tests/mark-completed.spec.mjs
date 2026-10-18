@@ -88,7 +88,7 @@ async function numberOf(page, orderId, status) {
 async function orderToComplete(page, name, given, who) {
   if (given) {
     record(name, "SKIP", `completing order #${given} from DINKUS_E2E_ORDERS_TO_COMPLETE instead of placing one`);
-    return { number: Number(given) };
+    return { number: given };
   }
   let placed;
   await step(page, name, async () => {
@@ -233,9 +233,10 @@ test("Mark as completed", { tag: "@next" }, journey(async ({ page }) => {
   const stamp = new Date().toISOString().replace(/^\d{4}-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d).*$/, "$1$2-$3$4$5");
   // Unique to the second and plainly the live test's, so one run's tracking number never passes for another's.
   const typed = { carrier: "USPS", tracking: `LIVE-TEST-${stamp}` };
-  // A typo in the orders to complete stops the run before it places or completes any order.
-  const given = config.ordersToComplete.map(number => number.replace(/^#/, ""));
-  expect(given.length <= 2 && given.every(number => /^\d+$/.test(number)) && new Set(given).size === given.length,
+  // A typo in the orders to complete stops the run before it places or completes any order. Entries
+  // are compared as the order numbers they pick, so "1003,01003" counts as the same order twice.
+  const given = config.ordersToComplete.map(number => /^#?\d+$/.test(number) ? Number(number.replace(/^#/, "")) : NaN);
+  expect(given.length <= 2 && given.every(number => Number.isSafeInteger(number) && number > 0) && new Set(given).size === given.length,
     `DINKUS_E2E_ORDERS_TO_COMPLETE reads "${config.ordersToComplete.join(",")}"; set it to one or two different order numbers like 1003,1004, or leave it empty to place new orders (in ${config.settingsFile})`).toBe(true);
   const [ownerGiven, agentGiven] = given;
   const soft = { soft: true };
