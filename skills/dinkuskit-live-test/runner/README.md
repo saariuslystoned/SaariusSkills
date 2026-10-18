@@ -25,6 +25,21 @@ step in. It takes only Access emails that name the store's address, so it never
 types a code another store sent to the same inbox. If the Access app offers
 only Google, set `DINKUS_E2E_ADMIN_SIGNIN=wait` and sign in once in the window.
 
+## Requests stay within the selected sites
+
+Every page opened by the canonical journeys filters requests to the selected `DINKUS_E2E_STORE`,
+DinkusKit.com, ship.dinkuskit.com, Stripe/Stripe CDN, and the exact Access origins
+listed in `DINKUS_E2E_ACCESS_ORIGINS`. Other stores and lookalike domains are
+blocked. Store photos may use any dimensions or query parameters; the filter
+checks the origin, not a fixed image-size list. Service workers are disabled so
+they cannot bypass the browser request filter.
+
+Store authorization headers are removed from requests to other allowed sites;
+those sites use their own browser cookies. Chromium pauses every network hop, including redirects, for the origin check;
+headers are scoped again at each destination. The filter never
+adds credentials. The agent's separate store API calls retain their existing
+same-store URLs and manual-redirect behavior; they are not browser requests.
+
 ## Run
 
 ```sh
@@ -104,6 +119,7 @@ the environment, which wins.
 | `DINKUS_E2E_GOG_CLIENT` | gogcli's default | A named gogcli OAuth client for that inbox |
 | `DINKUS_E2E_MAIL_CMD` | the gogcli script | Any command that prints the bodies of the messages matching `$DINKUS_MAIL_QUERY`, newest first |
 | `DINKUS_E2E_ACCESS_MAIL_QUERY` | Cloudflare's senders, last hour, naming the store's address | The Gmail search for the Access code email; set it when your Access emails don't name the store's address |
+| `DINKUS_E2E_ACCESS_ORIGINS` | none | Comma-separated exact HTTPS Cloudflare Access origins for this store (for example `https://your-team.cloudflareaccess.com`). Other Access tenants are blocked. |
 | `DINKUS_E2E_SHOPPER_EMAIL` | the owner's address | The checkout contact |
 | `DINKUS_E2E_PRODUCT_PATH` | the first shippable product | The product page to buy |
 | `DINKUS_E2E_SERVICE` | `GA` | The label service (Ground Advantage) |

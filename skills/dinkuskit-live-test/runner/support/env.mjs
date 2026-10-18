@@ -36,6 +36,7 @@ export const config = {
   settingsFile,
   mode: read("DINKUS_E2E_MODE", "full"),
   store,
+  accessOrigins: read("DINKUS_E2E_ACCESS_ORIGINS").split(",").map(value => value.trim()).filter(Boolean),
   ship: origin(read("DINKUS_E2E_SHIP", "https://ship.dinkuskit.com")),
   account: origin(read("DINKUS_E2E_ACCOUNT", "https://dinkuskit.com")),
   siteId: read("DINKUS_E2E_SITE_ID"),

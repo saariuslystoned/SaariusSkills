@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { test as base, chromium } from "@playwright/test";
 import { config } from "./env.mjs";
+import { filterPage } from "./request-policy.mjs";
 
 const SIZE = { width: 1280, height: 900 };
 const launch = () => ({
@@ -22,12 +23,13 @@ export const test = base.extend({
       ...video(),
       viewport: SIZE,
       acceptDownloads: true,
+      serviceWorkers: "block",
     });
     await use(context);
     await context.close();
   }, { scope: "worker" }],
   page: async ({ persistent }, use) => {
-    const page = persistent.pages()[0] ?? await persistent.newPage();
+    const page = await filterPage(persistent.pages()[0] ?? await persistent.newPage(), config);
     await use(page);
   },
 });
@@ -38,8 +40,8 @@ export const test = base.extend({
  */
 export async function shopperPage() {
   const browser = await chromium.launch(launch());
-  const context = await browser.newContext({ viewport: SIZE, ...video() });
-  return context.newPage();
+  const context = await browser.newContext({ viewport: SIZE, ...video(), serviceWorkers: "block" });
+  return newPage(context);
 }
 
 /**
@@ -54,3 +56,8 @@ export async function closeShopper(page) {
 }
 
 export { expect } from "@playwright/test";
+
+/** Create a page with the same site filter before its first navigation. */
+export async function newPage(context) {
+  return filterPage(await context.newPage(), config);
+}

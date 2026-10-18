@@ -1,3 +1,4 @@
+import { newPage } from "./browser.mjs";
 import { expect } from "@playwright/test";
 import { config } from "./env.mjs";
 import { openStorePage } from "./signin.mjs";
@@ -306,7 +307,7 @@ export class CaptchaShown extends Error {
 
 /** Commerce's status for the checkout this browser saved, read from a store page opened beside the shopper's. */
 export async function checkoutStatus(page) {
-  const storePage = await page.context().newPage();
+  const storePage = await newPage(page.context());
   try {
     await openStorePage(storePage, config.store + "/");
     return await storePage.evaluate(readStatus, { key: CHECKOUT_KEY, routes: statusRoutes() });

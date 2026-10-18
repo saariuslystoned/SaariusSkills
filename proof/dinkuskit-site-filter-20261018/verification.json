@@ -1,0 +1,39 @@
+{
+  "base": "bdd71b7bb1f113a288d12223fccff7a2f26e1e58",
+  "source_sha256": {
+    "skills/dinkuskit-live-test/runner/support/request-policy.mjs": "c46b7aa9a2c44588f0a106a388aade0483d87146e1bdc807ca6d79d3ef3879cc",
+    "skills/dinkuskit-live-test/runner/support/browser.mjs": "23c7789300b388595772b41625cb7dca4a6aece9f9a9887805b4a07a37a5364b",
+    "skills/dinkuskit-live-test/runner/support/checkout.mjs": "ea7124a450470ca2d1ab67544ac2a7b021dcc4c47061d638ec7b50b9f3dee080",
+    "skills/dinkuskit-live-test/runner/support/env.mjs": "a001a4bcbdf4dba9ec37d04bd1ca375a465db6ecc9202124433d2571c7593e24",
+    "skills/dinkuskit-live-test/runner/tests/manage-products.spec.mjs": "b56818124b2358e3cc1451dc22f6259cd14887b8abb0bc9052265913404e592d",
+    "skills/dinkuskit-live-test/runner/unit/request-policy.test.mjs": "a419597dac3714086f35e7f74fe26e86c928820022447d43a471002995666a34"
+  },
+  "unit_log_sha256": "6fd5d1f2d211dc24c1d62d88b542f5bb0be5519b679127811a720a8a28d18e8b",
+  "browser_proof": {
+    "result": "PASS",
+    "scope": "loopback only; synthetic header",
+    "variablePhotoDecoded": true,
+    "credentialedRedirectSentOnce": true,
+    "offSiteRedirectRequests": 0,
+    "requests": [
+      {
+        "path": "/",
+        "host": "127.0.0.1:52352"
+      },
+      {
+        "path": "/photo?w=3471&h=29",
+        "host": "127.0.0.1:52352"
+      },
+      {
+        "path": "/favicon.ico",
+        "host": "127.0.0.1:52352"
+      },
+      {
+        "path": "/redirect",
+        "host": "127.0.0.1:52352"
+      }
+    ]
+  },
+  "full_python_suite": "running at commit; terminal status will be in local run",
+  "live_requests": 0
+}
