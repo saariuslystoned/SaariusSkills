@@ -27,6 +27,7 @@ const store = origin(read("DINKUS_E2E_STORE"));
 const mailAccount = read("DINKUS_E2E_MAIL_ACCOUNT");
 const gogMail = resolve(dirname(fileURLToPath(import.meta.url)), "../scripts/gog-mail.sh");
 const ordersAdmin = read("DINKUS_E2E_ORDERS_ADMIN", `${store}/_emdash/admin/plugins/r_gshdrqaldna3r7sn/orders`);
+const ordersToComplete = read("DINKUS_E2E_ORDERS_TO_COMPLETE");
 
 /** Everything a run needs, from the environment and the settings file; nothing secret lives here. */
 export const config = {
@@ -48,7 +49,8 @@ export const config = {
   productsAdmin: read("DINKUS_E2E_PRODUCTS_ADMIN", ordersAdmin.replace(/\/orders\/?$/, "/products")),
   productPath: read("DINKUS_E2E_PRODUCT_PATH"),
   // Mark as completed: Processing TEST orders (1003,1004) for the owner and then the agent to complete, instead of placing new ones.
-  ordersToComplete: read("DINKUS_E2E_ORDERS_TO_COMPLETE").split(",").map(number => number.trim().replace(/^#/, "")).filter(Boolean),
+  // Every entry is kept as written, blanks included, so the journey refuses a typo rather than placing an order in its place.
+  ordersToComplete: ordersToComplete ? ordersToComplete.split(",").map(number => number.trim()) : [],
   shopper: {
     email: read("DINKUS_E2E_SHOPPER_EMAIL"),
     name: read("DINKUS_E2E_SHOPPER_NAME", "Test Shopper"),

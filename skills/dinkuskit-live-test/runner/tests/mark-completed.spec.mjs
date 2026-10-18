@@ -86,13 +86,12 @@ async function numberOf(page, orderId, status) {
 
 /** Places a Stripe TEST order, or takes the order DINKUS_E2E_ORDERS_TO_COMPLETE names for this part of the journey. */
 async function orderToComplete(page, name, given, who) {
-  if (/^\d+$/.test(given ?? "")) {
+  if (given) {
     record(name, "SKIP", `completing order #${given} from DINKUS_E2E_ORDERS_TO_COMPLETE instead of placing one`);
     return { number: Number(given) };
   }
   let placed;
   await step(page, name, async () => {
-    if (given) throw new Error(`DINKUS_E2E_ORDERS_TO_COMPLETE names "${given}", which isn't an order number like 1003.`);
     placed = await placeTestOrder(page);
     if (placed.state !== "paid") throw new Error(`Commerce reports this checkout as "${placed.state}", not paid.`);
     if (!placed.orderId) throw new Error("Commerce's checkout status named no order.");
@@ -147,6 +146,14 @@ async function ownerCookies(page, url) {
 /** How a key the test couldn't delete ends, for the finding. */
 const keyLeft = ({ name, expiresAt }) => `It stops working at ${expiresAt.slice(11, 16)} UTC on its own; to end it sooner, revoke "${name}" under Settings, API Tokens in the store admin.`;
 
+/** Deletes a key by its ID as the signed-in owner; a refusal fails with its reason. */
+async function revokeKey(page, id) {
+  const url = `${config.store}/_emdash/api/admin/api-tokens/${encodeURIComponent(id)}`;
+  const response = await send(url, { method: "DELETE", headers: { cookie: await ownerCookies(page, url), "X-EmDash-Request": "1" } }, "EmDash's API tokens");
+  const answer = await response.json().catch(() => null);
+  if (!response.ok || answer?.data?.revoked !== true) throw new Error(`EmDash didn't delete the agent's key (${refusal(response, answer)}).`);
+}
+
 /**
  * Asks EmDash, as the signed-in owner, for an admin key that stops working after an hour; EmDash
  * lets a key call a plugin's private routes only with the admin scope. Only the key's name and when
@@ -156,12 +163,18 @@ async function makeAgentKey(page, name) {
   const url = `${config.store}/_emdash/api/admin/api-tokens`;
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   const response = await send(url, { method: "POST", body: JSON.stringify({ name, scopes: ["admin"], expiresAt }),
-    headers: { cookie: await ownerCookies(page, url), "content-type": "application/json", "X-EmDash-Request": "1" } }, "EmDash's API tokens");
+    headers: { cookie: await ownerCookies(page, url), "content-type": "application/json", "X-EmDash-Request": "1" } }, "EmDash's API tokens")
+    .catch(error => { throw new Error(`${error.message} EmDash may have made the key anyway. ${keyLeft({ name, expiresAt })}`); });
   const answer = await response.json().catch(() => null);
   const made = answer?.data;
-  if (response.status === 201 && typeof made?.token === "string" && made.info?.id) return { name, expiresAt, id: made.info.id, key: made.token };
-  if (response.status === 201) throw new Error(`EmDash said it made the agent's key but sent none the test could use. ${keyLeft({ name, expiresAt })}`);
-  throw new Error(`EmDash didn't make the agent's key (${refusal(response, answer)}).`);
+  const id = made?.info?.id;
+  if (response.status === 201 && typeof made?.token === "string" && id) return { name, expiresAt, id, key: made.token };
+  if (response.status !== 201) throw new Error(`EmDash didn't make the agent's key (${refusal(response, answer)}).`);
+  // A key the test can't use is deleted at once rather than left working for its hour.
+  const left = id
+    ? await revokeKey(page, id).then(() => "The test deleted it again.", error => `${error.message} ${keyLeft({ name, expiresAt })}`)
+    : keyLeft({ name, expiresAt });
+  throw new Error(`EmDash said it made the agent's key but sent none the test could use. ${left}`);
 }
 
 /**
@@ -201,10 +214,7 @@ async function agentOrder(page, agent, orderId) {
 
 /** Deletes the agent's key as the signed-in owner, then checks that a call with it is refused. */
 async function deleteAgentKey(page, agent) {
-  const url = `${config.store}/_emdash/api/admin/api-tokens/${encodeURIComponent(agent.id)}`;
-  const response = await send(url, { method: "DELETE", headers: { cookie: await ownerCookies(page, url), "X-EmDash-Request": "1" } }, "EmDash's API tokens");
-  const answer = await response.json().catch(() => null);
-  if (!response.ok || answer?.data?.revoked !== true) throw new Error(`EmDash didn't delete the agent's key (${refusal(response, answer)}). ${keyLeft(agent)}`);
+  await revokeKey(page, agent.id).catch(error => { throw new Error(`${error.message} ${keyLeft(agent)}`); });
   const after = await agentCall(page, agent, { action: "show", orderId: agent.orderId ?? "order:none" })
     .catch(error => { throw new Error(`EmDash deleted the agent's key, but the test couldn't try the key again: ${error.message}`); });
   if (after.response.status !== 401 || after.answer?.error?.code !== "INVALID_TOKEN") {
@@ -223,7 +233,11 @@ test("Mark as completed", { tag: "@next" }, journey(async ({ page }) => {
   const stamp = new Date().toISOString().replace(/^\d{4}-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d).*$/, "$1$2-$3$4$5");
   // Unique to the second and plainly the live test's, so one run's tracking number never passes for another's.
   const typed = { carrier: "USPS", tracking: `LIVE-TEST-${stamp}` };
-  const [ownerGiven, agentGiven] = config.ordersToComplete;
+  // A typo in the orders to complete stops the run before it places or completes any order.
+  const given = config.ordersToComplete.map(number => number.replace(/^#/, ""));
+  expect(given.length <= 2 && given.every(number => /^\d+$/.test(number)) && new Set(given).size === given.length,
+    `DINKUS_E2E_ORDERS_TO_COMPLETE reads "${config.ordersToComplete.join(",")}"; set it to one or two different order numbers like 1003,1004, or leave it empty to place new orders (in ${config.settingsFile})`).toBe(true);
+  const [ownerGiven, agentGiven] = given;
   const soft = { soft: true };
 
   // Without Commerce Orders nothing can be marked completed, so this step stops the journey.

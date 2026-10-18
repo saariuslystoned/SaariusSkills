@@ -91,7 +91,7 @@ the environment, which wins.
 | `DINKUS_E2E_COMPLETE_WAIT_SECONDS` | `420` | How long to wait for Commerce's background check |
 | `DINKUS_E2E_ORDERS_ADMIN` | the Registry Commerce plugin's Orders page | Commerce Orders in the store admin |
 | `DINKUS_E2E_PRODUCTS_ADMIN` | the Products page beside `DINKUS_E2E_ORDERS_ADMIN` | Commerce Products in the store admin, for Manage products |
-| `DINKUS_E2E_ORDERS_TO_COMPLETE` | new orders | For Mark as completed, existing Processing TEST orders for the owner and then the agent to complete (`1003,1004`) instead of placing new ones |
+| `DINKUS_E2E_ORDERS_TO_COMPLETE` | new orders | For Mark as completed, one or two different Processing TEST orders for the owner and then the agent to complete (`1003,1004`) instead of placing new ones. Anything else stops the journey before it places or completes an order |
 | `DINKUS_E2E_ADMIN_SIGNIN` | `skip` | `wait` lets a person sign in to the store admin |
 | `DINKUS_E2E_PROOF` | `~/.dinkus-e2e/proof` | Where each run's proof folder goes |
 | `DINKUS_E2E_PROFILE` | `~/.dinkus-e2e/profile` | The saved Chrome profile |
@@ -179,7 +179,7 @@ the key was made, the last step deletes it.
 | A shopper places a Stripe TEST order for the owner to complete | As in Buy and ship, a shopper pays for a physical product with the test card and Commerce records the payment. Skipped when `DINKUS_E2E_ORDERS_TO_COMPLETE` names an order |
 | The owner marks the order completed with a carrier and tracking number | The owner opens the order in Commerce Orders, presses Complete order and types USPS and a tracking number made for the run; Commerce says "Order completed" and shows the order Completed with both. Only a Processing TEST order is completed; any other fails the step and is left alone |
 | Commerce Orders keeps the owner's order Completed | Opened again from the list, the order is listed Completed and still shows its carrier and tracking number |
-| The test makes a one-hour key for the agent | EmDash makes an admin key named "Live test agent <date and time>" for the signed-in owner, set to stop working after an hour |
+| The test makes a one-hour key for the agent | EmDash makes an admin key named "Live test agent <date and time>" for the signed-in owner, set to stop working after an hour. If EmDash makes a key but sends none the test can use, the test deletes it straight away and the journey stops |
 | A shopper places a second Stripe TEST order for the agent to complete | As above, for the agent's order. Skipped when `DINKUS_E2E_ORDERS_TO_COMPLETE` names a second order |
 | An agent marks the order completed through Commerce's orders API, sending no carrier or tracking number | With only the key, the agent reads the order and completes it at the version it read; Commerce answers "saved" with the order completed, its version raised and no carrier or tracking number. Only a processing TEST order is completed |
 | Commerce Orders shows the agent's order Completed | In the store admin the agent's order is listed Completed, and its page shows "Not recorded" for the carrier and the tracking number |
