@@ -34,7 +34,7 @@ async function refuse(page, shopper, { card, says, bankCheck }) {
   try {
     await submitCard(page, shopper.email, card);
     if (bankCheck) await failBankCheck(page);
-    answer = await stripeRefusal(page, says);
+    answer = await stripeRefusal(page, says, { bankCheck });
   } catch (error) {
     // A captcha stops the journey as it is, also one that made an action time out before anything
     // checked for it.

@@ -223,39 +223,59 @@ async function retype(field, value) {
 
 /**
  * After a card Stripe should turn down: Stripe's message saying why, as the shopper reads it. Returns
- * { paid: true } instead when Stripe took the payment and sent the shopper back to the store.
+ * { paid: true } instead when Stripe took the payment and sent the shopper back to the store. With
+ * `bankCheck`, Stripe's test bank check still open after a press of Fail is failed again: a press
+ * that lands while Stripe is still drawing or swapping its test page changes nothing.
  */
-export async function stripeRefusal(page, says) {
+export async function stripeRefusal(page, says, { bankCheck = false } = {}) {
   const deadline = Date.now() + 60_000;
+  let pressed = Date.now(); // failBankCheck has just pressed Fail.
   for (;;) {
     if (new URL(page.url()).origin === config.store) return { paid: true };
     if (await captchaShown(page)) throw new CaptchaShown();
     const shown = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
     const message = shown.split("\n").map(line => line.trim()).find(line => says.test(line));
     if (message) return { message };
-    if (Date.now() > deadline) throw new Error(`Stripe showed no message saying why it turned the card down: ${await texts(page, '[role="alert"], .FieldError')}`);
+    const fail = bankCheck ? await bankCheckFail(page) : null;
+    if (Date.now() > deadline) {
+      throw new Error(fail ? "Stripe's test bank check stayed open after the test pressed Fail."
+        : `Stripe showed no message saying why it turned the card down: ${await texts(page, '[role="alert"], .FieldError')}`);
+    }
+    // Stripe closes its test page within seconds of a press it takes, so one open 8 seconds later never got it.
+    if (fail && Date.now() - pressed >= 8_000) {
+      await fail.click({ timeout: 5_000 }).catch(() => {});
+      pressed = Date.now();
+    }
     await page.waitForTimeout(1_000);
   }
 }
 
 /**
  * Fails Stripe's test bank check (3D Secure) as a shopper who can't verify would. Stripe's test page
- * opens in frames inside Checkout and offers Complete and Fail. Returns at once if Stripe takes the
- * payment without asking, which stripeRefusal then reports.
+ * opens in frames inside Checkout and offers Complete and Fail; the test only ever presses Fail.
+ * Returns at once if Stripe takes the payment without asking, which stripeRefusal then reports.
  */
 export async function failBankCheck(page) {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     if (new URL(page.url()).origin === config.store) return;
     if (await captchaShown(page)) throw new CaptchaShown();
-    for (const frame of page.frames()) {
-      for (const fail of [frame.locator("#test-source-fail-3ds"), frame.getByRole("button", { name: /^Fail( authentication)?$/i })]) {
-        if (await fail.first().isVisible().catch(() => false)) return fail.first().click();
-      }
-    }
+    const fail = await bankCheckFail(page);
+    // A press Stripe misses, in a frame it swapped mid-press say, is made again by stripeRefusal.
+    if (fail) return void await fail.click({ timeout: 5_000 }).catch(() => {});
     await page.waitForTimeout(1_000);
   }
   throw new Error("Stripe never showed its test bank check with a Fail button.");
+}
+
+/** The Fail button on Stripe's test bank check, in whichever frame shows it, or null while none shows. */
+async function bankCheckFail(page) {
+  for (const frame of page.frames()) {
+    for (const fail of [frame.locator("#test-source-fail-3ds"), frame.getByRole("button", { name: /^Fail( authentication)?$/i })]) {
+      if (await fail.first().isVisible().catch(() => false)) return fail.first();
+    }
+  }
+  return null;
 }
 
 /** Leaves Stripe Checkout unpaid by its link back to the store: Payments gives Stripe the store's cart as the way back. */
