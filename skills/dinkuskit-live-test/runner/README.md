@@ -9,7 +9,7 @@ journeys plan:
 | [Buy and ship](tests/buy-and-ship.spec.mjs) | `@running` | A Stripe TEST order on the store, the order in Commerce, a Pitney Bowes sandbox label in Ship, and Commerce marking the order Completed with the same tracking number |
 | [Storefront](tests/storefront.spec.mjs) | `@next` | A new shopper's first look: the homepage, the product list, a product page and its category page |
 | [Cart](tests/cart.spec.mjs) | `@next` | A new shopper adds a product to the cart, changes its quantity and removes it, with the cart total right each time |
-| [Manage products](tests/manage-products.spec.mjs) | `@next` | The owner adds a product with a photo, gives it a page in a new category, changes its price and name, and archives and restores it, with the store following each change |
+| [Manage products](tests/manage-products.spec.mjs) | `@next` | The owner adds a product, gives it a photo that stays after a reload and a published page in a new category that the store links to, changes its price and name, and archives and restores it, with the store following each change |
 | [Mark as completed](tests/mark-completed.spec.mjs) | `@next` | The owner marks a paid TEST order completed in Commerce Orders, typing a carrier and tracking number, and an agent completes another through Commerce's orders API, sending neither; both end Completed |
 | [Problems](tests/problems.spec.mjs) | `@next` | A shopper's checkout going wrong: Stripe turns down a declined card, a card without enough funds and a card that fails the bank's security check, each with a clear message and no order; the shopper leaves Stripe for the cart, finds the way back to the same checkout and pays once with the test card, and the owner completes that one order |
 
@@ -47,8 +47,11 @@ places no order and leaves nothing behind in the store.
 
 Manage products works in the store admin with the saved profile, as an owner
 does: Commerce Products in one tab, EmDash's Media library and content editor in
-another. After each change it checks the store in a clean shopper browser. It
-needs a Commerce release that can rename and archive a product
+another. After each change it checks the store in a clean shopper browser. Its
+photo is one the browser draws for each run, labeled with the product's name, so
+every run uploads a file of its own: the Media library keeps one copy of
+identical files, under the first one's name. It needs a Commerce release that
+can rename and archive a product
 (dinkus-commerce-beta 0.3.0-beta.2 or later). On an older one it stops before
 adding anything, judging from a product the store already has. It tidies up
 after itself, but Commerce archives products rather than deleting them, so each
@@ -166,16 +169,21 @@ finding.
 Its first two steps stop the journey when they fail, since nothing after them
 can run; every later step is soft. After each change the journey reloads the
 store's pages until they show it, for up to a minute, and says how long the store
-took. Whatever the run added comes off the store at the end, even after a failed
-step.
+took. The price, name and restore steps look for the photo too, but only if the
+store showed the product right before them, so a lost photo fails the steps that
+look for it while each later step still reports on its own change. Whatever the
+run added comes off the store at the end, even after a failed step.
 
 | Step | What it proves |
 | --- | --- |
 | The owner can open Commerce Products | Commerce Products opens in the store admin with its Add product form, and its product pages offer Rename and Archive product (or Restore). When they don't, the journey stops before adding a product it couldn't take off the store again. On a store with no products yet, the new product's page gets this check before it has a price, since the store doesn't list an unpriced product |
-| The owner adds a product with a price, a weight and a photo | The owner uploads a photo to the Media library, adds a physical product in Commerce Products, saves its price ($12.00) and weight (8 oz) and chooses the photo. Commerce confirms each save and shows the product's ID. When it doesn't, the journey stops here |
-| The Shop list shows the new product with its name, price and photo | The homepage's Shop list shows the product's name, $12.00 and its own photo |
-| The owner gives the product its own page in a new category | The owner makes and publishes a category in EmDash, then a product page linked to the product by the Product ID Commerce shows, puts the page in the category and publishes it |
+| The owner adds a product with a price and a weight | The owner adds a physical product in Commerce Products and saves its price ($12.00) and weight (8 oz). Commerce confirms each save and shows the product's ID. When it doesn't, the journey stops here |
+| The owner uploads a photo and makes it the product's image | The owner uploads a photo to EmDash's Media library, then presses Choose image on the product's Commerce page and picks that photo, and Commerce says "Image saved" |
+| The photo is still the product's image after a reload | After Commerce Products is opened afresh, the product's page shows the photo under Images, loaded, with Change image beside it ("No image", or an image that doesn't load, fails). Skipped when the photo wasn't chosen |
+| The Shop list shows the new product with its name, price and photo | The homepage's Shop list shows the product's name, $12.00 and its own photo, loaded (the store's placeholder fails) |
+| The owner gives the product its own page in a new category | The owner makes and publishes a category in EmDash, then a product page linked to the product by the Product ID Commerce shows, puts the page in the category and publishes it. EmDash's list of product pages then shows it as Published, with View published linking to its address |
 | The product page and its category page show the product | The Shop card links to the new page, which shows the name, price and photo, a ready Add to cart and a link to its category; the category page lists the product with its name, price and photo. Skipped when the page wasn't published |
+| The product's links open its page | Pressing the product's Shop card, and View details on its category page, opens its page, which answers HTTP 200 headed with the product's name. Skipped when the page wasn't published |
 | A new price shows on the store | After the owner saves $13.50, the Shop list, the product page and the category page all show it |
 | A new name shows on the store | After the owner renames the product in Commerce, the Shop list, the product page's heading and the category card all show the new name |
 | Archiving the product takes it off the store | After the owner archives it, the Shop list and the category page stop listing it, and its page answers HTTP 404 saying the product is no longer available |

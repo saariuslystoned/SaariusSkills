@@ -131,6 +131,23 @@ async function uploadPhoto(page, fileName, label) {
   await dialog.getByRole("button", { name: "Done" }).click();
 }
 
+/**
+ * Why the open Commerce product page doesn't show the product's image, or "" when it does. Once a
+ * product has one, Commerce shows it under Images with Change image beside it.
+ */
+async function adminPhotoProblem(page) {
+  const images = page.getByRole("heading", { name: "Images", level: 2 });
+  if (!await images.waitFor({ timeout: 30_000 }).then(() => true, () => false)) return "the product's Commerce page has no Images section";
+  // Commerce says so in the image's place when the product has none, or when the Media library has lost it.
+  const said = await text(page.getByText(/^(No image|Image .+ is unavailable\.)$/));
+  if (said) return `the product's Commerce page says "${said}" under Images`;
+  if (!await page.getByRole("button", { name: "Change image", exact: true }).count()) return "the product's Commerce page has no Change image, which it shows only for a product with an image";
+  const img = images.locator("xpath=following::img[1]");
+  if (!await img.count()) return "the product's Commerce page shows no image under Images";
+  const loaded = await expect.poll(() => img.evaluate(el => el.complete && el.naturalWidth > 0), { timeout: 15_000 }).toBe(true).then(() => true, () => false);
+  return loaded ? "" : "the image on the product's Commerce page didn't load";
+}
+
 /** An EmDash editor's field by its label; an editor without it fails with that plain reason. */
 async function field(page, label, editor) {
   const box = page.getByRole("textbox", { name: label, exact: true });
@@ -169,6 +186,21 @@ async function publish(page, collection) {
   if (response.ok()) return;
   const body = await response.json().catch(() => null);
   throw new Error(body?.error?.message ?? `HTTP ${response.status()}`);
+}
+
+/**
+ * The full address the "View published" link in EmDash's list of product pages goes to for this title,
+ * once the list shows the page as Published; null when it doesn't.
+ */
+async function publishedLink(page, title) {
+  await openAdmin(page, `${config.store}/_emdash/admin/content/products`);
+  await page.getByRole("searchbox", { name: "Search products" }).fill(title);
+  const view = page.getByRole("link", { name: `View published ${title}`, exact: true });
+  if (!await view.waitFor({ timeout: 15_000 }).then(() => true, () => false)) return null;
+  const row = page.getByRole("row").filter({ has: view });
+  if (!await row.getByRole("cell", { name: "Published", exact: true }).count()) return null;
+  const href = await view.getAttribute("href");
+  return href === null ? null : new URL(href, config.store).href;
 }
 
 /** Moves an EmDash entry to the Trash, so the store stops showing it. */
@@ -222,19 +254,19 @@ async function unreadableShop(shopper) {
 const categoryCards = page => page.locator("main").locator("[data-commerce-product], [data-merch-item]");
 
 /** What's wrong with how one product card shows this run's product. */
-async function cardProblems(card, where, { name, cents, path }) {
+async function cardProblems(card, where, { name, cents, hasPhoto, path }) {
   if (!card) return [`${where} doesn't list it`];
   const shown = await readCard(card);
   const problems = [];
   if (shown.name !== name) problems.push(`${where} names it "${shown.name || "nothing"}" instead of "${name}"`);
   if (money(shown.price) !== cents) problems.push(`${where} shows ${shown.price ? `"${shown.price}"` : "no price"} instead of ${dollars(cents)}`);
-  if (shown.image !== "photo") problems.push(`${where} ${photoProblem[shown.image]}`);
+  if (hasPhoto && shown.image !== "photo") problems.push(`${where} ${photoProblem[shown.image]}`);
   if (path && shown.href !== path) problems.push(`${where} links to ${shown.href ?? "no product page"} instead of ${path}`);
   return problems;
 }
 
 /** What's wrong with how the product page shows this run's product. */
-async function productPageProblems(shopper, response, { name, cents, categoryPath }) {
+async function productPageProblems(shopper, response, { name, cents, hasPhoto, categoryPath }) {
   if (response.status() !== 200) return [`the product page answered HTTP ${response.status()}`];
   const product = shopper.locator("[data-product-page]");
   if (!await product.count()) return ["the product page shows no product"];
@@ -243,7 +275,7 @@ async function productPageProblems(shopper, response, { name, cents, categoryPat
   if (heading !== name) problems.push(`the product page's heading says "${heading || "nothing"}" instead of "${name}"`);
   const price = await text(product.locator("[data-product-price]"));
   if (money(price) !== cents) problems.push(`the product page shows ${price ? `"${price}"` : "no price"} instead of ${dollars(cents)}`);
-  const image = await photo(product.locator(".product-detail__visual"));
+  const image = hasPhoto ? await photo(product.locator(".product-detail__visual")) : "photo";
   if (image !== "photo") problems.push(`the product page ${photoProblem[image]}`);
   // Ready means wired to the cart and pressable; the journey never presses it.
   const add = shopper.locator('[data-add-to-cart][data-guest-cart-ready="1"]').first();
@@ -251,6 +283,29 @@ async function productPageProblems(shopper, response, { name, cents, categoryPat
   else if (!await add.isEnabled()) problems.push("the product page's Add to cart button can't be pressed");
   if (categoryPath && !await shopper.locator(`.browse-breadcrumb a[href="${categoryPath}"]`).count()) problems.push(`the product page doesn't link to its category ${categoryPath}`);
   return problems;
+}
+
+/**
+ * What goes wrong when a shopper presses this run's product on a list page (its Shop card, or View
+ * details on a category page) to open its page.
+ */
+async function linkProblems(shopper, where, path, cards, { id, name, productPath }) {
+  const response = await shopper.goto(new URL(path, config.store).href).catch(error => error);
+  if (response instanceof Error) return [`${where} didn't answer (${firstLine(response)})`];
+  const card = await findCard(cards(shopper), { id, path: productPath });
+  if (!card) return [`${where} doesn't list it`];
+  // A Shop card is the link itself; a category card links from View details.
+  const link = await card.getAttribute("href") === productPath ? card : card.locator(`a[href="${productPath}"]`).first();
+  if (!await link.count()) return [`${where} lists it without a link to ${productPath}`];
+  const opened = await Promise.all([
+    shopper.waitForResponse(r => r.request().isNavigationRequest() && new URL(r.url()).pathname === productPath, { timeout: 30_000 }),
+    link.click(),
+  ]).then(([navigation]) => navigation, () => null);
+  if (!opened) return [`pressing it on ${where} didn't open ${productPath}`];
+  if (opened.status() !== 200) return [`pressing it on ${where} opened ${productPath}, which answered HTTP ${opened.status()}`];
+  await shopper.waitForLoadState("load");
+  const heading = await text(shopper.locator("[data-product-page] h1"));
+  return heading === name ? [] : [`pressing it on ${where} opened a page headed "${heading || "nothing"}" instead of "${name}"`];
 }
 
 /** Where the store shows the product, for a passing step's summary. */
@@ -261,7 +316,7 @@ const places = state => ["the Shop list", ...state.productPath ? [state.productP
  * category page once published), with the longest the store took to catch up.
  */
 async function storeShows(shopper, state) {
-  const { id, name, cents, productPath, categoryPath } = state;
+  const { id, name, cents, hasPhoto, productPath, categoryPath } = state;
   const checks = [await catchUp(shopper, "/", async response => {
     if (response.status() !== 200) return [`the homepage answered HTTP ${response.status()}`];
     const card = await findCard(shopCards(shopper), { id, name });
@@ -269,12 +324,12 @@ async function storeShows(shopper, state) {
     if (unreadable) return [unreadable];
     // A product shown without its own ID still tells the journey which ID the Shop list gave it.
     if (card && !state.id) state.id = await card.getAttribute("data-commerce-product") ?? "";
-    return cardProblems(card, "the Shop list", { name, cents, path: productPath });
+    return cardProblems(card, "the Shop list", { name, cents, hasPhoto, path: productPath });
   })];
   if (productPath) {
     checks.push(await catchUp(shopper, productPath, response => productPageProblems(shopper, response, state)));
     checks.push(await catchUp(shopper, categoryPath, async response => response.status() !== 200 ? [`${categoryPath} answered HTTP ${response.status()}`]
-      : cardProblems(await findCard(categoryCards(shopper), { id, path: productPath }), `the category page ${categoryPath}`, { name, cents, path: productPath })));
+      : cardProblems(await findCard(categoryCards(shopper), { id, path: productPath }), `the category page ${categoryPath}`, { name, cents, hasPhoto, path: productPath })));
   }
   return { problems: checks.flatMap(check => check.problems), seconds: Math.max(...checks.map(check => check.seconds)) };
 }
@@ -312,9 +367,12 @@ async function storeHides(shopper, { id, name, productPath, categoryPath }, { ar
 }
 
 const after = seconds => seconds ? ` after ${seconds} s` : "";
+/** A passing step's word on the photo, which the store isn't asked to show when none was chosen. */
+const withPhoto = state => state.hasPhoto ? " with its photo" : " (no photo to look for, since none was chosen)";
 
-// An owner's catalog work: add a product, give it a page in a new category, change its price and
-// name, archive and restore it, with the store following each change. It tidies up after itself.
+// An owner's catalog work: add a product, give it a photo that stays after a reload and a page in a
+// new category that the store links to, change its price and name, archive and restore it, with the
+// store following each change. It tidies up after itself.
 test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
   expect(config.store, `Set DINKUS_E2E_STORE to the store's address (in ${config.settingsFile})`).not.toBe("");
   const run = runNames();
@@ -325,7 +383,7 @@ test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
   for (const context of [page.context(), shopper.context()]) context.setDefaultTimeout(60_000);
   // What the store should show, and what this run made, so the last step can take it all off the store.
   const state = { id: "", idShown: false, name: run.product, adminName: run.product, cents: 1200, productPath: "", categoryPath: "", archived: false,
-    checkNewProduct: false, cantArchive: false };
+    checkNewProduct: false, cantArchive: false, hasPhoto: false };
   // `product` is "asked" from the moment Add product is pressed, and true once Commerce confirms it; the
   // page and category keep their store addresses from just before each is saved and their editor's once
   // it opens. `lost` names an entry saved without the test learning where its editor is.
@@ -356,8 +414,7 @@ test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
     });
 
     // Nothing after this can run without the product, so this step stops the journey too.
-    await step(page, "The owner adds a product with a price, a weight and a photo", async () => {
-      await uploadPhoto(content, run.photo, run.product);
+    await step(page, "The owner adds a product with a price and a weight", async () => {
       await page.getByRole("textbox", { name: "Name", exact: true }).fill(run.product);
       await page.getByRole("textbox", { name: "SKU", exact: true }).fill(run.sku);
       await page.getByRole("radio", { name: "Physical", exact: true }).check();
@@ -381,18 +438,35 @@ test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
       await confirmed(page, "Weight saved");
       // Commerce draws the product again from what it stored, so the field now shows the saved weight.
       await expect(page.getByRole("textbox", { name: "Weight (oz)", exact: true }), "Commerce didn't keep the weight").toHaveValue("8", { timeout: 15_000 });
+      return `"${run.product}" (SKU ${run.sku}) at $12.00, 8 oz${state.idShown ? `; Product ID ${state.id}` : ""}`;
+    });
+
+    await step(page, "The owner uploads a photo and makes it the product's image", async () => {
+      await uploadPhoto(content, run.photo, run.product);
+      await onProduct(page, state.adminName);
       await page.getByRole("button", { name: "Choose image", exact: true }).click();
       await page.getByRole("button", { name: `Use ${run.photo}`, exact: true }).click({ timeout: 30_000 });
       await confirmed(page, "Image saved");
-      return `"${run.product}" (SKU ${run.sku}) at $12.00, 8 oz, with its photo${state.idShown ? `; Product ID ${state.id}` : ""}`;
-    });
+      state.hasPhoto = true;
+      return `uploaded ${run.photo} to the Media library and chose it on the product's Commerce page, which said "Image saved"`;
+    }, soft);
 
-    await step(shopper, "The Shop list shows the new product with its name, price and photo", async () => {
+    const keptStep = "The photo is still the product's image after a reload";
+    if (!state.hasPhoto) record(keptStep, "SKIP", "the photo wasn't chosen, so there's no choice to check");
+    else await step(page, keptStep, async () => {
+      // Opening Commerce Products afresh, as a reload does, draws the product's page from what Commerce stored.
+      await openProduct(page, state.adminName);
+      const problem = await adminPhotoProblem(page);
+      if (problem) throw new Error(`After a reload, ${problem}.`);
+      return "after a reload, the product's Commerce page shows the photo under Images, loaded, with Change image beside it";
+    }, soft);
+
+    const shopRight = await step(shopper, "The Shop list shows the new product with its name, price and photo", async () => {
       // A store that keeps every page behind Cloudflare Access gets a one-time PIN sign-in first.
       await openShopperPage(shopper, "/");
       const { problems, seconds } = await storeShows(shopper, state);
       if (problems.length) throw new Error(`${problems.join("; ")}${after(seconds)}.`);
-      return `"${state.name}" at ${dollars(state.cents)} with its photo${after(seconds)}`;
+      return `"${state.name}" at ${dollars(state.cents)}${withPhoto(state)}${after(seconds)}`;
     }, soft);
 
     const pageStep = "The owner gives the product its own page in a new category";
@@ -432,17 +506,38 @@ test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
       }
       await publish(content, "products").catch(error => { throw new Error(`Publishing the product page failed: ${firstLine(error)}`); });
       Object.assign(state, { productPath: made.pagePath, categoryPath: made.categoryPath });
+      // The owner's list of product pages says it's published and links to its address.
+      const listed = await publishedLink(content, run.product);
+      if (listed !== new URL(state.productPath, config.store).href) {
+        throw new Error(listed === null ? `Published ${state.productPath}, but EmDash's list of product pages doesn't show it as Published with a View published link.`
+          : `EmDash's list of product pages links "${run.product}" to ${listed} instead of ${state.productPath}.`);
+      }
       // Linking the page needs the ID, which an owner can only copy from Commerce's product page.
       if (!state.idShown) throw new Error(`Published ${state.productPath} in ${state.categoryPath}, but Commerce's product page shows no Product ID, so the test copied it from the Shop list's markup.`);
-      return `published ${state.productPath} in the new category ${state.categoryPath}, linked by the Product ID Commerce shows`;
+      return `published ${state.productPath} in the new category ${state.categoryPath}, linked by the Product ID Commerce shows; EmDash lists it as Published, with View published linking to it`;
     }, soft);
 
     const showsStep = "The product page and its category page show the product";
+    let storeRight = shopRight;
     if (!state.productPath) record(showsStep, "SKIP", "the product page wasn't published, so there's no page to check");
-    else await step(shopper, showsStep, async () => {
+    else storeRight = await step(shopper, showsStep, async () => {
       const { problems, seconds } = await storeShows(shopper, state);
       if (problems.length) throw new Error(`${problems.join("; ")}${after(seconds)}.`);
-      return `the Shop card links to ${state.productPath}, which shows "${state.name}" at ${dollars(state.cents)} with its photo and Add to cart; ${state.categoryPath} lists it${after(seconds)}`;
+      return `the Shop card links to ${state.productPath}, which shows "${state.name}" at ${dollars(state.cents)}${withPhoto(state)} and Add to cart; ${state.categoryPath} lists it${after(seconds)}`;
+    }, soft);
+    // The changes below look for the photo only if the store has shown everything right so far, so a
+    // photo it lost fails the steps above that look for it, not every change after them too.
+    if (!storeRight) state.hasPhoto = false;
+
+    const linkStep = "The product's links open its page";
+    if (!state.productPath) record(linkStep, "SKIP", "the product page wasn't published, so there's no link to follow");
+    else await step(shopper, linkStep, async () => {
+      const problems = [
+        ...await linkProblems(shopper, "the Shop list", "/", shopCards, state),
+        ...await linkProblems(shopper, `the category page ${state.categoryPath}`, state.categoryPath, categoryCards, state),
+      ];
+      if (problems.length) throw new Error(`${problems.join("; ")}.`);
+      return `pressing the product's Shop card, and View details on ${state.categoryPath}, opens ${state.productPath}, headed "${state.name}"`;
     }, soft);
 
     await step(shopper, "A new price shows on the store", async () => {
