@@ -170,10 +170,11 @@ finding.
 Its first two steps stop the journey when they fail, since nothing after them
 can run; every later step is soft. After each change the journey reloads the
 store's pages until they show it, for up to a minute, and says how long the store
-took. The price, name and restore steps look for the photo too, but only if the
-store showed the product right before them, so a lost photo fails the steps that
-look for it while each later step still reports on its own change. Whatever the
-run added comes off the store at the end, even after a failed step.
+took. The price, name and restore steps look for the photo too, until a step
+finds the store showing the product wrong, so a photo the store lost fails the step
+that first misses it while each later step still reports on its own change and
+says it didn't look for the photo. Whatever the run added comes off the store at
+the end, even after a failed step.
 
 | Step | What it proves |
 | --- | --- |

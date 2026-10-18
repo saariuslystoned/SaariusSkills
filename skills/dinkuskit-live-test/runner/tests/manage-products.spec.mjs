@@ -393,8 +393,12 @@ async function storeHides(shopper, { id, name, productPath, categoryPath }, { ar
 }
 
 const after = seconds => seconds ? ` after ${seconds} s` : "";
-/** A passing step's word on the photo, which the store isn't asked to show when none was chosen. */
-const withPhoto = state => state.hasPhoto ? " with its photo" : " (no photo to look for, since none was chosen)";
+/**
+ * A passing step's word on the photo: the store showed it, or the step didn't look for it, since none
+ * was chosen or an earlier step found the store showing the product wrong.
+ */
+const withPhoto = state => state.hasPhoto ? " with its photo"
+  : state.photoHash ? " (its photo not looked for, since an earlier store check failed)" : " (no photo to look for, since none was chosen)";
 
 // An owner's catalog work: add a product, give it a photo that stays after a reload and a page in a
 // new category that the store links to, change its price and name, archive and restore it, with the
@@ -556,8 +560,8 @@ test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
       if (problems.length) throw new Error(`${problems.join("; ")}${after(seconds)}.`);
       return `the Shop card links to ${state.productPath}, which shows "${state.name}" at ${dollars(state.cents)}${withPhoto(state)} and Add to cart; ${state.categoryPath} lists it${after(seconds)}`;
     }, soft);
-    // The changes below look for the photo only if the store has shown everything right so far, so a
-    // photo it lost fails the steps above that look for it, not every change after them too.
+    // The changes below look for the photo too, until a step finds the store showing the product wrong,
+    // so a photo the store lost fails the step that first misses it, not every change after that too.
     if (!storeRight) state.hasPhoto = false;
 
     const linkStep = "The product's links open its page";
@@ -571,16 +575,17 @@ test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
       return `pressing the product's Shop card, and View details on ${state.categoryPath}, opens ${state.productPath}, headed "${state.name}"`;
     }, soft);
 
-    await step(shopper, "A new price shows on the store", async () => {
+    const priceRight = await step(shopper, "A new price shows on the store", async () => {
       await onProduct(page, state.adminName);
       await setPrice(page, "13.50");
       state.cents = 1350;
       const { problems, seconds } = await storeShows(shopper, state);
       if (problems.length) throw new Error(`${problems.join("; ")}${after(seconds)}.`);
-      return `$13.50 on ${places(state)}${after(seconds)}`;
+      return `$13.50${withPhoto(state)} on ${places(state)}${after(seconds)}`;
     }, soft);
+    if (!priceRight) state.hasPhoto = false;
 
-    await step(shopper, "A new name shows on the store", async () => {
+    const nameRight = await step(shopper, "A new name shows on the store", async () => {
       await onProduct(page, state.adminName);
       const rename = page.getByRole("button", { name: "Rename", exact: true });
       if (!await rename.count()) throw new Error("Commerce's product page has no Rename.");
@@ -590,8 +595,9 @@ test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
       Object.assign(state, { name: run.renamed, adminName: run.renamed });
       const { problems, seconds } = await storeShows(shopper, state);
       if (problems.length) throw new Error(`${problems.join("; ")}${after(seconds)}.`);
-      return `"${state.name}" on ${places(state)}${after(seconds)}`;
+      return `"${state.name}"${withPhoto(state)} on ${places(state)}${after(seconds)}`;
     }, soft);
+    if (!nameRight) state.hasPhoto = false;
 
     await step(shopper, "Archiving the product takes it off the store", async () => {
       await archive(page, state.adminName);
@@ -611,7 +617,7 @@ test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
       state.archived = false;
       const { problems, seconds } = await storeShows(shopper, state);
       if (problems.length) throw new Error(`Restored in Commerce, but ${problems.join("; ")}${after(seconds)}.`);
-      return `back on ${places(state)} as "${state.name}" at ${dollars(state.cents)}${after(seconds)}`;
+      return `back on ${places(state)} as "${state.name}" at ${dollars(state.cents)}${withPhoto(state)}${after(seconds)}`;
     }, soft);
   } finally {
     // Whatever this run added comes off the store again, even when a step above stopped the journey.
