@@ -26,6 +26,7 @@ process.env.DINKUS_E2E_RUN = runId;
 const store = origin(read("DINKUS_E2E_STORE"));
 const mailAccount = read("DINKUS_E2E_MAIL_ACCOUNT");
 const gogMail = resolve(dirname(fileURLToPath(import.meta.url)), "../scripts/gog-mail.sh");
+const ordersAdmin = read("DINKUS_E2E_ORDERS_ADMIN", `${store}/_emdash/admin/plugins/r_gshdrqaldna3r7sn/orders`);
 
 /** Everything a run needs, from the environment and the settings file; nothing secret lives here. */
 export const config = {
@@ -42,7 +43,9 @@ export const config = {
   // Finish mode: the order number (1001) or Commerce order id to finish. Empty picks the only TEST order waiting for a label.
   order: read("DINKUS_E2E_ORDER").replace(/^#/, ""),
   service: read("DINKUS_E2E_SERVICE", "GA"),
-  ordersAdmin: read("DINKUS_E2E_ORDERS_ADMIN", `${store}/_emdash/admin/plugins/r_gshdrqaldna3r7sn/orders`),
+  ordersAdmin,
+  // Commerce Products sits beside Commerce Orders, so a beta install's Orders setting covers both.
+  productsAdmin: read("DINKUS_E2E_PRODUCTS_ADMIN", ordersAdmin.replace(/\/orders\/?$/, "/products")),
   productPath: read("DINKUS_E2E_PRODUCT_PATH"),
   shopper: {
     email: read("DINKUS_E2E_SHOPPER_EMAIL"),
