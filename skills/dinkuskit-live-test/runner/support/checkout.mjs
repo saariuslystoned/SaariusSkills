@@ -180,9 +180,13 @@ export async function payOnStripe(page, email) {
  * fields on the page itself, not in frames, under stable ids.
  */
 export async function submitCard(page, email, cardNumber) {
-  // Only ever a TEST session: its URL carries a cs_test_ session id. Anything else stops the run unpaid.
-  if (!/\/cs_test_/.test(new URL(page.url()).pathname)) throw new Error("Stripe opened a session that is not in test mode; nothing was paid.");
+  requireTestMode(page);
   await orCaptcha(page, fillCard(page, email, cardNumber));
+}
+
+/** Only ever a TEST session: its URL carries a cs_test_ session id. Anything else stops the run unpaid. */
+export function requireTestMode(page) {
+  if (!/\/cs_test_/.test(new URL(page.url()).pathname)) throw new Error("Stripe opened a session that is not in test mode; nothing was paid.");
 }
 
 async function fillCard(page, email, cardNumber) {

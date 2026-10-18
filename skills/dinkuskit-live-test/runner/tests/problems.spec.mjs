@@ -1,7 +1,7 @@
 import { test, expect } from "../support/browser.mjs";
 import {
-  CaptchaShown, checkoutStatus, confirmCheckout, failBankCheck, leaveStripe, openCheckout, payOnStripe, resumeCheckout, stopIfCaptcha,
-  stripeRefusal, submitCard,
+  CaptchaShown, checkoutStatus, confirmCheckout, failBankCheck, leaveStripe, openCheckout, payOnStripe, requireTestMode, resumeCheckout,
+  stopIfCaptcha, stripeRefusal, submitCard,
 } from "../support/checkout.mjs";
 import { stripeSession, thankYouShown } from "../support/checkout-text.mjs";
 import { config } from "../support/env.mjs";
@@ -125,6 +125,8 @@ test("Problems", { tag: "@next" }, journey(async ({ page }) => {
     const opened = await openCheckout(page);
     Object.assign(shopper, { email: opened.email, session: stripeSession(page.url()) });
     if (!shopper.session) throw new Error("Stripe Checkout opened without a checkout session the test can follow.");
+    // The whole journey stays in this session, so one that isn't in test mode stops it here, before any card.
+    requireTestMode(page);
     return opened.resumed ? "the shopper went back to the Stripe Checkout an earlier run left open" : "Stripe Checkout opened for one product";
   });
 
