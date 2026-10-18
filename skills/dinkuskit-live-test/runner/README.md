@@ -27,12 +27,22 @@ only Google, set `DINKUS_E2E_ADMIN_SIGNIN=wait` and sign in once in the window.
 
 ## Requests stay within the selected sites
 
-Every page opened by the canonical journeys filters requests to the selected `DINKUS_E2E_STORE`,
+Pages the canonical journeys open filter requests to the selected `DINKUS_E2E_STORE`,
 DinkusKit.com, ship.dinkuskit.com, Stripe/Stripe CDN, and the exact Access origins
 listed in `DINKUS_E2E_ACCESS_ORIGINS`. Other stores and lookalike domains are
 blocked. Store photos may use any dimensions or query parameters; the filter
 checks the origin, not a fixed image-size list. Service workers are disabled so
-they cannot bypass the browser request filter.
+they cannot bypass the browser request filter, and WebSocket connections to other
+hosts are closed before they connect.
+
+When the store sends visitors to a Cloudflare Access sign-in that
+`DINKUS_E2E_ACCESS_ORIGINS` doesn't list, the run stops before its first page and
+names the origin to add, since the filter would block that sign-in.
+
+Popups the site opens and cross-site frames (Stripe's) get the same filter. Their very
+first request is checked by origin before it leaves; a redirect answering that first
+request is not checked, because their own interceptor can only attach once it has
+started. Every later request and redirect from them is checked.
 
 Store authorization headers are removed from requests to other allowed sites;
 those sites use their own browser cookies. Chromium pauses every network hop, including redirects, for the origin check;

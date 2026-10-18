@@ -40,15 +40,55 @@ export function requestPolicy({ store, accessOrigins = [] }) {
 }
 
 const installed = new WeakMap();
+const frames = new WeakMap();
+const guarded = new WeakMap();
 
 /** Chromium pauses every hop, including redirects; install before navigating. */
 export function filterPage(page, settings) {
-  if (!installed.has(page)) installed.set(page, install(page, requestPolicy(settings)));
+  if (!installed.has(page)) installed.set(page, install(page, requestPolicy(settings), settings));
   return installed.get(page);
 }
 
-async function install(page, policy) {
-  const session = await page.context().newCDPSession(page);
+async function install(page, policy, settings) {
+  await guardContext(page.context(), policy, settings);
+  page.on("frameattached", frame => { filterFrame(frame, policy); });
+  await intercept(await page.context().newCDPSession(page), page.context(), policy);
+  return page;
+}
+
+/** A cross-site frame runs in its own renderer, which the page's interceptor never sees. */
+function filterFrame(frame, policy) {
+  if (!frames.has(frame)) frames.set(frame, frame.page().context().newCDPSession(frame)
+    .then(session => intercept(session, frame.page().context(), policy))
+    .catch(() => {})); // A same-site frame has no session of its own and is already covered.
+  return frames.get(frame);
+}
+
+/**
+ * Popups the site opens and cross-site frames start before an interceptor can attach. The context
+ * checks every first request and holds it until its page or frame has an interceptor, so the
+ * redirect hops that follow are checked too.
+ */
+function guardContext(context, policy, settings) {
+  if (!guarded.has(context)) guarded.set(context, (async () => {
+    await context.route("**/*", async route => {
+      const request = route.request();
+      if (!policy.allows(request.url())) return route.abort("blockedbyclient");
+      let frame = null;
+      try { frame = request.frame(); } catch {} // A worker's request belongs to its page's interceptor.
+      if (frame) {
+        await filterPage(frame.page(), settings);
+        if (frame !== frame.page().mainFrame()) await filterFrame(frame, policy);
+      }
+      return route.fallback();
+    });
+    // Chromium's Fetch interception never pauses a WebSocket handshake.
+    await context.routeWebSocket(url => !policy.allows(url.href.replace(/^ws/, "http")), ws => ws.close());
+  })());
+  return guarded.get(context);
+}
+
+async function intercept(session, context, policy) {
   const handle = async ({ requestId, request }) => {
     if (!policy.allows(request.url)) {
       await session.send("Fetch.failRequest", { requestId, errorReason: "BlockedByClient" });
@@ -59,7 +99,7 @@ async function install(page, policy) {
       // Rebuild only the destination's browser cookies, never a store Cookie override.
       const received = Object.entries(request.headers).find(([name]) => name.toLowerCase() === "cookie")?.[1] ?? "";
       const sent = new Set(received.split(";").map(value => value.trim()));
-      const cookies = (await page.context().cookies(request.url))
+      const cookies = (await context.cookies(request.url))
         .map(({ name, value }) => `${name}=${value}`).filter(value => sent.has(value));
       if (cookies.length) headers.Cookie = cookies.join("; ");
     }
@@ -70,7 +110,6 @@ async function install(page, policy) {
   session.on("Fetch.requestPaused", event => handle(event).catch(() =>
     session.send("Fetch.failRequest", { requestId: event.requestId, errorReason: "Failed" }).catch(() => {})));
   await session.send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] });
-  return page;
 }
 
 /** Direct photo/link/PDF probes use the same sites and check redirects before following. */

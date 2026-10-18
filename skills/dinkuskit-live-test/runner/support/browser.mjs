@@ -29,6 +29,7 @@ export const test = base.extend({
     await context.close();
   }, { scope: "worker" }],
   page: async ({ persistent }, use) => {
+    await accessListed();
     const page = await filterPage(persistent.pages()[0] ?? await persistent.newPage(), config);
     await use(page);
   },
@@ -59,7 +60,28 @@ export { expect } from "@playwright/test";
 
 /** Create a page with the same site filter before its first navigation. */
 export async function newPage(context) {
+  await accessListed();
   return filterPage(await context.newPage(), config);
+}
+
+let accessCheck;
+/**
+ * The filter blocks a Cloudflare Access sign-in it wasn't told about, which would fail the first step
+ * with a bare "blocked" error. Ask the store once, without following redirects, and name the setting.
+ */
+function accessListed() {
+  accessCheck ??= (async () => {
+    if (!config.store) return;
+    for (const path of ["/", "/_emdash/admin"]) {
+      const response = await fetch(new URL(path, config.store), { redirect: "manual" }).catch(() => null);
+      const location = response?.headers.get("location");
+      const access = location ? new URL(location, config.store) : null;
+      if (access?.hostname.endsWith(".cloudflareaccess.com") && !config.accessOrigins.includes(access.origin)) {
+        throw new Error(`${config.store} sends visitors to Cloudflare Access at ${access.origin}, which the request filter blocks. Add DINKUS_E2E_ACCESS_ORIGINS=${access.origin} to ${config.settingsFile}.`);
+      }
+    }
+  })();
+  return accessCheck;
 }
 
 /** A link/photo/PDF probe with the same origin and redirect policy. */

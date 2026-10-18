@@ -31,12 +31,14 @@ test("malformed or wildcard origins cannot broaden the site list", () => {
   assert.throws(() => requestPolicy({ ...settings, accessOrigins: ["https://example.test"] }));
 });
 
+const guards = { route: async () => {}, routeWebSocket: async () => {} };
+
 async function interceptor(cookies = []) {
   let paused;
   const commands = [];
   const session = { on: (_, fn) => { paused = fn; }, send: async (method, value) => { commands.push({ method, value }); } };
-  const context = { newCDPSession: async () => session, cookies: async () => cookies };
-  await filterPage({ context: () => context }, settings);
+  const context = { newCDPSession: async () => session, cookies: async () => cookies, ...guards };
+  await filterPage({ context: () => context, on: () => {} }, settings);
   return { paused: event => paused(event), commands };
 }
 
@@ -69,10 +71,11 @@ test("off-list request is stopped before forwarding headers", async () => {
 
 test("a reused persistent page has one interceptor", async () => {
   let sessions = 0;
-  const page = { context: () => ({ newCDPSession: async () => {
+  const context = { ...guards, newCDPSession: async () => {
     sessions++;
     return { on: () => {}, send: async () => {} };
-  } }) };
+  } };
+  const page = { context: () => context, on: () => {} };
   await Promise.all([filterPage(page, settings), filterPage(page, settings)]);
   await filterPage(page, settings);
   assert.equal(sessions, 1);
