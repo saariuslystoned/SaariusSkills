@@ -54,6 +54,10 @@ export function decodedPngSize(bytes) {
   try { pixels = inflateSync(Buffer.concat(data)); } catch { throw invalid(); }
   const rowBytes = Math.ceil((header.width * channels * header.depth) / 8);
   // Interlaced rows are split into seven passes; for those a clean inflate is the check.
-  if (header.interlace === 0 && pixels.length !== header.height * (rowBytes + 1)) throw invalid();
+  if (header.interlace === 0) {
+    if (pixels.length !== header.height * (rowBytes + 1)) throw invalid();
+    // Each row starts with its filter type, and PNG defines only 0 to 4.
+    for (let row = 0; row < header.height; row++) if (pixels[row * (rowBytes + 1)] > 4) throw invalid();
+  }
   return { width: header.width, height: header.height };
 }

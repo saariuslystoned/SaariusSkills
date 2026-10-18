@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deflateSync } from "node:zlib";
+import { crc32, deflateSync } from "node:zlib";
 import { renderLabelPdf } from "../support/label-pdf.mjs";
 
 function fixture(fn) {
@@ -14,12 +14,14 @@ function fixture(fn) {
 }
 function chunk(type, body) {
   const length = Buffer.alloc(4); length.writeUInt32BE(body.length);
-  return Buffer.concat([length, Buffer.from(type, "latin1"), body, Buffer.alloc(4)]);
+  const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(Buffer.concat([Buffer.from(type, "latin1"), body])));
+  return Buffer.concat([length, Buffer.from(type, "latin1"), body, crc]);
 }
 /** A small but complete greyscale PNG; the renderer contract only cares that it decodes. */
-function pngBytes(width = 933, height = 1400) {
+function pngBytes(width = 933, height = 1400, filter = 0) {
   const header = Buffer.alloc(13); header.writeUInt32BE(width,0); header.writeUInt32BE(height,4); header[8]=8; header[9]=0;
   const pixels = Buffer.alloc(height * (width + 1), 0xff);
+  for (let row = 0; row < height; row++) pixels[row * (width + 1)] = filter;
   return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]), chunk("IHDR", header), chunk("IDAT", deflateSync(pixels)), chunk("IEND", Buffer.alloc(0))]);
 }
 function png(file) { writeFileSync(file + ".png", pngBytes()); }
@@ -45,6 +47,8 @@ test("no output, invalid output and stale output cannot claim a rendered label",
   const headerOnly = Buffer.alloc(24);
   Buffer.from([137,80,78,71,13,10,26,10]).copy(headerOnly); headerOnly.writeUInt32BE(933,16); headerOnly.writeUInt32BE(1400,20);
   fixture(file => assert.throws(() => renderLabelPdf(file,{platform:"linux",run:()=>writeFileSync(file+".png",headerOnly)}), /invalid label picture/));
+  const badFilter = pngBytes(1, 1, 255);
+  fixture(file => assert.throws(() => renderLabelPdf(file,{platform:"linux",run:()=>writeFileSync(file+".png",badFilter)}), /invalid label picture/));
   const whole = pngBytes();
   fixture(file => assert.throws(() => renderLabelPdf(file,{platform:"linux",run:()=>writeFileSync(file+".png",whole.subarray(0, whole.length - 40))}), /invalid label picture/));
   fixture(file => { png(file); assert.throws(() => renderLabelPdf(file,{platform:"linux",run:()=>{}}), /no label picture/); });

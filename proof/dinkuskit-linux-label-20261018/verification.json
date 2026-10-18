@@ -4,7 +4,8 @@
   "assets": {
     "label-pdf.mjs": {
       "sha256": "7794a461e78277eb8db8a441641c550fb379fcf14537f8a42f5cbdbc8682fbde",
-      "bytes": 1692
+      "bytes": 1692,
+      "revision": "f855213 (first revision; the published release was made with this helper)"
     },
     "sandbox-label.pdf": {
       "sha256": "8c8d9bbac5c245cffbccb3602fe3417aa38a99151698d6602c6c56e6d82c0fcb",
@@ -23,5 +24,17 @@
     "width": 934,
     "height": 1400,
     "sha256": "939dd913f6544cba436351305ebbbb92398350e7679fed0c5462642ed9d027ff"
+  },
+  "review_rerun": {
+    "helper": "skills/dinkuskit-live-test/runner/support/label-pdf.mjs after the review fixes",
+    "helper_sha256": "7497cd9a8960545aa03f7ed99af88807287316224af72c052a90425015f328a2",
+    "helper_bytes": 3383,
+    "input": "sandbox-label.pdf downloaded from the release, sha256 8c8d9bbac5c245cffbccb3602fe3417aa38a99151698d6602c6c56e6d82c0fcb",
+    "renderer": "pdftoppm 24.02.0 on Linux",
+    "width": 934,
+    "height": 1400,
+    "image_sha256": "cecb2e71e28f8dbeb2c68a07144ffbbaeda1a3961e9332689b91f1a1bb485b59",
+    "note": "The picture's hash differs from the release's because the Poppler version differs; it was inspected and shows the same label.",
+    "visual_inspection": "Legible sandbox warning, address block and bars; no clipping"
   }
 }
