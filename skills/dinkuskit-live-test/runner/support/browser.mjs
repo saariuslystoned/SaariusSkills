@@ -40,9 +40,10 @@ export const test = base.extend({
  * store exactly as a new shopper does. Close it with `closeShopper`.
  */
 export async function shopperPage() {
+  await accessListed(["/"]);
   const browser = await chromium.launch(launch());
   const context = await browser.newContext({ viewport: SIZE, ...video(), serviceWorkers: "block" });
-  return newPage(context);
+  return filterPage(await context.newPage(), config);
 }
 
 /**
@@ -64,25 +65,28 @@ export async function newPage(context) {
   return filterPage(await context.newPage(), config);
 }
 
-let accessCheck;
+const accessChecks = new Map();
 /**
  * The filter blocks a Cloudflare Access sign-in it wasn't told about, which would fail the first step
- * with a bare "blocked" error. Ask the store once, without following redirects, and name the setting.
+ * with a bare "blocked" error. Ask the store once per path, without following redirects, and name the
+ * setting. Shopper pages ask only about the storefront, since they never open the admin.
  */
-function accessListed() {
-  accessCheck ??= (async () => {
-    if (!config.store) return;
-    for (const path of ["/", "/_emdash/admin"]) {
-      const response = await fetch(new URL(path, config.store), { redirect: "manual" }).catch(() => null);
-      const location = response?.headers.get("location");
-      const access = location ? new URL(location, config.store) : null;
-      const listed = config.accessOrigins.map(value => { try { return new URL(value).origin; } catch { return value; } });
-      if (access?.hostname.endsWith(".cloudflareaccess.com") && !listed.includes(access.origin)) {
-        throw new Error(`${config.store} sends visitors to Cloudflare Access at ${access.origin}, which the request filter blocks. Add DINKUS_E2E_ACCESS_ORIGINS=${access.origin} to ${config.settingsFile}.`);
-      }
-    }
-  })();
-  return accessCheck;
+function accessListed(paths = ["/", "/_emdash/admin"]) {
+  return Promise.all(paths.map(path => {
+    if (!accessChecks.has(path)) accessChecks.set(path, accessAt(path));
+    return accessChecks.get(path);
+  }));
+}
+
+async function accessAt(path) {
+  if (!config.store) return;
+  const response = await fetch(new URL(path, config.store), { redirect: "manual" }).catch(() => null);
+  const location = response?.headers.get("location");
+  const access = location ? new URL(location, config.store) : null;
+  const listed = config.accessOrigins.map(value => { try { return new URL(value).origin; } catch { return value; } });
+  if (access?.hostname.endsWith(".cloudflareaccess.com") && !listed.includes(access.origin)) {
+    throw new Error(`${config.store} sends visitors to Cloudflare Access at ${access.origin}, which the request filter blocks. Add DINKUS_E2E_ACCESS_ORIGINS=${access.origin} to ${config.settingsFile}.`);
+  }
 }
 
 /** A link/photo/PDF probe with the same origin and redirect policy. */

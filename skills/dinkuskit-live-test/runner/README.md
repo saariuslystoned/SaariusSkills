@@ -40,7 +40,9 @@ hosts are closed before they connect.
 
 When the store sends visitors to a Cloudflare Access sign-in that
 `DINKUS_E2E_ACCESS_ORIGINS` doesn't list, the run stops before its first page and
-names the origin to add, since the filter would block that sign-in.
+names the origin to add, since the filter would block that sign-in. Shopper
+windows check only the storefront, so a journey that never opens the admin isn't
+stopped by an admin-only Access app.
 
 Popups the site opens and cross-site frames (Stripe's) get the same origin check and
 lose store headers on every request they start. Redirects are where they differ:

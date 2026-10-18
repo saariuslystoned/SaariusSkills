@@ -49,7 +49,7 @@
     "scope": "Copilot and journeys review fixes after 9417689; loopback only, synthetic header, no live store",
     "changed_source_sha256": {
       "skills/dinkuskit-live-test/runner/support/request-policy.mjs": "37e8cadccd78d7fdc3151c2ee6d4808a0a85641f74dc0fcdd0b84a90ab9a8f42",
-      "skills/dinkuskit-live-test/runner/support/browser.mjs": "0de7d9b5c6c246e561ef2471e7bd0558af75b1607936f49b03541da607390107",
+      "skills/dinkuskit-live-test/runner/support/browser.mjs": "59bc64dfe6e8c12aa9dd35710f0d43fc3c1e61bda652e0978e41fcbbc90296e1",
       "skills/dinkuskit-live-test/runner/support/store-admin.mjs": "f4fe7b505ad80fddef9e3801e6f63d6c61d5be5a3215199b7a3bee441415c3c8",
       "skills/dinkuskit-live-test/runner/unit/request-policy.test.mjs": "96fa7ff12caf0ee178e3c692ed6ff06285b38c69fee6f88186e7b3798eea2908"
     },
@@ -63,6 +63,7 @@
       "popup_to_off_list_host": "blocked",
       "context_level_CF_Access_Client_Secret_on_frame_requests": "removed on every frame request",
       "store_redirects_to_unlisted_Access_origin": "run stops before its first page, naming the origin to add",
+      "public_storefront_with_admin_only_unlisted_Access": "shopper window opens; an admin page still stops, naming the origin",
       "known_gap_redirect_inside_cross_site_frame": "reaches the off-list host (README states this)",
       "known_gap_popup_first_redirect": "reaches the off-list host (README states this)"
     }
