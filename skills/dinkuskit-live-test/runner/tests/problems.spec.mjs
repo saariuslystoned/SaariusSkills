@@ -103,10 +103,8 @@ async function cartWayBack(page, shopper) {
 // A shopper's checkout going wrong: Stripe turns down cards that can't pay, the shopper leaves Stripe
 // for the cart and comes back, and pays once with the test card. One checkout and one order per run,
 // which the owner then completes so no open TEST order is left for Buy and ship to trip over.
-test("Problems", { tag: "@next" }, journey(async ({ page }) => {
+test("Problems", { tag: "@running" }, journey(async ({ page }) => {
   expect(config.store, `Set DINKUS_E2E_STORE to the store's address (in ${config.settingsFile})`).not.toBe("");
-  // Every action gets a limit, so a control that never shows fails its step instead of holding the run.
-  page.context().setDefaultTimeout(60_000);
   const soft = { soft: true };
 
   // The orders listed now are what shows that the refused cards made none, so this step stops the journey.
@@ -164,7 +162,7 @@ test("Problems", { tag: "@next" }, journey(async ({ page }) => {
       const { checkout } = await checkoutStatus(page);
       placed = { orderId: checkout?.order?.orderId ?? null, state: checkout?.state ?? "unknown", thankYou: null };
     }
-    if (placed.orderId) note("order", placed.orderId);
+    if (placed.orderId) note("Problems order", placed.orderId);
     if (placed.state !== "paid") throw new Error(`Commerce reports this checkout as "${placed.state}", not paid.`);
     if (!placed.orderId) throw new Error("Commerce's checkout status named no order.");
     return `Commerce recorded the payment for ${placed.orderId}`;
@@ -177,7 +175,7 @@ test("Problems", { tag: "@next" }, journey(async ({ page }) => {
     if (stripeSession(page.url()) !== shopper.session) throw new Error("The way back opened a different Stripe checkout than the one the shopper left; the test paid nothing.");
     await payOnStripe(page, shopper.email);
     placed = await confirmCheckout(page);
-    if (placed.orderId) note("order", placed.orderId);
+    if (placed.orderId) note("Problems order", placed.orderId);
     if (placed.state !== "paid") throw new Error(`Commerce reports this checkout as "${placed.state}", not paid.`);
     if (!placed.orderId) throw new Error("Commerce's checkout status named no order.");
     const how = wayBack ? "the shopper went back through the cart's link and paid" : "with no way back on the cart, the test reopened the checkout's Stripe page and the shopper paid";
@@ -191,7 +189,7 @@ test("Problems", { tag: "@next" }, journey(async ({ page }) => {
   await step(page, "Commerce Orders lists one new order for the checkout, Processing", async () => {
     const found = await numberOf(page, placed.orderId, "Processing");
     number = found;
-    note("order number", `#${found}`);
+    note("Problems order number", `#${found}`);
     const added = (await testOrders(page)).filter(order => order.number > newestBefore).map(order => `#${order.number}`);
     if (added.length !== 1) throw new Error(`Commerce Orders lists ${added.length} TEST orders newer than #${newestBefore} (${added.join(", ")}), not just this checkout's #${found}.`);
     return `#${found} is Processing and the only new TEST order${shopper.paid ? "" : ", so the refused cards made none"}`;

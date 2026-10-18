@@ -7,14 +7,17 @@ journeys plan:
 | Journey | Stage | What it covers |
 | --- | --- | --- |
 | [Buy and ship](tests/buy-and-ship.spec.mjs) | `@running` | A Stripe TEST order on the store, the order in Commerce, a Pitney Bowes sandbox label in Ship, and Commerce marking the order Completed with the same tracking number |
-| [Storefront](tests/storefront.spec.mjs) | `@next` | A new shopper's first look: the homepage, the product list, a product page and its category page |
-| [Cart](tests/cart.spec.mjs) | `@next` | A new shopper adds a product to the cart, changes its quantity and removes it, with the cart total right each time |
+| [Storefront](tests/storefront.spec.mjs) | `@running` | A new shopper's first look: the homepage, the product list, a product page and its category page |
+| [Cart](tests/cart.spec.mjs) | `@running` | A new shopper adds a product to the cart, changes its quantity and removes it, with the cart total right each time |
 | [Manage products](tests/manage-products.spec.mjs) | `@next` | The owner adds a product, gives it a photo that stays after a reload and a published page in a new category that the store links to, changes its price and name, and archives and restores it, with the store following each change |
-| [Mark as completed](tests/mark-completed.spec.mjs) | `@next` | The owner marks a paid TEST order completed in Commerce Orders, typing a carrier and tracking number, and an agent completes another through Commerce's orders API, sending neither; both end Completed |
-| [Problems](tests/problems.spec.mjs) | `@next` | A shopper's checkout going wrong: Stripe turns down a declined card, a card without enough funds and a card that fails the bank's security check, each with a clear message and no order; the shopper leaves Stripe for the cart, finds the way back to the same checkout and pays once with the test card, and the owner completes that one order |
+| [Mark as completed](tests/mark-completed.spec.mjs) | `@running` | The owner marks a paid TEST order completed in Commerce Orders, typing a carrier and tracking number, and an agent completes another through Commerce's orders API, sending neither; both end Completed |
+| [Problems](tests/problems.spec.mjs) | `@running` | A shopper's checkout going wrong: Stripe turns down a declined card, a card without enough funds and a card that fails the bank's security check, each with a clear message and no order; the shopper leaves Stripe for the cart, finds the way back to the same checkout and pays once with the test card, and the owner completes that one order |
 
 `npm test` runs every `@running` journey. A new journey starts as `@next` and
-moves to `@running` once it has passed on the test store.
+moves to `@running` once it has passed on the test store. Manage products stays
+`@next` until the test store runs a Commerce release that can rename and archive
+a product. Until then it runs on its own against the Commerce beta store, with
+that store's settings file in `DINKUS_E2E_ENV_FILE`.
 
 It runs in a visible Chrome window with its own saved profile
 (`~/.dinkus-e2e/profile`), so sign-ins carry over between runs. DinkusKit.com
@@ -57,6 +60,12 @@ headers are scoped again at each destination. The filter never
 adds credentials. Direct link, photo and PDF probes use the same origin policy and check each
 redirect before following it. The agent's separate store API calls retain their
 existing same-store URLs and manual-redirect behavior.
+
+Leave the window alone while it runs: the test drives it, and a click or a tab
+of yours can get in its way. To see the label, look in the proof folder for
+`label.pdf` and its picture; Buy and ship also shows the picture in the window.
+Every click, page load and screenshot has a time limit, so nothing holds a run
+for long: a step whose page stops answering fails within a minute or two.
 
 ## Run
 
@@ -165,7 +174,7 @@ Without a mail command, the test waits for a person to sign in in the window.
 | Ship has the order | Commerce sent the order to Ship |
 | Make the Pitney Bowes sandbox label | Ship quotes sandbox prices and buys a sandbox label |
 | Label is a TEST SANDBOX label with a tracking number | The label is a sandbox label, not a practice one, and carries a tracking number |
-| Label PDF downloads and is a real PDF | Ship serves the provider's PDF |
+| Label PDF downloads and renders | Ship serves the provider's PDF, and its first page draws as a picture of the label, shown in the browser for the step's screenshot and the video |
 | Commerce's 5-minute check collects the label | Commerce's background check collects the label without anyone opening the store admin |
 | Opening Commerce Orders collects the label | Runs only when the check above didn't: an owner opening Commerce Orders collects it |
 | Commerce marks the order Completed with the same tracking | Ship shows Commerce completed the order with the label's tracking number |
@@ -282,9 +291,14 @@ verdict, then `Verdict:` and the path to `PROOF.md`.
 Each run writes `~/.dinkus-e2e/proof/<run>/`: `PROOF.md` and `report.json` (each
 journey's verdict, the result and detail of every step, the order, tracking
 number and PDF hash, and the plugins and versions the store ran, read from its
-admin), a screenshot per step, `label.pdf` and, on macOS, its picture
+admin), a screenshot per step, `label.pdf` and its rendered first-page picture
 `label.pdf.png`. With `DINKUS_E2E_VIDEO=1` it also keeps a `.webm` video of each
 browser window under `video/`. The saved profile's window stays open for the
 whole run, so for one video per journey, run the journeys one at a time
 (`npm run journey -- cart`). The test hides the code it types
 into Cloudflare Access's sign-in, so neither screenshots nor videos show it.
+
+On Linux, label rendering requires Poppler's `pdftoppm`; macOS uses Quick Look.
+A missing renderer, failed render or invalid picture fails the label-PDF step
+rather than silently omitting visual proof. The run records image dimensions
+and SHA-256; inspect the picture to verify the label is legible.

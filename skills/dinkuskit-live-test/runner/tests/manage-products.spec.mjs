@@ -409,8 +409,6 @@ test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
   // Commerce keeps the product open in the saved profile's page; Media and Content work in a second tab.
   const content = await newPage(page.context());
   const shopper = await shopperPage();
-  // Playwright Test lets a click wait forever; a button the store doesn't show fails its step within a minute instead.
-  for (const context of [page.context(), shopper.context()]) context.setDefaultTimeout(60_000);
   // What the store should show, and what this run made, so the last step can take it all off the store.
   const state = { id: "", idShown: false, name: run.product, adminName: run.product, cents: 1200, productPath: "", categoryPath: "", archived: false,
     checkNewProduct: false, cantArchive: false, hasPhoto: false, photoHash: "" };

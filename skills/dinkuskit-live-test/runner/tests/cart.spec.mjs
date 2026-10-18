@@ -112,7 +112,7 @@ async function totalIsRight(page) {
 }
 
 // A shopper's cart: add a product, change its quantity and remove it, with the cart total right each time.
-test("Cart", { tag: "@next" }, journey(async () => {
+test("Cart", { tag: "@running" }, journey(async () => {
   expect(config.store, `Set DINKUS_E2E_STORE to the store's address (in ${config.settingsFile})`).not.toBe("");
   const page = await shopperPage();
   // Once the cart has a product every step is soft, so one finding never hides the next.

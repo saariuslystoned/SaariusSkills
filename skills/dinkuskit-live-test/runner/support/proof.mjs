@@ -68,15 +68,23 @@ export function record(step, status, detail = "") {
   write();
 }
 
-/** Remembers a fact for the report (order number, tracking number, PDF hash...). */
+/**
+ * Remembers a fact for the report (order number, tracking number, PDF hash...). Every journey in a run
+ * shares these keys, so a journey that places its own order names its facts after itself ("Problems
+ * order") rather than taking Buy and ship's "order".
+ */
 export function note(key, value) {
   facts[key] = value;
   write();
 }
 
+/**
+ * Saves the page's screenshot for the step about to be recorded. A picture is never worth holding the
+ * run for: one that hasn't come within 30 s is skipped, and the step's result stands.
+ */
 export async function shot(page, name) {
   const file = join(config.runDir, `${String(steps.length + 1).padStart(2, "0")}-${name}.png`);
-  await page.screenshot({ path: file, fullPage: true }).catch(() => {});
+  await page.screenshot({ path: file, fullPage: true, timeout: 30_000 }).catch(() => {});
   return file;
 }
 

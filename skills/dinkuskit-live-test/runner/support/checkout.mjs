@@ -118,9 +118,8 @@ export async function confirmCheckout(page) {
  * the checkout is still pending, it presses "Check status again" the way a shopper would.
  */
 async function readThankYou(page) {
-  // Every read here is optional. The runner sets no action timeout, so without a short one a page
-  // missing this markup would hold the order step, and the label and Completed checks after it,
-  // until the 30-minute test timeout.
+  // Every read here is optional, so each gets a short limit: a page missing this markup costs a few
+  // seconds per read, not the runner's one-minute action limit.
   const quick = { timeout: 5_000 };
   const root = page.locator("[data-guest-checkout-return]");
   const heading = async () => (await page.locator("main h1").first().innerText(quick).catch(() => "")).trim();
