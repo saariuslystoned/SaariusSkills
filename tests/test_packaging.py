@@ -239,7 +239,8 @@ class PackagingTests(unittest.TestCase):
             self.assertTrue((DINKUSKIT_LIVE_TEST_SKILL / "references" / name).is_file())
         for name in ("package.json", "package-lock.json", "playwright.config.mjs"):
             self.assertTrue((runner / name).is_file(), name)
-        for name in ("buy-and-ship.spec.mjs", "storefront.spec.mjs", "cart.spec.mjs", "manage-products.spec.mjs"):
+        for name in ("buy-and-ship.spec.mjs", "storefront.spec.mjs", "cart.spec.mjs", "manage-products.spec.mjs",
+                     "mark-completed.spec.mjs"):
             self.assertTrue((runner / "tests" / name).is_file(), name)
         self.assertIn("Never pay twice", skill)
         self.assertIn("4242 4242 4242 4242", skill)

@@ -1,6 +1,6 @@
 # Current route and evidence
 
-Execution observations: **2026-10-17**; source-landing update: **2026-10-18 UTC**.
+Execution observations: **2026-10-17**; source/release-readiness update: **2026-10-18 UTC**.
 This is a dated snapshot, not evergreen admission.
 Refresh linked source, PR state, enrolled profile/policy and evidence before
 dispatch. The canonical test owns assertions; x-api owns the runner and its
@@ -8,22 +8,24 @@ activation. PR152 owns this routing skill.
 
 ## Canonical journey source
 
-Use [`dinkuskit-live-test`](https://github.com/saariuslystoned/SaariusSkills/blob/53ac7f49b5d2f403ca7b52c0656080c388cd4720/skills/dinkuskit-live-test/SKILL.md),
-its [runner README](https://github.com/saariuslystoned/SaariusSkills/blob/53ac7f49b5d2f403ca7b52c0656080c388cd4720/skills/dinkuskit-live-test/runner/README.md)
-and [status](https://github.com/saariuslystoned/SaariusSkills/blob/53ac7f49b5d2f403ca7b52c0656080c388cd4720/skills/dinkuskit-live-test/references/status.md).
+Use [`dinkuskit-live-test`](https://github.com/saariuslystoned/SaariusSkills/blob/b80649233bd9ade9a9f5481a5ee5b0c2f13c4fca/skills/dinkuskit-live-test/SKILL.md),
+its [runner README](https://github.com/saariuslystoned/SaariusSkills/blob/b80649233bd9ade9a9f5481a5ee5b0c2f13c4fca/skills/dinkuskit-live-test/runner/README.md)
+and [status](https://github.com/saariuslystoned/SaariusSkills/blob/b80649233bd9ade9a9f5481a5ee5b0c2f13c4fca/skills/dinkuskit-live-test/references/status.md).
 PR135 is historical proposal context, no longer the primary owner.
 
 | Source/case | Observed result and boundary |
 | --- | --- |
 | [PR156](https://github.com/saariuslystoned/SaariusSkills/pull/156), merged `0a078332432c079cf628dbaa2e795648fa84218b` | Journey split, Storefront and Buy and ship. Canonical status records prior unattended live Buy and ship/finish evidence, but the new thank-you confirmation step has not passed. This does not qualify Cloudflare execution or every current assertion. |
 | [PR157](https://github.com/saariuslystoned/SaariusSkills/pull/157), merged `949091838e55b3861968ebf12f403cda48f86b48` | Adds Cart; local proof only, no live Cart pass. Canonical Storefront previously ran live and found page/content failures. |
-| [PR158](https://github.com/saariuslystoned/SaariusSkills/pull/158), merged/current main `53ac7f49b5d2f403ca7b52c0656080c388cd4720`, head `1401ea47421720d7f7cbce0dde52b52497684df9` | Manage products has ten local steps passing with Commerce `0.3.0-beta.2`; it has not run live. The stated minimum is beta.2 or later, not proof of later versions. Current [status](https://github.com/saariuslystoned/SaariusSkills/blob/53ac7f49b5d2f403ca7b52c0656080c388cd4720/skills/dinkuskit-live-test/references/status.md) also records local Cart proof. |
+| [PR158](https://github.com/saariuslystoned/SaariusSkills/pull/158), merged `53ac7f49b5d2f403ca7b52c0656080c388cd4720`, head `1401ea47421720d7f7cbce0dde52b52497684df9` | Manage products has ten local steps passing with Commerce `0.3.0-beta.2`; it has not run live. The stated minimum is beta.2 or later, not proof of later versions. Current [status](https://github.com/saariuslystoned/SaariusSkills/blob/b80649233bd9ade9a9f5481a5ee5b0c2f13c4fca/skills/dinkuskit-live-test/references/status.md) also records local Cart proof. |
+| [PR159](https://github.com/saariuslystoned/SaariusSkills/pull/159), merged/current main `b80649233bd9ade9a9f5481a5ee5b0c2f13c4fca` | Adds Mark as completed: nine local steps passed using TEST orders; it has not run live. This does not qualify that journey on Cloudflare. |
 
 The broader seven-journey plan is not seven implemented/passing journeys.
-Preserve the selected spec's original assertions/hashes. PR723's reviewed
-Storefront port remains pinned to canonical `949091838e55b3861968ebf12f403cda48f86b48`;
-current main includes later Storefront changes. Updating the canonical skill or
-merging PR158 does not silently upgrade that prepared payload or its proof.
+Preserve the selected spec's original assertions/hashes. PR723's original
+Storefront package used canonical `949091838e55b3861968ebf12f403cda48f86b48`.
+PR725 explicitly refreshes the inactive caller to current canonical `b806492`,
+including `support/storefront-page.mjs`; source refresh is not runtime promotion.
+Do not silently mix assertions, helper closures or proof from different pins.
 
 ## Runner evidence, separate from hosted acceptance
 
@@ -99,7 +101,7 @@ from reviewed head `519afb5c60cc47b0c9cc7bc9db6d17ba1fa10e01` against
 records 15 focused tests and five fresh Linux cases after the hardlink repair:
 seven unchanged canonical Storefront steps pass on the healthy fixture; missing
 photo, developer notice, external redirect and Access cases fail as expected.
-Canonical spec SHA-256:
+At that historical pin, spec SHA-256 was
 `0d3ad71eb67739e96be0504215849c0df8aa4265dacd4dfc161f47bb53a683af`;
 lock SHA-256:
 `51a538a6154719d5bebb4393b607303a175be28d18518b605e3dfaa47637f397`.
@@ -132,15 +134,46 @@ identity were not verified. Keep these fields distinct; do not infer the pin
 was the deployed trigger or compiled source. Evidence:
 `runs/e2e-blackbox-runs/20261017-approved-landing/beta-deployment-observation.json`.
 
-The next source-only assignment implements one fixed public-beta Storefront
-operation from fresh x-api main `f720f1903f2f5542be5fff59944365d0b4a32da2`
-on `codex/issue715-storefront-live-caller-20261017`, reusing the existing
-consumer, Crabbox lifecycle and exporter. Only source, local proof and review
-are assigned; no completed or admitted hosted capability is claimed. Bind account/Worker/version/origin and canonical
-source/browser/payload; internal `site_id` is optional because the Storefront
-journey does not read it. Preserve configured-pin versus deployment-trigger
-provenance and report unknowns. No generic executor, new credential consumer,
-fixture allowance transfer or hosted run follows from this plan.
+[PR724](https://github.com/saari-co/x-api/pull/724) merged as
+`47c4937adef3016d52580e40cc4ad3680b0f0da8`: the fixed public-beta Storefront
+caller now exists as **inactive source**, reusing the existing consumer,
+Crabbox lifecycle and exporter. [PR725](https://github.com/saari-co/x-api/pull/725)
+merged as `3e7ea069c7bba1c02021ccf87a923c5d22b480dd`, reviewed head
+`6f64659d083c9343fcb8556efb65b2d58e5ba8a7`. It pins canonical
+`b80649233bd9ade9a9f5481a5ee5b0c2f13c4fca` plus `support/storefront-page.mjs`;
+Storefront spec SHA-256 is
+`6a3b94b58bee7f4016c3d5f1943ad6844d7a0acfda5d503155ab3e668be10306`.
+Five Linux cases, current-head CI and comprehensive P3 passed. Native review
+found no code defect; its request for current review/CI receipts was
+[satisfied by the parent](https://github.com/saari-co/x-api/pull/725#issuecomment-6244366717),
+not waived or relabeled as a raw native-ready verdict. Neither merge promotes
+the runtime or proves hosted Storefront execution.
+
+Bind account/Worker/version/origin and canonical source/browser/payload before
+any separately admitted run; internal `site_id` is optional because Storefront
+does not read it. Preserve configured-pin versus deployment-trigger provenance
+and report unknowns. No generic executor, new credential consumer, fixture
+allowance transfer or hosted run follows from this source qualification.
+
+### Dated publication and installed-state gap
+
+At the **2026-10-18 01:30–01:31 UTC** observation, the complete two-page
+authoritative publisher PDS listing and authenticated shared-store Plugins UI
+showed:
+
+| Package | Publisher listing | Installed on `e2e-beta-20261014.sm0ky.dev` |
+| --- | --- | --- |
+| Commerce beta | `0.3.0-beta.2` | `0.3.0-beta.0`, enabled |
+| Payments beta | No published release in that complete listing | Not installed |
+| Payments stable | `0.2.8` | `0.2.8`, enabled |
+
+This blocks the requested latest-beta-pair batch. Do not substitute stable
+Payments or infer installation from published source. Refresh the publisher
+listing and installed versions before selecting a future batch; these values
+are evidence, not permanent version rules. Proof: x-api
+`runs/e2e-blackbox-runs/20261017-first-live-preparation/{PROOF.md,FIRST-RUN-PACKET.md,publisher-pds-releases.json,installed-versions.json,artifact-verification.json}`.
+The first-run packet is prepared but unadmitted. Hosted Storefront has **not
+run** and no runtime promotion, store upgrade or new reservation is claimed.
 
 No silent target switch. The prepared mail adapter fails closed. Public beta
 may avoid mail only after all required routes are proved public; v2 cannot

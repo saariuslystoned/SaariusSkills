@@ -47,19 +47,20 @@ and identify each reviewed transport override; do not rewrite the journeys here
 or relax failing assertions. Preserve fresh shopper, returning merchant and
 new-installation distinctions, and each journey's hard/soft step behavior.
 
-The x-api Storefront package in [PR723](https://github.com/saari-co/x-api/pull/723)
-is an **offline-only preparation surface**. Its exact-source
-[operator contract](https://github.com/saari-co/x-api/blob/519afb5c60cc47b0c9cc7bc9db6d17ba1fa10e01/docs/operations/storefront-port.md)
+The x-api Storefront package introduced in [PR723](https://github.com/saari-co/x-api/pull/723)
+remains an **offline-only preparation surface**. Its refreshed exact-source
+[operator contract](https://github.com/saari-co/x-api/blob/6f64659d083c9343fcb8556efb65b2d58e5ba8a7/docs/operations/storefront-port.md)
 owns plan/prepare/verify/offline-proof commands. It preserves Storefront's
 spec/assertions, overlays env/browser/mail transports, runs one spec with
 workers=1/retries=0 and disables auth-bearing traces. It does not launch hosted
 Storefront and is not installed as an active CP-1 capability.
 
 PR723 merged this inactive helper under the owned Smoky CLI; SaariusSkills
-owns canonical assertions and upstream Crabbox owns lifecycle. The next
-source/local-proof/review assignment adds one fixed public-beta operation
-through the existing consumer/lifecycle/exporter. It does not authorize
-activation, a live lease, or a hosted run.
+owns canonical assertions and upstream Crabbox owns lifecycle. PR724 adds the
+separate fixed public-beta caller; PR725 refreshes its canonical pin/helper
+closure. Both are source qualifications, not activation, a live lease or a
+hosted run. Select their reviewed exact source only through the existing
+consumer/lifecycle/exporter and separate admission.
 
 Before hosted activation, its owner must bind source/lock/archive/browser hashes,
 account/Worker/version/origin, explicit target, route/asset allowlists, inbox
@@ -81,6 +82,25 @@ readiness, approved sandbox recipient and automatic email effects before the
 dependent operation. Follow canonical existing-order/finish behavior after
 payment; join checkout, order, label, PDF, tracking and completion for that same
 identity. A fixture, quote or practice label cannot replace a provider result.
+
+## Shared-store batch discipline
+
+- Run the same canonical tests locally, then in Cloudflare. Keep the selected
+  assertions and helper closure unchanged across both; a local pass is not a
+  Cloudflare pass.
+- Use the shared authenticated beta store one run at a time. Freeze the latest
+  published beta pair and its verified installed identities for the whole batch.
+  If a required beta is unpublished or the installed pair differs, report that
+  readiness gap before execution rather than substitute a stable release.
+- Reuse persistent authentication and connections through their owned consumers;
+  do not recreate accounts/connections or export credentials for each run.
+- Isolate each run's data and leave existing records untouched. Save proof before
+  cleaning only that run's passing data within its authorized scope. Retain
+  failing data until the fix is verified. Read-only Storefront creates no
+  business records to clean up.
+- Count failed reviews across the assigned task. After the **second failed
+  review total**, stop and return the concrete issue plus a recommendation.
+  This is not permission for two additional repair cycles.
 
 ## Historical public probe
 
