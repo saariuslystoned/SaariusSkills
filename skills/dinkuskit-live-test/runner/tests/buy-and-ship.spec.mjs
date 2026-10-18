@@ -1,5 +1,5 @@
+import { renderLabelPdf } from "../support/label-pdf.mjs";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test, expect } from "../support/browser.mjs";
@@ -170,7 +170,7 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
       return label.tracking;
     });
 
-    await step(page, "Label PDF downloads and is a real PDF", async () => {
+    await step(page, "Label PDF downloads and renders", async () => {
       if (!label.pdf) throw new Error("No 'Open PDF to print' link.");
       const response = await page.context().request.get(new URL(label.pdf, config.ship).href);
       expect(response.status()).toBe(200);
@@ -181,8 +181,8 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
       writeFileSync(file, body);
       const sha = createHash("sha256").update(body).digest("hex");
       note("label pdf", `${body.length} bytes, sha256 ${sha}`);
-      // macOS Quick Look renders a picture of the label for the report; skipped quietly elsewhere.
-      try { execFileSync("qlmanage", ["-t", "-s", "1400", "-o", config.runDir, file], { stdio: "ignore", timeout: 30_000 }); note("label picture", "label.pdf.png"); } catch {}
+      const picture = renderLabelPdf(file);
+      note("label picture", `label.pdf.png, ${picture.width}×${picture.height}, sha256 ${picture.sha256}`);
       return `${body.length} bytes, sha256 ${sha.slice(0, 16)}…`;
     });
   }

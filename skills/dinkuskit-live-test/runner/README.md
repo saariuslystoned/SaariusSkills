@@ -248,9 +248,14 @@ verdict, then `Verdict:` and the path to `PROOF.md`.
 Each run writes `~/.dinkus-e2e/proof/<run>/`: `PROOF.md` and `report.json` (each
 journey's verdict, the result and detail of every step, the order, tracking
 number and PDF hash, and the plugins and versions the store ran, read from its
-admin), a screenshot per step, `label.pdf` and, on macOS, its picture
+admin), a screenshot per step, `label.pdf` and its rendered first-page picture
 `label.pdf.png`. With `DINKUS_E2E_VIDEO=1` it also keeps a `.webm` video of each
 browser window under `video/`. The saved profile's window stays open for the
 whole run, so for one video per journey, run the journeys one at a time
 (`npm run journey -- cart`). The test hides the code it types
 into Cloudflare Access's sign-in, so neither screenshots nor videos show it.
+
+On Linux, label rendering requires Poppler's `pdftoppm`; macOS uses Quick Look.
+A missing renderer, failed render or invalid picture fails the label-PDF step
+rather than silently omitting visual proof. The run records image dimensions
+and SHA-256; inspect the picture to verify the label is legible.

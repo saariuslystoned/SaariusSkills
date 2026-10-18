@@ -1,0 +1,27 @@
+{
+  "claim": "Linux first-page PDF rendering only; synthetic sandbox label, no order or postage",
+  "source_file_sha256": "7794a461e78277eb8db8a441641c550fb379fcf14537f8a42f5cbdbc8682fbde",
+  "assets": {
+    "label-pdf.mjs": {
+      "sha256": "7794a461e78277eb8db8a441641c550fb379fcf14537f8a42f5cbdbc8682fbde",
+      "bytes": 1692
+    },
+    "sandbox-label.pdf": {
+      "sha256": "8c8d9bbac5c245cffbccb3602fe3417aa38a99151698d6602c6c56e6d82c0fcb",
+      "bytes": 2032
+    },
+    "sandbox-label.pdf.png": {
+      "sha256": "939dd913f6544cba436351305ebbbb92398350e7679fed0c5462642ed9d027ff",
+      "bytes": 68614
+    }
+  },
+  "redaction": "Synthetic names/address/tracking only; no credentials, accounts or customer data",
+  "visual_inspection": "Legible sandbox warning, address block and bars; no clipping",
+  "linux_render": {
+    "platform": "linux",
+    "image": "./sandbox-label.pdf.png",
+    "width": 934,
+    "height": 1400,
+    "sha256": "939dd913f6544cba436351305ebbbb92398350e7679fed0c5462642ed9d027ff"
+  }
+}
