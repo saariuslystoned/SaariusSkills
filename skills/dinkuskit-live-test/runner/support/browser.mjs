@@ -1,11 +1,15 @@
+import { join } from "node:path";
 import { test as base, chromium } from "@playwright/test";
 import { config } from "./env.mjs";
 
+const SIZE = { width: 1280, height: 900 };
 const launch = () => ({
   channel: config.channel === "chromium" ? undefined : config.channel,
   executablePath: process.env.DINKUS_E2E_CHROME_PATH || undefined,
   headless: config.headless,
 });
+// With DINKUS_E2E_VIDEO=1 every browser window is recorded into the run's proof folder.
+const video = () => config.video ? { recordVideo: { dir: join(config.runDir, "video"), size: SIZE } } : {};
 
 /**
  * One saved browser profile for every run, so sign-ins to DinkusKit.com, Ship
@@ -15,7 +19,8 @@ export const test = base.extend({
   persistent: [async ({}, use) => {
     const context = await chromium.launchPersistentContext(config.profileDir, {
       ...launch(),
-      viewport: { width: 1280, height: 900 },
+      ...video(),
+      viewport: SIZE,
       acceptDownloads: true,
     });
     await use(context);
@@ -33,7 +38,7 @@ export const test = base.extend({
  */
 export async function shopperPage() {
   const browser = await chromium.launch(launch());
-  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const context = await browser.newContext({ viewport: SIZE, ...video() });
   return context.newPage();
 }
 

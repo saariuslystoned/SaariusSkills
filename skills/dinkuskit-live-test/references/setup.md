@@ -8,7 +8,9 @@ in `~/.dinkus-e2e/`.
 - Google Chrome. The test drives the installed Chrome, so Playwright downloads no
   browser. To use another Chromium, set `DINKUS_E2E_CHANNEL=chromium` and
   `DINKUS_E2E_CHROME_PATH`.
-- Node 22 and npm. Run `npm ci` in the runner folder.
+- Node 22 and npm. Run `npm ci` in the runner folder. For videos of a run
+  (`DINKUS_E2E_VIDEO=1`), also run `npx playwright install ffmpeg` there once:
+  Playwright records with its own copy of ffmpeg.
 - A desktop session, because the test opens a visible window.
   `DINKUS_E2E_HEADLESS=1` hides it, but then nobody can step in if a sign-in ever
   needs a person.

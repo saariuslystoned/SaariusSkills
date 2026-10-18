@@ -114,6 +114,7 @@ the environment, which wins.
 | `DINKUS_E2E_PROOF` | `~/.dinkus-e2e/proof` | Where each run's proof folder goes |
 | `DINKUS_E2E_PROFILE` | `~/.dinkus-e2e/profile` | The saved Chrome profile |
 | `DINKUS_E2E_HEADLESS` | off | `1` hides the window |
+| `DINKUS_E2E_VIDEO` | off | `1` records every browser window the run opens, as a video in its proof folder |
 
 Without a mail command, the test waits for a person to sign in in the window.
 
@@ -246,4 +247,8 @@ Each run writes `~/.dinkus-e2e/proof/<run>/`: `PROOF.md` and `report.json` (each
 journey's verdict, the result and detail of every step, the order, tracking
 number and PDF hash, and the plugins and versions the store ran, read from its
 admin), a screenshot per step, `label.pdf` and, on macOS, its picture
-`label.pdf.png`.
+`label.pdf.png`. With `DINKUS_E2E_VIDEO=1` it also keeps a `.webm` video of each
+browser window under `video/`. The saved profile's window stays open for the
+whole run, so for one video per journey, run the journeys one at a time
+(`npm run journey -- cart`). The test hides the code it types
+into Cloudflare Access's sign-in, so neither screenshots nor videos show it.
