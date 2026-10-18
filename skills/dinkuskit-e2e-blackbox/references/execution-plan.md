@@ -52,14 +52,15 @@ remains an **offline-only preparation surface**. Its refreshed exact-source
 [operator contract](https://github.com/saari-co/x-api/blob/6f64659d083c9343fcb8556efb65b2d58e5ba8a7/docs/operations/storefront-port.md)
 owns plan/prepare/verify/offline-proof commands. It preserves Storefront's
 spec/assertions, overlays env/browser/mail transports, runs one spec with
-workers=1/retries=0 and disables auth-bearing traces. It does not launch hosted
-Storefront and is not installed as an active CP-1 capability.
+workers=1/retries=0 and disables auth-bearing traces. It does not itself launch hosted
+Storefront; the fixed caller has a separate activation and admission boundary.
 
 PR723 merged this inactive helper under the owned Smoky CLI; SaariusSkills
 owns canonical assertions and upstream Crabbox owns lifecycle. PR724 adds the
 separate fixed public-beta caller; PR725 refreshes its canonical pin/helper
-closure. Both are source qualifications, not activation, a live lease or a
-hosted run. Select their reviewed exact source only through the existing
+closure. Source qualification alone is not activation or a passing hosted run. The
+first admitted caller execution and genuine product FAIL are dated in current
+status. Select a reviewed exact source only through the existing
 consumer/lifecycle/exporter and separate admission.
 
 Before hosted activation, its owner must bind source/lock/archive/browser hashes,
@@ -82,6 +83,26 @@ readiness, approved sandbox recipient and automatic email effects before the
 dependent operation. Follow canonical existing-order/finish behavior after
 payment; join checkout, order, label, PDF, tracking and completion for that same
 identity. A fixture, quote or practice label cannot replace a provider result.
+
+## Failure and remaining-slot handling
+
+Report a genuine hosted product FAIL separately from a failed runner, the
+synthetic fixture result and a canonical SKIP. Preserve the original failure
+report, source/pair/target binding and terminal lease evidence while the owner
+repairs the identified product or deployment boundary. A repaired image or
+saved draft is not proof that the full journey passes.
+
+When dashboard trigger metadata and behavior disagree, inspect the effective
+build pin and deployed version through the existing owner before proposing
+another product-code fix. A build attempt, local build or trigger label cannot
+prove a successful deployment or page publication.
+
+If a deployment changes the target version, do not reuse the old remaining-slot
+admission or mint a fresh unlinked request to bypass it. Preserve the original
+policy, ledger row, failed receipt, terminal lease and absolute batch allowance.
+Any explicitly approved transfer must bind the old and new target generations
+through reviewed source and current activation; a pending PR is insufficient.
+Use the existing consumer/lifecycle/exporter, not a new runner or ledger reset.
 
 ## Shared-store batch discipline
 

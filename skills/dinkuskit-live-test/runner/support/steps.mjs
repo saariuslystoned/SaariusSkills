@@ -7,7 +7,8 @@ const recorded = new WeakSet();
 
 /**
  * Runs one step, recording PASS or FAIL with the reason and a screenshot. A `soft` step's
- * failure is recorded and the run goes on; it returns undefined.
+ * failure is recorded and the run goes on; it returns undefined. `soft` can instead be a test of
+ * the error, so the step stops the journey only on the errors that test refuses.
  */
 export async function step(page, name, body, { soft = false } = {}) {
   return test.step(name, async () => {
@@ -19,7 +20,7 @@ export async function step(page, name, body, { soft = false } = {}) {
     } catch (error) {
       await shot(page, `fail-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`);
       record(name, "FAIL", error.message.split("\n")[0]);
-      if (soft) return;
+      if (typeof soft === "function" ? soft(error) : soft) return;
       if (Object(error) === error) recorded.add(error);
       throw error;
     }
