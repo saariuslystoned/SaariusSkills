@@ -76,7 +76,8 @@ function accessListed() {
       const response = await fetch(new URL(path, config.store), { redirect: "manual" }).catch(() => null);
       const location = response?.headers.get("location");
       const access = location ? new URL(location, config.store) : null;
-      if (access?.hostname.endsWith(".cloudflareaccess.com") && !config.accessOrigins.includes(access.origin)) {
+      const listed = config.accessOrigins.map(value => { try { return new URL(value).origin; } catch { return value; } });
+      if (access?.hostname.endsWith(".cloudflareaccess.com") && !listed.includes(access.origin)) {
         throw new Error(`${config.store} sends visitors to Cloudflare Access at ${access.origin}, which the request filter blocks. Add DINKUS_E2E_ACCESS_ORIGINS=${access.origin} to ${config.settingsFile}.`);
       }
     }

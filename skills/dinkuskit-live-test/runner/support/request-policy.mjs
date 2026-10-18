@@ -60,7 +60,9 @@ async function install(page, policy, settings) {
 function filterFrame(frame, policy) {
   if (!frames.has(frame)) frames.set(frame, frame.page().context().newCDPSession(frame)
     .then(session => intercept(session, frame.page().context(), policy))
-    .catch(() => {})); // A same-site frame has no session of its own and is already covered.
+    // A same-site frame has no session of its own and is already covered. Forget it, so the
+    // frame's next request tries again in case it has since moved to a renderer of its own.
+    .catch(() => { frames.delete(frame); }));
   return frames.get(frame);
 }
 
