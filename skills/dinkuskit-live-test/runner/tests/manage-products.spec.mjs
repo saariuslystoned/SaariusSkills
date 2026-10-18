@@ -132,10 +132,22 @@ async function uploadPhoto(page, fileName, label) {
 }
 
 /**
- * Why the open Commerce product page doesn't show the product's image, or "" when it does. Once a
- * product has one, Commerce shows it under Images with Change image beside it.
+ * The Media library file an image shows, from the end of its address. The store's resized copies
+ * (`/_image?href=...`) name the file in `href`.
  */
-async function adminPhotoProblem(page) {
+function fileOf(src) {
+  if (!src) return "";
+  const url = new URL(src, config.store);
+  const original = url.pathname === "/_image" ? url.searchParams.get("href") : null;
+  return decodeURIComponent(new URL(original ?? url.href, config.store).pathname.split("/").pop());
+}
+
+/**
+ * Why the open Commerce product page doesn't show the photo in Media library file `file` as the
+ * product's image, or "" when it does. Once a product has an image, Commerce shows it under Images
+ * with Change image beside it.
+ */
+async function adminPhotoProblem(page, file) {
   const images = page.getByRole("heading", { name: "Images", level: 2 });
   if (!await images.waitFor({ timeout: 30_000 }).then(() => true, () => false)) return "the product's Commerce page has no Images section";
   // Commerce says so in the image's place when the product has none, or when the Media library has lost it.
@@ -145,7 +157,9 @@ async function adminPhotoProblem(page) {
   const img = images.locator("xpath=following::img[1]");
   if (!await img.count()) return "the product's Commerce page shows no image under Images";
   const loaded = await expect.poll(() => img.evaluate(el => el.complete && el.naturalWidth > 0), { timeout: 15_000 }).toBe(true).then(() => true, () => false);
-  return loaded ? "" : "the image on the product's Commerce page didn't load";
+  if (!loaded) return "the image on the product's Commerce page didn't load";
+  const shown = fileOf(await img.getAttribute("src"));
+  return shown === file ? "" : `the product's Commerce page shows another image (${shown || "no file"}) instead of the chosen photo (${file})`;
 }
 
 /** An EmDash editor's field by its label; an editor without it fails with that plain reason. */
@@ -253,20 +267,30 @@ async function unreadableShop(shopper) {
 }
 const categoryCards = page => page.locator("main").locator("[data-commerce-product], [data-merch-item]");
 
+/**
+ * What's wrong with the photo a product card or page shows, given what `photo` made of it: it must be
+ * the photo the owner chose, Media library file `file`.
+ */
+async function photoProblems(media, where, image, file) {
+  if (image !== "photo") return [`${where} ${photoProblem[image]}`];
+  const shown = fileOf(await media.locator("img[data-commerce-image]").first().getAttribute("src"));
+  return shown === file ? [] : [`${where} shows another photo (${shown || "no file"}) instead of the chosen one (${file})`];
+}
+
 /** What's wrong with how one product card shows this run's product. */
-async function cardProblems(card, where, { name, cents, hasPhoto, path }) {
+async function cardProblems(card, where, { name, cents, hasPhoto, photoFile, path }) {
   if (!card) return [`${where} doesn't list it`];
-  const shown = await readCard(card);
+  const shown = await readCard(card, { withPhoto: hasPhoto });
   const problems = [];
   if (shown.name !== name) problems.push(`${where} names it "${shown.name || "nothing"}" instead of "${name}"`);
   if (money(shown.price) !== cents) problems.push(`${where} shows ${shown.price ? `"${shown.price}"` : "no price"} instead of ${dollars(cents)}`);
-  if (hasPhoto && shown.image !== "photo") problems.push(`${where} ${photoProblem[shown.image]}`);
+  if (hasPhoto) problems.push(...await photoProblems(card, where, shown.image, photoFile));
   if (path && shown.href !== path) problems.push(`${where} links to ${shown.href ?? "no product page"} instead of ${path}`);
   return problems;
 }
 
 /** What's wrong with how the product page shows this run's product. */
-async function productPageProblems(shopper, response, { name, cents, hasPhoto, categoryPath }) {
+async function productPageProblems(shopper, response, { name, cents, hasPhoto, photoFile, categoryPath }) {
   if (response.status() !== 200) return [`the product page answered HTTP ${response.status()}`];
   const product = shopper.locator("[data-product-page]");
   if (!await product.count()) return ["the product page shows no product"];
@@ -275,8 +299,10 @@ async function productPageProblems(shopper, response, { name, cents, hasPhoto, c
   if (heading !== name) problems.push(`the product page's heading says "${heading || "nothing"}" instead of "${name}"`);
   const price = await text(product.locator("[data-product-price]"));
   if (money(price) !== cents) problems.push(`the product page shows ${price ? `"${price}"` : "no price"} instead of ${dollars(cents)}`);
-  const image = hasPhoto ? await photo(product.locator(".product-detail__visual")) : "photo";
-  if (image !== "photo") problems.push(`the product page ${photoProblem[image]}`);
+  if (hasPhoto) {
+    const visual = product.locator(".product-detail__visual");
+    problems.push(...await photoProblems(visual, "the product page", await photo(visual), photoFile));
+  }
   // Ready means wired to the cart and pressable; the journey never presses it.
   const add = shopper.locator('[data-add-to-cart][data-guest-cart-ready="1"]').first();
   if (!await add.waitFor({ timeout: 15_000 }).then(() => true, () => false)) problems.push("the product page has no working Add to cart button");
@@ -316,7 +342,7 @@ const places = state => ["the Shop list", ...state.productPath ? [state.productP
  * category page once published), with the longest the store took to catch up.
  */
 async function storeShows(shopper, state) {
-  const { id, name, cents, hasPhoto, productPath, categoryPath } = state;
+  const { id, name, cents, hasPhoto, photoFile, productPath, categoryPath } = state;
   const checks = [await catchUp(shopper, "/", async response => {
     if (response.status() !== 200) return [`the homepage answered HTTP ${response.status()}`];
     const card = await findCard(shopCards(shopper), { id, name });
@@ -324,12 +350,12 @@ async function storeShows(shopper, state) {
     if (unreadable) return [unreadable];
     // A product shown without its own ID still tells the journey which ID the Shop list gave it.
     if (card && !state.id) state.id = await card.getAttribute("data-commerce-product") ?? "";
-    return cardProblems(card, "the Shop list", { name, cents, hasPhoto, path: productPath });
+    return cardProblems(card, "the Shop list", { name, cents, hasPhoto, photoFile, path: productPath });
   })];
   if (productPath) {
     checks.push(await catchUp(shopper, productPath, response => productPageProblems(shopper, response, state)));
     checks.push(await catchUp(shopper, categoryPath, async response => response.status() !== 200 ? [`${categoryPath} answered HTTP ${response.status()}`]
-      : cardProblems(await findCard(categoryCards(shopper), { id, path: productPath }), `the category page ${categoryPath}`, { name, cents, hasPhoto, path: productPath })));
+      : cardProblems(await findCard(categoryCards(shopper), { id, path: productPath }), `the category page ${categoryPath}`, { name, cents, hasPhoto, photoFile, path: productPath })));
   }
   return { problems: checks.flatMap(check => check.problems), seconds: Math.max(...checks.map(check => check.seconds)) };
 }
@@ -383,7 +409,7 @@ test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
   for (const context of [page.context(), shopper.context()]) context.setDefaultTimeout(60_000);
   // What the store should show, and what this run made, so the last step can take it all off the store.
   const state = { id: "", idShown: false, name: run.product, adminName: run.product, cents: 1200, productPath: "", categoryPath: "", archived: false,
-    checkNewProduct: false, cantArchive: false, hasPhoto: false };
+    checkNewProduct: false, cantArchive: false, hasPhoto: false, photoFile: "" };
   // `product` is "asked" from the moment Add product is pressed, and true once Commerce confirms it; the
   // page and category keep their store addresses from just before each is saved and their editor's once
   // it opens. `lost` names an entry saved without the test learning where its editor is.
@@ -445,9 +471,14 @@ test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
       await uploadPhoto(content, run.photo, run.product);
       await onProduct(page, state.adminName);
       await page.getByRole("button", { name: "Choose image", exact: true }).click();
-      await page.getByRole("button", { name: `Use ${run.photo}`, exact: true }).click({ timeout: 30_000 });
+      const use = page.getByRole("button", { name: `Use ${run.photo}`, exact: true });
+      await use.waitFor({ timeout: 30_000 });
+      // The library shows each photo just above its Use button, so that picture's address names the file chosen.
+      const file = fileOf(await use.locator("xpath=preceding::img[1]").getAttribute("src", quick).catch(() => null));
+      if (!file) throw new Error(`Commerce's image picker shows no picture above "Use ${run.photo}".`);
+      await use.click();
       await confirmed(page, "Image saved");
-      state.hasPhoto = true;
+      Object.assign(state, { hasPhoto: true, photoFile: file });
       return `uploaded ${run.photo} to the Media library and chose it on the product's Commerce page, which said "Image saved"`;
     }, soft);
 
@@ -456,9 +487,9 @@ test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
     else await step(page, keptStep, async () => {
       // Opening Commerce Products afresh, as a reload does, draws the product's page from what Commerce stored.
       await openProduct(page, state.adminName);
-      const problem = await adminPhotoProblem(page);
+      const problem = await adminPhotoProblem(page, state.photoFile);
       if (problem) throw new Error(`After a reload, ${problem}.`);
-      return "after a reload, the product's Commerce page shows the photo under Images, loaded, with Change image beside it";
+      return `after a reload, the product's Commerce page shows the chosen photo (${state.photoFile}) under Images, loaded, with Change image beside it`;
     }, soft);
 
     const shopRight = await step(shopper, "The Shop list shows the new product with its name, price and photo", async () => {
