@@ -174,4 +174,9 @@ test("pages, files the store wants rechecked and other sites still reach the net
   const script = settings.store + "/_astro/kept.synthetic.js";
   await loaded(script, immutable);
   assert.deepEqual(await answer(script, "POST"), { fallback: true });
+  for (const value of ["no-store, immutable", "public, max-age=31536000, immutable, no-cache", "immutable, no-cache=\"set-cookie\""]) {
+    const unstored = settings.store + `/_astro/${encodeURIComponent(value)}.synthetic.js`;
+    await loaded(unstored, { "cache-control": value });
+    assert.deepEqual(await answer(unstored), { fallback: true }, value);
+  }
 });

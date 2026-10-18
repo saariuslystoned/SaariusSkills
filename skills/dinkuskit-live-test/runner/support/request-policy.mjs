@@ -96,7 +96,8 @@ function guardContext(context, policy, settings) {
  * Playwright turns Chromium's HTTP cache off while any route is set, so the run would fetch every
  * store script on every page view, far more often than a shopper's browser, and cross the store's
  * per-visitor request limit. A store file sent as immutable (its hashed /_astro/ build files) is
- * answered from the run's own copy after its first load, as a browser's cache would answer it.
+ * answered from this context's own copy after its first load, as the browser's cache would answer
+ * it. Copies stay with their context, so a new shopper's browser starts empty, as a new shopper's does.
  */
 function immutableCopies(context, policy) {
   const copies = new Map();
@@ -105,7 +106,9 @@ function immutableCopies(context, policy) {
       const url = response.url();
       if (copies.has(url) || !policy.isStore(url) || response.status() !== 200 || response.request().method() !== "GET") return;
       const headers = response.headers();
-      if (!/(?:^|,)\s*immutable\s*(?:,|$)/i.test(headers["cache-control"] ?? "")) return;
+      const directives = (headers["cache-control"] ?? "").toLowerCase().split(",").map(part => part.split("=")[0].trim());
+      // immutable never overrides a store's no-store or no-cache.
+      if (!directives.includes("immutable") || directives.includes("no-store") || directives.includes("no-cache")) return;
       // The kept body is already decoded, and Playwright sets its length.
       const kept = Object.fromEntries(Object.entries(headers).filter(([name]) =>
         !["content-encoding", "content-length", "transfer-encoding", "set-cookie"].includes(name)));
