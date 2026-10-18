@@ -22,8 +22,10 @@ signs in with an emailed link, and the Cloudflare Access app in front of the
 store admin (or of the whole test store) signs in with an emailed one-time PIN.
 The test reads both emails itself through the mail command, so nobody has to
 step in. It takes only Access emails that name the store's address, so it never
-types a code another store sent to the same inbox. If the Access app offers
-only Google, set `DINKUS_E2E_ADMIN_SIGNIN=wait` and sign in once in the window.
+types a code another store sent to the same inbox. The Access app must offer
+One-time PIN: the request filter below blocks other sign-in providers such as
+Google, so a Google-only Access app can't be signed in to from a run, not even by
+hand with `DINKUS_E2E_ADMIN_SIGNIN=wait`.
 
 ## Requests stay within the selected sites
 

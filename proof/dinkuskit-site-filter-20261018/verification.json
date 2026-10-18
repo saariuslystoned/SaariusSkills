@@ -43,5 +43,28 @@
     ]
   },
   "full_python_suite": "PASS locally; raw log in run root",
-  "live_requests": 0
+  "live_requests": 0,
+  "source_revision": "9417689 (first revision); the hashes above and browser_proof cover that revision only",
+  "review_follow_up": {
+    "scope": "Copilot and journeys review fixes after 9417689; loopback only, synthetic header, no live store",
+    "changed_source_sha256": {
+      "skills/dinkuskit-live-test/runner/support/request-policy.mjs": "cf88a1069fd020f87df2f8f1c64b7e0d40ab7a4d7b83bb9f7af52bf2baf53437",
+      "skills/dinkuskit-live-test/runner/support/browser.mjs": "0de7d9b5c6c246e561ef2471e7bd0558af75b1607936f49b03541da607390107",
+      "skills/dinkuskit-live-test/runner/support/store-admin.mjs": "f4fe7b505ad80fddef9e3801e6f63d6c61d5be5a3215199b7a3bee441415c3c8",
+      "skills/dinkuskit-live-test/runner/unit/request-policy.test.mjs": "33a1f050e183e1877bc9feb381e1b26fdfe7af8383e91cc0d0de0747e3a3e0ac"
+    },
+    "unit": "node --test unit/*.test.mjs: 30 pass, 0 fail",
+    "browser": "Playwright 1.61.1, Chromium, loopback servers with a TLS host mapped to js.stripe.com as an allowed cross-site frame",
+    "checks": {
+      "main_page_redirect_to_off_list_host": "blocked, 0 off-list requests",
+      "cross_site_frame_fetch_and_image_to_off_list_host": "blocked",
+      "dedicated_worker_fetch_to_off_list_host": "blocked",
+      "websocket_to_off_list_host": "closed before handshake",
+      "popup_to_off_list_host": "blocked",
+      "context_level_CF_Access_Client_Secret_on_frame_requests": "removed on every frame request",
+      "store_redirects_to_unlisted_Access_origin": "run stops before its first page, naming the origin to add",
+      "known_gap_redirect_inside_cross_site_frame": "reaches the off-list host (README states this)",
+      "known_gap_popup_first_redirect": "reaches the off-list host (README states this)"
+    }
+  }
 }

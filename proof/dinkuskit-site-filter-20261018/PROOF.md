@@ -37,3 +37,19 @@ no assertion relaxed, and no store/credential/provider setting was changed.
 Raw local run: runs/site-filter-runs/20261018/. Unit and browser result hashes
 are recorded in verification.json. Normal repository CI/review gates remain;
 human merge approval is required.
+
+## Review follow-up
+
+The hashes and browser proof above cover the first revision (9417689) only.
+Review then changed the filter: popups, cross-site frames, workers and
+WebSockets are checked at the context, store headers are removed from every
+non-store request, the run stops early when the store sends visitors to an
+Access origin `DINKUS_E2E_ACCESS_ORIGINS` doesn't list, and a Google-only Access
+app is documented as unsupported. `review_follow_up` in verification.json
+records the changed files' hashes and what was re-run on them: 30 unit tests,
+and loopback Chromium checks that an off-list host gets nothing from a main-page
+redirect, a cross-site frame's fetch or image, a worker, a WebSocket or a popup,
+and that a context-level `CF-Access-Client-Secret` never reaches a frame's host.
+Two gaps remain and are in the README: a redirect inside a cross-site frame and
+a popup's first redirect still reach an off-list host. No live store was used.
+
