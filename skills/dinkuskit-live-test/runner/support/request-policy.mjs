@@ -1,5 +1,5 @@
 /** The selected store and the services its canonical journeys use, never sibling stores. */
-const PRIVATE_HEADERS = /^(authorization|proxy-authorization|cookie|cf-access-client-id|cf-access-client-secret|x-api-key|x-emdash-key)$/i;
+const PRIVATE_HEADERS = /^(authorization|proxy-authorization|cookie|cf-access-client-id|cf-access-client-secret|x-api-key|x-emdash-key|x-commerce-guest-capability)$/i;
 const loopback = hostname => ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
 
 function siteOrigin(value) {
