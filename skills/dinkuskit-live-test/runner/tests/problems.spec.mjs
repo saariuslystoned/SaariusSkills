@@ -105,8 +105,6 @@ async function cartWayBack(page, shopper) {
 // which the owner then completes so no open TEST order is left for Buy and ship to trip over.
 test("Problems", { tag: "@running" }, journey(async ({ page }) => {
   expect(config.store, `Set DINKUS_E2E_STORE to the store's address (in ${config.settingsFile})`).not.toBe("");
-  // Every action gets a limit, so a control that never shows fails its step instead of holding the run.
-  page.context().setDefaultTimeout(60_000);
   const soft = { soft: true };
 
   // The orders listed now are what shows that the refused cards made none, so this step stops the journey.

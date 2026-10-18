@@ -153,8 +153,6 @@ async function deleteAgentKey(page, agent) {
 // orders API, sending neither. Both end Completed.
 test("Mark as completed", { tag: "@running" }, journey(async ({ page }) => {
   expect(config.store, `Set DINKUS_E2E_STORE to the store's address (in ${config.settingsFile})`).not.toBe("");
-  // Every action gets a limit, so a control that never shows fails its step instead of holding the run.
-  page.context().setDefaultTimeout(60_000);
   const stamp = new Date().toISOString().replace(/^\d{4}-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d).*$/, "$1$2-$3$4$5");
   // Unique to the second and plainly the live test's, so one run's tracking number never passes for another's.
   const typed = { carrier: "USPS", tracking: `LIVE-TEST-${stamp}` };

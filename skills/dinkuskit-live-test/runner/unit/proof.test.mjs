@@ -66,3 +66,10 @@ test("a run that stops before a journey starts fails that journey", (t) => {
   stopped.onEnd({ status: "interrupted" });
   assert.equal(proof.journeyVerdict("Cart"), "FAIL");
 });
+
+test("a step's screenshot waits at most 30 s, and one that fails leaves the step to record its result", async () => {
+  const limits = [];
+  const page = { async screenshot({ timeout }) { limits.push(timeout); throw new Error(`Timeout ${timeout}ms exceeded`); } };
+  assert.match(await proof.shot(page, "label"), /-label\.png$/);
+  assert.deepEqual(limits, [30_000]);
+});

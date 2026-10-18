@@ -28,6 +28,12 @@ step in. It takes only Access emails that name the store's address, so it never
 types a code another store sent to the same inbox. If the Access app offers
 only Google, set `DINKUS_E2E_ADMIN_SIGNIN=wait` and sign in once in the window.
 
+Leave the window alone while it runs: the test drives it, and a click or a tab
+of yours can get in its way. To see the label, look in the proof folder for
+`label.pdf` and its picture; Buy and ship also shows the picture in the window.
+Every click, page load and screenshot has a time limit, so nothing holds a run
+for long: a step whose page stops answering fails within a minute or two.
+
 ## Run
 
 ```sh
