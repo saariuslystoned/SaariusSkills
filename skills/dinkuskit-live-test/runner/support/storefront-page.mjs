@@ -34,12 +34,15 @@ export const photoProblem = {
   hidden: "has a photo shoppers can't see (the page hides it)",
 };
 
-/** One product card's name, price, photo and the product page it links to, as a shopper sees them. */
-export async function readCard(card) {
+/**
+ * One product card's name, price, photo and the product page it links to, as a shopper sees them.
+ * `withPhoto: false` leaves the photo unread, sparing the wait on one that doesn't load.
+ */
+export async function readCard(card, { withPhoto = true } = {}) {
   return {
     name: await text(card.locator("h2, h3, h4")),
     price: await text(card.locator(".price, [data-product-price]")),
-    image: await photo(card),
+    image: withPhoto ? await photo(card) : undefined,
     href: await card.getAttribute("href") ?? await firstHref(card.locator('a[href^="/products/"]')),
   };
 }

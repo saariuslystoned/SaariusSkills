@@ -1,11 +1,15 @@
+import { join } from "node:path";
 import { test as base, chromium } from "@playwright/test";
 import { config } from "./env.mjs";
 
+const SIZE = { width: 1280, height: 900 };
 const launch = () => ({
   channel: config.channel === "chromium" ? undefined : config.channel,
   executablePath: process.env.DINKUS_E2E_CHROME_PATH || undefined,
   headless: config.headless,
 });
+// With DINKUS_E2E_VIDEO=1 every browser window is recorded into the run's proof folder.
+const video = () => config.video ? { recordVideo: { dir: join(config.runDir, "video"), size: SIZE } } : {};
 
 /**
  * One saved browser profile for every run, so sign-ins to DinkusKit.com, Ship
@@ -15,7 +19,8 @@ export const test = base.extend({
   persistent: [async ({}, use) => {
     const context = await chromium.launchPersistentContext(config.profileDir, {
       ...launch(),
-      viewport: { width: 1280, height: 900 },
+      ...video(),
+      viewport: SIZE,
       acceptDownloads: true,
     });
     await use(context);
@@ -29,12 +34,23 @@ export const test = base.extend({
 
 /**
  * A page in a separate browser with no sign-ins, cookies or saved cart, so a journey sees the
- * store exactly as a new shopper does. Close it with `page.context().browser().close()`.
+ * store exactly as a new shopper does. Close it with `closeShopper`.
  */
 export async function shopperPage() {
   const browser = await chromium.launch(launch());
-  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const context = await browser.newContext({ viewport: SIZE, ...video() });
   return context.newPage();
+}
+
+/**
+ * Closes a page from `shopperPage` and its browser. The context closes first, since only that waits
+ * for the window's video to be saved; a browser closed straight away leaves it empty for a while.
+ */
+export async function closeShopper(page) {
+  const context = page.context();
+  const browser = context.browser();
+  await context.close();
+  await browser?.close();
 }
 
 export { expect } from "@playwright/test";

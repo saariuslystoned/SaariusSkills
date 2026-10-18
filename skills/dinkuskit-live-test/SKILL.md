@@ -13,9 +13,10 @@ Storefront, a new shopper's homepage, product list, product page and category
 page show no developer notices and every product's name, price and photo. In
 Cart, a new shopper adds a product, changes its quantity and removes it, and the
 cart's count and total follow each change. In Manage products, the owner adds a
-product with a photo, gives it a page in a new category, changes its price and
-name, and archives and restores it, and the Shop list, product page and category
-page follow each change. In Mark as completed, the owner marks a paid TEST order
+product, gives it a photo that is still its image after a reload and a published
+page in a new category that the store links to, changes its price and name, and
+archives and restores it, and the Shop list, product page and category page
+follow each change. In Mark as completed, the owner marks a paid TEST order
 completed in Commerce Orders with a carrier and tracking number, and an agent
 marks another completed through Commerce's orders API with neither, using an
 admin key the test makes for an hour and deletes at the end. In Problems, Stripe
@@ -58,6 +59,10 @@ authorization the test needs.
    - `npm run finish` finishes a Buy and ship order that already exists. Set
      `DINKUS_E2E_ORDER=1001` to pick one, or leave it unset to pick the only TEST
      order still waiting for a label.
+   - When the owner wants to watch a run, set `DINKUS_E2E_VIDEO=1`. Every browser
+     window the run opens is recorded into the proof folder's `video/`, with the
+     Cloudflare Access code hidden as it's typed. Run the journeys one at a time
+     for a video of each.
 
    Buy and ship takes about 15 minutes, because it gives Commerce's 5-minute
    background check up to 7 minutes to collect the label on its own. Storefront
@@ -70,8 +75,8 @@ authorization the test needs.
    label PDF) when Buy and ship ran.
 5. Hand back the verdict first, with each journey's verdict. Then give one line per
    step with its result and detail, the order number, the tracking number and the
-   proof folder, and show the label picture. On FAIL, lead with the failing steps
-   and their reasons.
+   proof folder, and show the label picture. When the run was recorded, say where
+   each video is. On FAIL, lead with the failing steps and their reasons.
 
 ## For a new plugin release
 

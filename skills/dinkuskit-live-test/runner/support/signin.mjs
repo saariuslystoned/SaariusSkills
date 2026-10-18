@@ -102,6 +102,8 @@ async function signInToAccessByCode(page) {
   const field = page.locator('input[name="code"], input[autocomplete="one-time-code"], input[inputmode="numeric"]')
     .or(page.getByLabel(/code|pin/i)).first();
   await field.waitFor({ timeout: 30_000 });
+  // Hide what gets typed, so screenshots and recordings never show the code.
+  await page.addStyleTag({ content: "input { -webkit-text-security: disc !important; color: transparent !important; caret-color: transparent !important; }" });
   await field.fill(code);
   await page.getByRole("button", { name: /sign in|submit|verify|log in|continue/i }).first().click();
   return true;

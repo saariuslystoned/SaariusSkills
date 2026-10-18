@@ -66,6 +66,7 @@ export const config = {
   accessMailQuery: read("DINKUS_E2E_ACCESS_MAIL_QUERY", "from:(notify.cloudflare.com OR cloudflareaccess.com) newer_than:1h"),
   completeWaitMs: Number(read("DINKUS_E2E_COMPLETE_WAIT_SECONDS", "420")) * 1000,
   headless: read("DINKUS_E2E_HEADLESS") === "1",
+  video: read("DINKUS_E2E_VIDEO") === "1",
   channel: read("DINKUS_E2E_CHANNEL", "chrome"),
   profileDir: resolve(read("DINKUS_E2E_PROFILE", join(home, "profile"))),
   runDir: resolve(read("DINKUS_E2E_PROOF", join(home, "proof")), runId),
