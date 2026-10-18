@@ -131,22 +131,24 @@ async function contextRoute() {
   const context = { newCDPSession: async () => ({ on: () => {}, send: async () => {} }), cookies: async () => [],
     route: async (_, fn) => { handler = fn; }, routeWebSocket: async () => {}, on: (event, fn) => { if (event === "response") listener = fn; } };
   await filterPage({ context: () => context, on: () => {} }, settings);
+  let lastRequest;
   const answer = async (url, method = "GET", requestHeaders = {}) => {
     const outcome = {};
+    lastRequest = { url: () => url, method: () => method, frame: () => null, headers: () => ({}),
+      headerValue: async name => requestHeaders[name] ?? null };
     await handler({
-      request: () => ({ url: () => url, method: () => method, frame: () => null, headers: () => ({}),
-        headerValue: async name => requestHeaders[name] ?? null }),
+      request: () => lastRequest,
       fulfill: async value => { outcome.fulfilled = value; },
       fallback: async value => { outcome.fallback = value ?? true; },
       abort: async reason => { outcome.aborted = reason; },
     });
     return outcome;
   };
-  const loaded = (url, headers, { status = 200, body = Buffer.from("synthetic"), requestHeaders = {} } = {}) => listener({
+  const loaded = (url, headers, { status = 200, body = Buffer.from("synthetic"), requestHeaders = {}, request } = {}) => listener({
     url: () => url, status: () => status, headers: () => headers, body: async () => body,
-    request: () => ({ method: () => "GET", headerValue: async name => requestHeaders[name] ?? null }),
+    request: () => request ?? { method: () => "GET", headerValue: async name => requestHeaders[name] ?? null },
   });
-  return { answer, loaded };
+  return { answer, loaded, lastRequest: () => lastRequest };
 }
 
 const immutable = { "cache-control": "public, max-age=31536000, immutable" };
@@ -176,7 +178,8 @@ test("pages, files the store wants rechecked and other sites still reach the net
   const script = settings.store + "/_astro/kept.synthetic.js";
   await loaded(script, immutable);
   assert.deepEqual(await answer(script, "POST"), { fallback: true });
-  for (const value of ["no-store, immutable", "public, max-age=31536000, immutable, no-cache", "immutable, no-cache=\"set-cookie\""]) {
+  for (const value of ["max-age=31536000, no-store, immutable", "public, max-age=31536000, immutable, no-cache",
+    "max-age=31536000, immutable, no-cache=\"set-cookie\""]) {
     const unstored = settings.store + `/_astro/${encodeURIComponent(value)}.synthetic.js`;
     await loaded(unstored, { "cache-control": value });
     assert.deepEqual(await answer(unstored), { fallback: true }, value);
@@ -212,6 +215,9 @@ test("a kept copy that varies answers only requests asking for the same version"
   assert.equal((await answer(script, "GET", { accept: "text/javascript", "accept-encoding": "gzip" })).fulfilled.status, 200);
   assert.deepEqual(await answer(script, "GET", { accept: "*/*", "accept-encoding": "br" }), { fallback: true });
   assert.equal((await answer(script, "GET", { accept: "text/javascript" })).fulfilled.status, 200);
+  // The other version's answer from the store takes the copy's place.
+  await loaded(script, { ...immutable, vary: "Accept" }, { body: Buffer.from("any"), requestHeaders: { accept: "*/*" } });
+  assert.equal((await answer(script, "GET", { accept: "*/*" })).fulfilled.body.toString(), "any");
   const any = settings.store + "/_astro/any.synthetic.js";
   await loaded(any, { ...immutable, vary: "*" });
   assert.deepEqual(await answer(any), { fallback: true });
@@ -230,4 +236,28 @@ test("a request the page sends with no-cache asks the store again, and its answe
   }
   await loaded(script, immutable, { requestHeaders: { "cache-control": "no-store" } });
   assert.deepEqual(await answer(script), { fallback: true });
+});
+
+test("a replayed answer never makes its copy last longer", async () => {
+  const { answer, loaded, lastRequest } = await contextRoute();
+  const script = settings.store + "/_astro/replayed.synthetic.js";
+  await loaded(script, { "cache-control": "max-age=60, immutable" });
+  const now = Date.now;
+  try {
+    Date.now = () => now() + 31_000;
+    assert.equal((await answer(script)).fulfilled.status, 200);
+    await loaded(script, { "cache-control": "max-age=60, immutable" }, { request: lastRequest() });
+    Date.now = () => now() + 61_000;
+    assert.deepEqual(await answer(script), { fallback: true });
+  } finally {
+    Date.now = now;
+  }
+});
+
+test("quoted Cache-Control numbers count", async () => {
+  const { answer, loaded } = await contextRoute();
+  const script = settings.store + "/_astro/quoted.synthetic.js";
+  await loaded(script, { "cache-control": 'public, max-age="31536000", immutable' });
+  assert.equal((await answer(script)).fulfilled.status, 200);
+  assert.deepEqual(await answer(script, "GET", { "cache-control": 'max-age="0"' }), { fallback: true });
 });

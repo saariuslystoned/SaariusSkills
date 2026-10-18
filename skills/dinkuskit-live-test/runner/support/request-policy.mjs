@@ -102,10 +102,13 @@ function guardContext(context, policy, settings) {
  */
 function immutableCopies(context, policy) {
   const copies = new Map();
+  const replayed = new WeakSet();
   context.on("response", async response => {
     try {
       const url = response.url();
-      if (copies.has(url) || !policy.isStore(url) || response.status() !== 200 || response.request().method() !== "GET") return;
+      // A store answer that came from the network replaces the copy for its URL; a replay never does,
+      // so it can't stretch the copy's lifetime.
+      if (replayed.has(response.request()) || !policy.isStore(url) || response.status() !== 200 || response.request().method() !== "GET") return;
       const headers = response.headers();
       const sent = cacheDirectives(headers["cache-control"]);
       // immutable never overrides a store's no-store or no-cache, and holds only while the file is fresh.
@@ -132,6 +135,7 @@ function immutableCopies(context, policy) {
       const copy = copies.get(request.url());
       if (!copy || copy.until <= Date.now() || await asksAgain(request)) return void copies.delete(request.url());
       for (const [name, value] of copy.chosenBy) if (await request.headerValue(name) !== value) return;
+      replayed.add(request);
       return copy.answer;
     },
   };
@@ -140,7 +144,7 @@ function immutableCopies(context, policy) {
 function cacheDirectives(value) {
   return new Map((value ?? "").toLowerCase().split(",").map(part => {
     const [name, directive = ""] = part.split("=");
-    return [name.trim(), directive.trim()];
+    return [name.trim(), directive.trim().replace(/^"(.*)"$/, "$1")];
   }));
 }
 
@@ -151,7 +155,7 @@ function cacheDirectives(value) {
  */
 async function asksAgain(request) {
   const asked = cacheDirectives(await request.headerValue("cache-control"));
-  return asked.has("no-cache") || asked.has("no-store") || asked.get("max-age") === "0"
+  return asked.has("no-cache") || asked.has("no-store") || (asked.has("max-age") && Number(asked.get("max-age")) === 0)
     || cacheDirectives(await request.headerValue("pragma")).has("no-cache");
 }
 
