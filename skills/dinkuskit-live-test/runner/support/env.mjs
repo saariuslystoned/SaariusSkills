@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { accessQuery } from "./mail-patterns.mjs";
 import { parseSettings } from "./settings-file.mjs";
 
 const home = join(homedir(), ".dinkus-e2e");
@@ -63,7 +64,7 @@ export const config = {
   // Naming the test inbox in DINKUS_E2E_MAIL_ACCOUNT picks the bundled read-only gogcli script.
   mailCmd: read("DINKUS_E2E_MAIL_CMD", mailAccount ? shellQuote(gogMail) : ""),
   // The Gmail search for Cloudflare Access's one-time PIN email, when the store admin's Access app offers PIN login.
-  accessMailQuery: read("DINKUS_E2E_ACCESS_MAIL_QUERY", "from:(notify.cloudflare.com OR cloudflareaccess.com) newer_than:1h"),
+  accessMailQuery: read("DINKUS_E2E_ACCESS_MAIL_QUERY", accessQuery(store)),
   completeWaitMs: Number(read("DINKUS_E2E_COMPLETE_WAIT_SECONDS", "420")) * 1000,
   headless: read("DINKUS_E2E_HEADLESS") === "1",
   video: read("DINKUS_E2E_VIDEO") === "1",
