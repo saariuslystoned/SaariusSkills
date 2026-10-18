@@ -181,31 +181,45 @@ reported cumulative reservation was $7.317104 against $25; actual billing is
 unknown. Request02 is held; no second live lease has run. This is not unused
 allowance that may be reset or moved to a new generation automatically.
 
-The approved parcel photo now loads publicly, but its one saved product-page
-draft remains unpublished. The build dashboard displayed trigger `8aa5ce3…`
-while the actual build command checked out `0b39b431…`. The old pinned source
-reads only the flat product-ID field and rejects the observed nested draft;
-merged Template Store PR95 already supplies the matching fix in `8aa5ce3…`.
-A displayed trigger is not proof of effective built source. The owner-approved
-pin-correction build failed before deployment after 38s; the old pin was
-restored, automatic builds remain disabled, and old active version
-`068de13d-c257-4c92-8d0b-82a8c9ebeaee` remains at100% traffic. No corrected
-deployment or successful page publication is claimed; diagnosis remains with
-the runtime owner.
+After the first run, the approved parcel photo was added, but the saved page
+remained unpublished. The build dashboard displayed trigger `8aa5ce3…` while
+the actual build command checked out `0b39b431…`; the old flat-ID reader rejected
+the observed nested draft. Merged Template Store PR95 already supplied the fix
+in `8aa5ce3…`. The first approved correction build failed before deployment
+after 38s; its rollback and the original Storefront failure remain preserved.
 
-[PR728](https://github.com/saari-co/x-api/pull/728) is OPEN (observed candidate
-`7e5e808ec8b7acc4d9a9221a1d67e14b21ff1b26`). It prepares strict image/beacon
-handling and the linked remaining-slot continuation, now extended for explicit
-new-generation transfer. Native input qualification is on hold and new
-current-head reviews are required. Candidate source/local proof is not merged,
-activated or authority for request02. Do not infer an earlier transport denial
-was the beacon: the first run did not retain that blocked URL.
+The later matched correction **succeeded**, as verified by the parent's
+2026-10-18 03:52 UTC record: build
+`2ae6e77b-1721-4d01-9fd0-1396d8b7573a`, active version
+`6777343c-03ba-4504-a8fc-cae0c686b398` at 100% traffic, automatic builds disabled.
+Both the build pin and named nonsecret `DINKUS_EXPECTED_COMMIT` matched
+`8aa5ce3d96f5979cd49241470fe7984beef6b958`. Successful provenance enforcement
+supports that checkout; live compiled hook bytes were not downloaded or
+compared. The frozen beta pair and existing connections were unchanged.
+
+Only saved parcel page `01M56GSK05R6K6XD5ZHP8RYQPV` was published. The parent's
+authorized-browser inspection showed the correct product association, loaded
+600×600 parcel image, $12 price and In stock. Twelve evidence files have recorded
+hashes. Checkout-unavailable text remained visible; no cart or purchase action
+was performed. This page observation is not a second E2E run, an anonymous
+access proof, or a full Storefront PASS.
+
+[PR728](https://github.com/saari-co/x-api/pull/728) remains unmerged at
+`7e5e808ec8b7acc4d9a9221a1d67e14b21ff1b26`. Its CI and comprehensive P3 are
+clean, but native processing was blocked twice before review and the owner
+stopped. The new-generation transfer is not merged or activated. Request02
+has **not run**; the new deployed version cannot borrow the old target binding.
+Do not infer an earlier transport denial was the beacon: the first run did
+not retain that blocked URL.
 
 Authoritative safe evidence: x-api
 `runs/e2e-blackbox-runs/20261017-payments-release-watch/{STATE.md,last-observed.json,PROOF.md,parent-installed-pair-verification.json,parent-live-run01-verification.json,BUILD-PIN-FINDING.md}`;
 source candidate: `proof/storefront-final-slot-20261017/` in the assigned PR728
-worktree. The deployment failure/rollback is the subsequent parent runtime
-handoff. These are dated observations; do not promote pending work to success.
+worktree. Correction proof: runtime-owner
+`runs/e2e-blackbox-runs/20261017-runner-auth-caller/storefront-beta-two-runs-20261017/MATCHED-CORRECTION-RESULT.md`
+and parent `parent-parcel-publication-proof.json` in the payments-release-watch
+root. These are dated observations; the original failure is preserved and
+remaining E2E qualification is not inferred from the correction.
 
 No silent target switch. The prepared mail adapter fails closed. Public beta
 may avoid mail only after all required routes are proved public; v2 cannot
