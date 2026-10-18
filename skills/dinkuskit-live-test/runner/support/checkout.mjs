@@ -168,7 +168,7 @@ export async function payOnStripe(page, email) {
   const back = url => url.origin === config.store;
   await page.waitForURL(back, { timeout: 120_000 }).catch(async () => {
     const problem = await texts(page, '[role="alert"], .FieldError');
-    if (await captchaShown(page)) throw new Error("Stripe showed a captcha challenge; stopped without answering it.");
+    if (await captchaShown(page)) throw new CaptchaShown();
     if (config.headless) throw new Error(`Stripe did not send the shopper back to the store: ${problem}`);
     console.log("\n>>> Finish paying on the Stripe page in this test's browser window (card 4242 4242 4242 4242, 12/34, CVC 123).\n");
     await page.waitForURL(back, { timeout: HUMAN_WAIT_MS });
@@ -221,7 +221,7 @@ export async function stripeRefusal(page, says) {
   const deadline = Date.now() + 60_000;
   for (;;) {
     if (new URL(page.url()).origin === config.store) return { paid: true };
-    if (await captchaShown(page)) throw new Error("Stripe showed a captcha challenge; stopped without answering it.");
+    if (await captchaShown(page)) throw new CaptchaShown();
     const shown = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
     const message = shown.split("\n").map(line => line.trim()).find(line => says.test(line));
     if (message) return { message };
@@ -239,6 +239,7 @@ export async function failBankCheck(page) {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     if (new URL(page.url()).origin === config.store) return;
+    if (await captchaShown(page)) throw new CaptchaShown();
     for (const frame of page.frames()) {
       for (const fail of [frame.locator("#test-source-fail-3ds"), frame.getByRole("button", { name: /^Fail( authentication)?$/i })]) {
         if (await fail.first().isVisible().catch(() => false)) return fail.first().click();
@@ -263,6 +264,14 @@ export async function leaveStripe(page) {
 
 // A visible captcha is for a person to answer, never the test.
 const captchaShown = page => page.locator('iframe[title*="hCaptcha challenge"]').isVisible().catch(() => false);
+
+/** Stripe showed a captcha. Nobody answers it for the test, so a journey that meets one stops unpaid. */
+export class CaptchaShown extends Error {
+  constructor() {
+    super("Stripe showed a captcha challenge; stopped without answering it.");
+    this.name = "CaptchaShown";
+  }
+}
 
 /** Commerce's status for the checkout this browser saved, read from a store page opened beside the shopper's. */
 export async function checkoutStatus(page) {

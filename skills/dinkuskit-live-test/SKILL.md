@@ -149,7 +149,8 @@ authorization the test needs.
   order that shows the wrong status, carrier or tracking number with what it
   showed.
 - Problems stops when the owner can't open Commerce Orders, when Stripe
-  Checkout won't open, or when the payment fails. Its other steps are soft:
+  Checkout won't open, when Stripe shows a captcha, or when the payment fails.
+  Its other steps are soft:
   report each card Stripe didn't turn down with a clear message, with what the
   shopper saw. If Stripe took a payment from a card it should have refused, say
   so first: the test paid nothing more and completed that order instead. A

@@ -1,6 +1,7 @@
 import { test, expect } from "../support/browser.mjs";
 import {
-  checkoutStatus, confirmCheckout, failBankCheck, leaveStripe, openCheckout, payOnStripe, resumeCheckout, stripeRefusal, submitCard,
+  CaptchaShown, checkoutStatus, confirmCheckout, failBankCheck, leaveStripe, openCheckout, payOnStripe, resumeCheckout, stripeRefusal,
+  submitCard,
 } from "../support/checkout.mjs";
 import { stripeSession, thankYouShown } from "../support/checkout-text.mjs";
 import { config } from "../support/env.mjs";
@@ -104,13 +105,15 @@ test("Problems", { tag: "@next" }, journey(async ({ page }) => {
     return opened.resumed ? "the shopper went back to the Stripe Checkout an earlier run left open" : "Stripe Checkout opened for one product";
   });
 
-  // Each refused card is soft, so one run reports every message.
+  // Each refused card is soft, so one run reports every message. A captcha is the exception: nobody
+  // answers it for the test, so it stops the journey before another card or the payment.
+  const unlessCaptcha = { soft: error => !(error instanceof CaptchaShown) };
   for (const refused of REFUSED_CARDS) {
     if (shopper.paid) {
       record(refused.name, "SKIP", ALREADY_PAID);
       continue;
     }
-    const passed = await step(page, refused.name, () => refuse(page, shopper, refused), soft);
+    const passed = await step(page, refused.name, () => refuse(page, shopper, refused), unlessCaptcha);
     // A bank check left open would cover the page, and Stripe draws a fresh form on a reload.
     if (!passed && !shopper.paid && stripeSession(page.url())) await page.reload();
   }
@@ -135,8 +138,9 @@ test("Problems", { tag: "@next" }, journey(async ({ page }) => {
       const { checkout } = await checkoutStatus(page);
       placed = { orderId: checkout?.order?.orderId ?? null, state: checkout?.state ?? "unknown", thankYou: null };
     }
-    if (!placed.orderId) throw new Error(`Commerce's checkout status names no order (it reports "${placed.state}").`);
-    note("order", placed.orderId);
+    if (placed.orderId) note("order", placed.orderId);
+    if (placed.state !== "paid") throw new Error(`Commerce reports this checkout as "${placed.state}", not paid.`);
+    if (!placed.orderId) throw new Error("Commerce's checkout status named no order.");
     return `Commerce recorded the payment for ${placed.orderId}`;
   });
   else await step(page, "The shopper goes back to Stripe and pays once with the 4242 test card", async () => {

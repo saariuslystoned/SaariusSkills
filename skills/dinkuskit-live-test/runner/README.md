@@ -204,7 +204,8 @@ the key was made, the last step deletes it.
 
 The steps that open Commerce Orders, open the checkout and pay stop the journey
 when they fail, since nothing after them can run; every other step is soft, so
-one run reports every card's message.
+one run reports every card's message. A captcha on Stripe stops the journey at
+once, unpaid, since nobody answers it for the test.
 
 | Step | What it proves |
 | --- | --- |
