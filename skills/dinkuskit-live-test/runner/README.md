@@ -16,7 +16,8 @@ journeys plan:
 `npm test` runs every `@running` journey. A new journey starts as `@next` and
 moves to `@running` once it has passed on the test store. Manage products stays
 `@next` until the test store runs a Commerce release that can rename and archive
-a product; until then it runs on the Commerce beta store, on its own.
+a product. Until then it runs on its own against the Commerce beta store, with
+that store's settings file in `DINKUS_E2E_ENV_FILE`.
 
 It runs in a visible Chrome window with its own saved profile
 (`~/.dinkus-e2e/profile`), so sign-ins carry over between runs. DinkusKit.com

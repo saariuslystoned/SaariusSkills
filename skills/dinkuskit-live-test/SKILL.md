@@ -86,7 +86,11 @@ authorization the test needs.
    and their versions under "plugins". If it shows the old version, update the
    plugin from the store admin's Plugins page, then run the test again.
 2. Run every `@running` journey with `npm test`. For a Commerce release, also run
-   `npm run journey -- manage-products` while Manage products is still `@next`.
+   Manage products while it is still `@next`, on the store that runs the release,
+   with that store's settings file:
+   `DINKUS_E2E_ENV_FILE=<that store's settings file> npm run journey -- manage-products`.
+   On a store whose Commerce can't rename and archive a product, it stops at its
+   first step.
 3. Hand back the verdict with the plugin versions it covered, so the owner knows
    which release passed.
 

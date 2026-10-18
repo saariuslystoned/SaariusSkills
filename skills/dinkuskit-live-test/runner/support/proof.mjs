@@ -68,7 +68,11 @@ export function record(step, status, detail = "") {
   write();
 }
 
-/** Remembers a fact for the report (order number, tracking number, PDF hash...). */
+/**
+ * Remembers a fact for the report (order number, tracking number, PDF hash...). Every journey in a run
+ * shares these keys, so a journey that places its own order names its facts after itself ("Problems
+ * order") rather than taking Buy and ship's "order".
+ */
 export function note(key, value) {
   facts[key] = value;
   write();
