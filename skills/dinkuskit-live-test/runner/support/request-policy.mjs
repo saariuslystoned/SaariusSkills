@@ -76,7 +76,7 @@ function guardContext(context, policy, settings) {
         return route.abort("blockedbyclient").catch(() => {});
       }
       if (policy.isStore(request.url())) {
-        const copy = request.method() === "GET" ? copies.fresh(request.url()) : undefined;
+        const copy = request.method() === "GET" ? await copies.answer(request) : undefined;
         return copy ? route.fulfill(copy) : route.fallback();
       }
       // This first request left before its interceptor attached, so strip store headers here too.
@@ -114,19 +114,24 @@ function immutableCopies(context, policy) {
       // immutable never overrides a store's no-store or no-cache, and holds only while the file is fresh.
       const fresh = Number(directives.get("max-age")) - (Number(headers.age) || 0);
       if (!directives.has("immutable") || directives.has("no-store") || directives.has("no-cache") || !(fresh > 0)) return;
-      // The kept body is already decoded, and Playwright sets its length.
+      // A file that varies answers only requests sending the same values for the headers it names. The
+      // kept body is already decoded, so Accept-Encoding never matters, and Playwright sets its length.
+      const vary = (headers.vary ?? "").toLowerCase().split(",").map(name => name.trim()).filter(name => name && name !== "accept-encoding");
+      if (vary.includes("*")) return;
+      const chosenBy = await Promise.all(vary.map(async name => [name, await response.request().headerValue(name)]));
       const kept = Object.fromEntries(Object.entries(headers).filter(([name]) =>
         !["content-encoding", "content-length", "transfer-encoding", "set-cookie"].includes(name)));
       const until = Date.now() + fresh * 1000;
-      copies.set(url, { until, answer: { status: 200, headers: kept, body: await response.body() } });
+      copies.set(url, { until, chosenBy, answer: { status: 200, headers: kept, body: await response.body() } });
     } catch {} // The page closed before the body arrived, say; the next load fetches the file again.
   });
   return {
-    /** The copy to answer with, or nothing once it has gone stale; the next load is kept instead. */
-    fresh(url) {
-      const copy = copies.get(url);
-      if (copy && copy.until > Date.now()) return copy.answer;
-      copies.delete(url);
+    /** The copy to answer this request with, if any; a stale copy is dropped so the next load is kept. */
+    async answer(request) {
+      const copy = copies.get(request.url());
+      if (!copy || copy.until <= Date.now()) return void copies.delete(request.url());
+      for (const [name, value] of copy.chosenBy) if (await request.headerValue(name) !== value) return;
+      return copy.answer;
     },
   };
 }

@@ -131,18 +131,20 @@ async function contextRoute() {
   const context = { newCDPSession: async () => ({ on: () => {}, send: async () => {} }), cookies: async () => [],
     route: async (_, fn) => { handler = fn; }, routeWebSocket: async () => {}, on: (event, fn) => { if (event === "response") listener = fn; } };
   await filterPage({ context: () => context, on: () => {} }, settings);
-  const answer = async (url, method = "GET") => {
+  const answer = async (url, method = "GET", requestHeaders = {}) => {
     const outcome = {};
     await handler({
-      request: () => ({ url: () => url, method: () => method, frame: () => null, headers: () => ({}) }),
+      request: () => ({ url: () => url, method: () => method, frame: () => null, headers: () => ({}),
+        headerValue: async name => requestHeaders[name] ?? null }),
       fulfill: async value => { outcome.fulfilled = value; },
       fallback: async value => { outcome.fallback = value ?? true; },
       abort: async reason => { outcome.aborted = reason; },
     });
     return outcome;
   };
-  const loaded = (url, headers, { status = 200, body = Buffer.from("synthetic") } = {}) => listener({
-    url: () => url, status: () => status, request: () => ({ method: () => "GET" }), headers: () => headers, body: async () => body,
+  const loaded = (url, headers, { status = 200, body = Buffer.from("synthetic"), requestHeaders = {} } = {}) => listener({
+    url: () => url, status: () => status, headers: () => headers, body: async () => body,
+    request: () => ({ method: () => "GET", headerValue: async name => requestHeaders[name] ?? null }),
   });
   return { answer, loaded };
 }
@@ -201,4 +203,16 @@ test("a kept copy lasts only while the store says the file is fresh", async () =
   } finally {
     Date.now = now;
   }
+});
+
+test("a kept copy that varies answers only requests asking for the same version", async () => {
+  const { answer, loaded } = await contextRoute();
+  const script = settings.store + "/_astro/varies.synthetic.js";
+  await loaded(script, { ...immutable, vary: "Accept-Encoding, Accept" }, { requestHeaders: { accept: "text/javascript", "accept-encoding": "br" } });
+  assert.equal((await answer(script, "GET", { accept: "text/javascript", "accept-encoding": "gzip" })).fulfilled.status, 200);
+  assert.deepEqual(await answer(script, "GET", { accept: "*/*", "accept-encoding": "br" }), { fallback: true });
+  assert.equal((await answer(script, "GET", { accept: "text/javascript" })).fulfilled.status, 200);
+  const any = settings.store + "/_astro/any.synthetic.js";
+  await loaded(any, { ...immutable, vary: "*" });
+  assert.deepEqual(await answer(any), { fallback: true });
 });
