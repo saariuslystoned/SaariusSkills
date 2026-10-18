@@ -1,6 +1,6 @@
 import { renderLabelPdf } from "../support/label-pdf.mjs";
 import { createHash } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test, expect } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
@@ -183,7 +183,13 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
       note("label pdf", `${body.length} bytes, sha256 ${sha}`);
       const picture = renderLabelPdf(file);
       note("label picture", `label.pdf.png, ${picture.width}×${picture.height}, sha256 ${picture.sha256}`);
-      return `${body.length} bytes, sha256 ${sha.slice(0, 16)}…`;
+      // Show the label in the window, so this step's screenshot and the run's video carry the label itself.
+      const image = readFileSync(picture.image).toString("base64");
+      await page.setContent(`<body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#e8e8e8"><img alt="Shipping label" src="data:image/png;base64,${image}" style="max-height:96vh;background:#fff;box-shadow:0 2px 12px #0004"></body>`);
+      const shown = await page.getByAltText("Shipping label").evaluate(img => img.decode().then(() => img.naturalWidth, () => 0));
+      if (!shown) throw new Error("The browser could not draw the label picture.");
+      await page.waitForTimeout(2_000);
+      return `${body.length} bytes, sha256 ${sha.slice(0, 16)}…, shown ${picture.width}×${picture.height}`;
     });
   }
 
