@@ -40,7 +40,7 @@ test("malformed or wildcard origins cannot broaden the site list", () => {
   assert.throws(() => requestPolicy({ ...settings, accessOrigins: ["https://example.test"] }));
 });
 
-const guards = { route: async () => {}, routeWebSocket: async () => {} };
+const guards = { route: async () => {}, routeWebSocket: async () => {}, on: () => {} };
 
 async function interceptor(cookies = []) {
   let paused;
@@ -123,4 +123,55 @@ test("same-named cookies keep the order the browser sent them in", async () => {
   const { paused, commands } = await interceptor([{ name: "session", value: "root" }, { name: "session", value: "account" }]);
   await paused({ requestId: "order", request: { url: "https://dinkuskit.com/account", headers: { Cookie: "session=account; session=root" } } });
   assert.deepEqual(commands.at(-1).value.headers, [{ name: "Cookie", value: "session=account; session=root" }]);
+});
+
+async function contextRoute() {
+  let handler;
+  let listener;
+  const context = { newCDPSession: async () => ({ on: () => {}, send: async () => {} }), cookies: async () => [],
+    route: async (_, fn) => { handler = fn; }, routeWebSocket: async () => {}, on: (event, fn) => { if (event === "response") listener = fn; } };
+  await filterPage({ context: () => context, on: () => {} }, settings);
+  const answer = async (url, method = "GET") => {
+    const outcome = {};
+    await handler({
+      request: () => ({ url: () => url, method: () => method, frame: () => null, headers: () => ({}) }),
+      fulfill: async value => { outcome.fulfilled = value; },
+      fallback: async value => { outcome.fallback = value ?? true; },
+      abort: async reason => { outcome.aborted = reason; },
+    });
+    return outcome;
+  };
+  const loaded = (url, headers, { status = 200, body = Buffer.from("synthetic") } = {}) => listener({
+    url: () => url, status: () => status, request: () => ({ method: () => "GET" }), headers: () => headers, body: async () => body,
+  });
+  return { answer, loaded };
+}
+
+const immutable = { "cache-control": "public, max-age=31536000, immutable" };
+
+test("the store's immutable files are answered from the run's copy after their first load", async () => {
+  const { answer, loaded } = await contextRoute();
+  const script = settings.store + "/_astro/guest-cart-client.synthetic.js";
+  assert.deepEqual(await answer(script), { fallback: true });
+  await loaded(script, { ...immutable, "content-type": "text/javascript", "content-encoding": "br", "content-length": "9" });
+  const { fulfilled } = await answer(script);
+  assert.equal(fulfilled.status, 200);
+  assert.equal(fulfilled.body.toString(), "synthetic");
+  assert.deepEqual(fulfilled.headers, { ...immutable, "content-type": "text/javascript" });
+});
+
+test("pages, files the store wants rechecked and other sites still reach the network", async () => {
+  const { answer, loaded } = await contextRoute();
+  const page = settings.store + "/products/synthetic";
+  await loaded(page, { "cache-control": "public, max-age=0, must-revalidate" });
+  assert.deepEqual(await answer(page), { fallback: true });
+  const missing = settings.store + "/_astro/missing.synthetic.js";
+  await loaded(missing, immutable, { status: 404 });
+  assert.deepEqual(await answer(missing), { fallback: true });
+  const stripe = "https://js.stripe.com/v3/synthetic.js";
+  await loaded(stripe, immutable);
+  assert.deepEqual(await answer(stripe), { fallback: true });
+  const script = settings.store + "/_astro/kept.synthetic.js";
+  await loaded(script, immutable);
+  assert.deepEqual(await answer(script, "POST"), { fallback: true });
 });

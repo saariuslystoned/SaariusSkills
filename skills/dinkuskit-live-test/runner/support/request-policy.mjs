@@ -63,6 +63,7 @@ async function install(page, policy, settings) {
  */
 function guardContext(context, policy, settings) {
   if (!guarded.has(context)) guarded.set(context, (async () => {
+    const copies = immutableCopies(context, policy);
     await context.route("**/*", async route => {
       const request = route.request();
       if (!policy.allows(request.url())) return route.abort("blockedbyclient");
@@ -74,7 +75,10 @@ function guardContext(context, policy, settings) {
         // No interceptor could attach (the page is closing, say), so nothing would check a redirect.
         return route.abort("blockedbyclient").catch(() => {});
       }
-      if (policy.isStore(request.url())) return route.fallback();
+      if (policy.isStore(request.url())) {
+        const copy = request.method() === "GET" ? copies.get(request.url()) : undefined;
+        return copy ? route.fulfill(copy) : route.fallback();
+      }
       // This first request left before its interceptor attached, so strip store headers here too.
       const headers = request.headers();
       const kept = policy.publicHeaders(Object.fromEntries(Object.entries(headers).filter(([name]) => name.toLowerCase() !== "cookie")));
@@ -86,6 +90,29 @@ function guardContext(context, policy, settings) {
     await context.routeWebSocket(url => !policy.allows(url.href.replace(/^ws/, "http")), ws => ws.close());
   })());
   return guarded.get(context);
+}
+
+/**
+ * Playwright turns Chromium's HTTP cache off while any route is set, so the run would fetch every
+ * store script on every page view, far more often than a shopper's browser, and cross the store's
+ * per-visitor request limit. A store file sent as immutable (its hashed /_astro/ build files) is
+ * answered from the run's own copy after its first load, as a browser's cache would answer it.
+ */
+function immutableCopies(context, policy) {
+  const copies = new Map();
+  context.on("response", async response => {
+    try {
+      const url = response.url();
+      if (copies.has(url) || !policy.isStore(url) || response.status() !== 200 || response.request().method() !== "GET") return;
+      const headers = response.headers();
+      if (!/(?:^|,)\s*immutable\s*(?:,|$)/i.test(headers["cache-control"] ?? "")) return;
+      // The kept body is already decoded, and Playwright sets its length.
+      const kept = Object.fromEntries(Object.entries(headers).filter(([name]) =>
+        !["content-encoding", "content-length", "transfer-encoding", "set-cookie"].includes(name)));
+      copies.set(url, { status: 200, headers: kept, body: await response.body() });
+    } catch {} // The page closed before the body arrived, say; the next load fetches the file again.
+  });
+  return copies;
 }
 
 async function intercept(session, context, policy) {
