@@ -40,7 +40,7 @@ test("malformed or wildcard origins cannot broaden the site list", () => {
   assert.throws(() => requestPolicy({ ...settings, accessOrigins: ["https://example.test"] }));
 });
 
-const guards = { route: async () => {}, routeWebSocket: async () => {} };
+const guards = { route: async () => {}, routeWebSocket: async () => {}, on: () => {} };
 
 async function interceptor(cookies = []) {
   let paused;
@@ -123,4 +123,198 @@ test("same-named cookies keep the order the browser sent them in", async () => {
   const { paused, commands } = await interceptor([{ name: "session", value: "root" }, { name: "session", value: "account" }]);
   await paused({ requestId: "order", request: { url: "https://dinkuskit.com/account", headers: { Cookie: "session=account; session=root" } } });
   assert.deepEqual(commands.at(-1).value.headers, [{ name: "Cookie", value: "session=account; session=root" }]);
+});
+
+async function contextRoute() {
+  let handler;
+  let listener;
+  const context = { newCDPSession: async () => ({ on: () => {}, send: async () => {} }), cookies: async () => [],
+    route: async (_, fn) => { handler = fn; }, routeWebSocket: async () => {}, on: (event, fn) => { if (event === "response") listener = fn; } };
+  await filterPage({ context: () => context, on: () => {} }, settings);
+  let lastRequest;
+  const answer = async (url, method = "GET", requestHeaders = {}) => {
+    const outcome = {};
+    lastRequest = { url: () => url, method: () => method, frame: () => null, headers: () => ({}),
+      headerValue: async name => requestHeaders[name] ?? null, timing: () => ({ startTime: Date.now(), responseStart: -1 }) };
+    await handler({
+      request: () => lastRequest,
+      fulfill: async value => { outcome.fulfilled = value; },
+      fallback: async value => { outcome.fallback = value ?? true; },
+      abort: async reason => { outcome.aborted = reason; },
+    });
+    return outcome;
+  };
+  const loaded = (url, headers, { status = 200, body = Buffer.from("synthetic"), requestHeaders = {}, request, responseStart = -1 } = {}) => {
+    const sent = Date.now();
+    return listener({
+      url: () => url, status: () => status, headers: () => headers, body: async () => body,
+      request: () => request ?? { method: () => "GET", headerValue: async name => requestHeaders[name] ?? null,
+        timing: () => ({ startTime: sent, responseStart }) },
+    });
+  };
+  return { answer, loaded, lastRequest: () => lastRequest };
+}
+
+const immutable = { "cache-control": "public, max-age=31536000, immutable" };
+
+test("the store's immutable files are answered from the run's copy after their first load", async () => {
+  const { answer, loaded } = await contextRoute();
+  const script = settings.store + "/_astro/guest-cart-client.synthetic.js";
+  assert.deepEqual(await answer(script), { fallback: true });
+  await loaded(script, { ...immutable, "content-type": "text/javascript", "content-encoding": "br", "content-length": "9" });
+  const { fulfilled } = await answer(script);
+  assert.equal(fulfilled.status, 200);
+  assert.equal(fulfilled.body.toString(), "synthetic");
+  assert.deepEqual(fulfilled.headers, { ...immutable, "content-type": "text/javascript" });
+});
+
+test("pages, files the store wants rechecked and other sites still reach the network", async () => {
+  const { answer, loaded } = await contextRoute();
+  const page = settings.store + "/products/synthetic";
+  await loaded(page, { "cache-control": "public, max-age=0, must-revalidate" });
+  assert.deepEqual(await answer(page), { fallback: true });
+  const missing = settings.store + "/_astro/missing.synthetic.js";
+  await loaded(missing, immutable, { status: 404 });
+  assert.deepEqual(await answer(missing), { fallback: true });
+  const stripe = "https://js.stripe.com/v3/synthetic.js";
+  await loaded(stripe, immutable);
+  assert.deepEqual(await answer(stripe), { fallback: true });
+  const script = settings.store + "/_astro/kept.synthetic.js";
+  await loaded(script, immutable);
+  assert.deepEqual(await answer(script, "POST"), { fallback: true });
+  for (const value of ["max-age=31536000, no-store, immutable", "public, max-age=31536000, immutable, no-cache",
+    "max-age=31536000, immutable, no-cache=\"set-cookie\""]) {
+    const unstored = settings.store + `/_astro/${encodeURIComponent(value)}.synthetic.js`;
+    await loaded(unstored, { "cache-control": value });
+    assert.deepEqual(await answer(unstored), { fallback: true }, value);
+  }
+});
+
+test("a kept copy lasts only while the store says the file is fresh", async () => {
+  const { answer, loaded } = await contextRoute();
+  for (const headers of [{ "cache-control": "public, max-age=0, must-revalidate, immutable" },
+    { "cache-control": "max-age=60, immutable", age: "60" }, { "cache-control": "immutable" }]) {
+    const stale = settings.store + `/_astro/${encodeURIComponent(JSON.stringify(headers))}.synthetic.js`;
+    await loaded(stale, headers);
+    assert.deepEqual(await answer(stale), { fallback: true }, JSON.stringify(headers));
+  }
+  const script = settings.store + "/_astro/short.synthetic.js";
+  await loaded(script, { "cache-control": "max-age=60, immutable", age: "30" });
+  assert.equal((await answer(script)).fulfilled.status, 200);
+  const now = Date.now;
+  Date.now = () => now() + 31_000;
+  try {
+    assert.deepEqual(await answer(script), { fallback: true });
+    await loaded(script, { "cache-control": "max-age=60, immutable" });
+    assert.equal((await answer(script)).fulfilled.status, 200);
+  } finally {
+    Date.now = now;
+  }
+});
+
+test("a kept copy's age counts from its Date and the time it took to arrive", async () => {
+  const { answer, loaded } = await contextRoute();
+  const dated = settings.store + "/_astro/dated.synthetic.js";
+  await loaded(dated, { "cache-control": "max-age=60, immutable", date: new Date(Date.now() - 120_000).toUTCString(), age: "0" });
+  assert.deepEqual(await answer(dated), { fallback: true });
+  const slow = settings.store + "/_astro/slow.synthetic.js";
+  await loaded(slow, { "cache-control": "max-age=60, immutable", age: "50" }, { responseStart: 20_000 });
+  assert.deepEqual(await answer(slow), { fallback: true });
+  const script = settings.store + "/_astro/recent.synthetic.js";
+  await loaded(script, { "cache-control": "max-age=60, immutable", date: new Date(Date.now() - 30_000).toUTCString() });
+  assert.equal((await answer(script)).fulfilled.status, 200);
+  const now = Date.now;
+  Date.now = () => now() + 31_000;
+  try {
+    assert.deepEqual(await answer(script), { fallback: true });
+  } finally {
+    Date.now = now;
+  }
+});
+
+test("a page asking for a younger or longer-lasting copy than the kept one asks the store again", async () => {
+  const { answer, loaded } = await contextRoute();
+  const replays = { "max-age=300": true, "min-fresh=300": true, "max-age=60": false, "min-fresh=500": false, "max-age=soon": false };
+  const file = asked => settings.store + `/_astro/${encodeURIComponent(asked)}.synthetic.js`;
+  for (const asked of Object.keys(replays)) await loaded(file(asked), { "cache-control": "max-age=600, immutable" });
+  const now = Date.now;
+  Date.now = () => now() + 120_000;
+  try {
+    for (const [asked, replayed] of Object.entries(replays)) {
+      assert.equal(Boolean((await answer(file(asked), "GET", { "cache-control": asked })).fulfilled), replayed, asked);
+    }
+  } finally {
+    Date.now = now;
+  }
+});
+
+test("a kept copy that varies answers only requests asking for the same version", async () => {
+  const { answer, loaded } = await contextRoute();
+  const script = settings.store + "/_astro/varies.synthetic.js";
+  await loaded(script, { ...immutable, vary: "Accept-Encoding, Accept" }, { requestHeaders: { accept: "text/javascript", "accept-encoding": "br" } });
+  assert.equal((await answer(script, "GET", { accept: "text/javascript", "accept-encoding": "gzip" })).fulfilled.status, 200);
+  assert.deepEqual(await answer(script, "GET", { accept: "*/*", "accept-encoding": "br" }), { fallback: true });
+  assert.equal((await answer(script, "GET", { accept: "text/javascript" })).fulfilled.status, 200);
+  // The other version's answer from the store takes the copy's place.
+  await loaded(script, { ...immutable, vary: "Accept" }, { body: Buffer.from("any"), requestHeaders: { accept: "*/*" } });
+  assert.equal((await answer(script, "GET", { accept: "*/*" })).fulfilled.body.toString(), "any");
+  const any = settings.store + "/_astro/any.synthetic.js";
+  await loaded(any, { ...immutable, vary: "*" });
+  assert.deepEqual(await answer(any), { fallback: true });
+});
+
+test("a request the page sends with no-cache asks the store again, and its answer replaces the copy", async () => {
+  const { answer, loaded } = await contextRoute();
+  const script = settings.store + "/_astro/refresh.synthetic.js";
+  await loaded(script, immutable, { body: Buffer.from("old") });
+  assert.equal((await answer(script)).fulfilled.body.toString(), "old");
+  assert.deepEqual(await answer(script, "GET", { "cache-control": "no-cache" }), { fallback: true });
+  await loaded(script, immutable, { body: Buffer.from("new"), requestHeaders: { "cache-control": "no-cache" } });
+  assert.equal((await answer(script)).fulfilled.body.toString(), "new");
+  for (const asked of [{ pragma: "no-cache" }, { "cache-control": "max-age=0" }, { "cache-control": "no-store" }]) {
+    assert.deepEqual(await answer(script, "GET", asked), { fallback: true }, JSON.stringify(asked));
+  }
+  await loaded(script, immutable, { requestHeaders: { "cache-control": "no-store" } });
+  assert.deepEqual(await answer(script), { fallback: true });
+});
+
+test("only the newest store answer from the network can be the copy, and it replaces the old one even when not kept", async () => {
+  const { answer, loaded } = await contextRoute();
+  const script = settings.store + "/_astro/newest.synthetic.js";
+  await loaded(script, { ...immutable, vary: "Accept" }, { body: Buffer.from("old"), requestHeaders: { accept: "text/javascript" } });
+  assert.deepEqual(await answer(script, "GET", { accept: "*/*" }), { fallback: true });
+  await loaded(script, { "cache-control": "no-cache", vary: "*" }, { requestHeaders: { accept: "*/*" } });
+  assert.deepEqual(await answer(script, "GET", { accept: "text/javascript" }), { fallback: true });
+  let release;
+  const older = loaded(script, immutable, { body: new Promise(resolve => { release = () => resolve(Buffer.from("older")); }) });
+  await loaded(script, immutable, { body: Buffer.from("newer") });
+  release();
+  await older;
+  assert.equal((await answer(script)).fulfilled.body.toString(), "newer");
+  await loaded(script, immutable, { status: 404 });
+  assert.deepEqual(await answer(script), { fallback: true });
+});
+
+test("a replayed answer never makes its copy last longer", async () => {
+  const { answer, loaded, lastRequest } = await contextRoute();
+  const script = settings.store + "/_astro/replayed.synthetic.js";
+  await loaded(script, { "cache-control": "max-age=60, immutable" });
+  const now = Date.now;
+  try {
+    Date.now = () => now() + 31_000;
+    assert.equal((await answer(script)).fulfilled.status, 200);
+    await loaded(script, { "cache-control": "max-age=60, immutable" }, { request: lastRequest() });
+    Date.now = () => now() + 61_000;
+    assert.deepEqual(await answer(script), { fallback: true });
+  } finally {
+    Date.now = now;
+  }
+});
+
+test("quoted Cache-Control numbers count", async () => {
+  const { answer, loaded } = await contextRoute();
+  const script = settings.store + "/_astro/quoted.synthetic.js";
+  await loaded(script, { "cache-control": 'public, max-age="31536000", immutable' });
+  assert.equal((await answer(script)).fulfilled.status, 200);
+  assert.deepEqual(await answer(script, "GET", { "cache-control": 'max-age="0"' }), { fallback: true });
 });

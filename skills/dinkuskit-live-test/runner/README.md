@@ -61,6 +61,13 @@ adds credentials. Direct link, photo and PDF probes use the same origin policy a
 redirect before following it. The agent's separate store API calls retain their
 existing same-store URLs and manual-redirect behavior.
 
+Playwright turns the browser's cache off while the filter is on, so each browser
+the run opens keeps its own copy of each store file the store marks immutable (the
+hashed scripts and styles under `/_astro/`) and answers repeat requests from it while
+the store says it stays fresh, as a shopper's browser would. A new shopper's browser
+starts with none. Without this, every page view fetches them all again, and a run
+can cross the store's limit of 120 requests a minute per visitor.
+
 Leave the window alone while it runs: the test drives it, and a click or a tab
 of yours can get in its way. To see the label, look in the proof folder for
 `label.pdf` and its picture; Buy and ship also shows the picture in the window.
