@@ -48,12 +48,12 @@
   "review_follow_up": {
     "scope": "Copilot and journeys review fixes after 9417689; loopback only, synthetic header, no live store",
     "changed_source_sha256": {
-      "skills/dinkuskit-live-test/runner/support/request-policy.mjs": "cf88a1069fd020f87df2f8f1c64b7e0d40ab7a4d7b83bb9f7af52bf2baf53437",
+      "skills/dinkuskit-live-test/runner/support/request-policy.mjs": "ae05957975ab27617e1ffaeca4f67a7a4486593b2c2b34d3c0ed149a4681d7fc",
       "skills/dinkuskit-live-test/runner/support/browser.mjs": "0de7d9b5c6c246e561ef2471e7bd0558af75b1607936f49b03541da607390107",
       "skills/dinkuskit-live-test/runner/support/store-admin.mjs": "f4fe7b505ad80fddef9e3801e6f63d6c61d5be5a3215199b7a3bee441415c3c8",
-      "skills/dinkuskit-live-test/runner/unit/request-policy.test.mjs": "33a1f050e183e1877bc9feb381e1b26fdfe7af8383e91cc0d0de0747e3a3e0ac"
+      "skills/dinkuskit-live-test/runner/unit/request-policy.test.mjs": "06b82114e1abb892d6aaf093494756a136c9323af23a044680f5f5b8ac067e79"
     },
-    "unit": "node --test unit/*.test.mjs: 30 pass, 0 fail",
+    "unit": "node --test unit/*.test.mjs: 32 pass, 0 fail",
     "browser": "Playwright 1.61.1, Chromium, loopback servers with a TLS host mapped to js.stripe.com as an allowed cross-site frame",
     "checks": {
       "main_page_redirect_to_off_list_host": "blocked, 0 off-list requests",

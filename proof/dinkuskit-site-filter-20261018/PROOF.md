@@ -46,7 +46,7 @@ WebSockets are checked at the context, store headers are removed from every
 non-store request, the run stops early when the store sends visitors to an
 Access origin `DINKUS_E2E_ACCESS_ORIGINS` doesn't list, and a Google-only Access
 app is documented as unsupported. `review_follow_up` in verification.json
-records the changed files' hashes and what was re-run on them: 30 unit tests,
+records the changed files' hashes and what was re-run on them: 32 unit tests,
 and loopback Chromium checks that an off-list host gets nothing from a main-page
 redirect, a cross-site frame's fetch or image, a worker, a WebSocket or a popup,
 and that a context-level `CF-Access-Client-Secret` never reaches a frame's host.

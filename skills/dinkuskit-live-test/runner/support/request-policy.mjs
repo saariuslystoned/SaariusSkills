@@ -11,8 +11,10 @@ function siteOrigin(value) {
   return url.origin;
 }
 
-export function requestPolicy({ store, accessOrigins = [] }) {
+export function requestPolicy({ store, accessOrigins = [], ship = "https://ship.dinkuskit.com", account = "https://dinkuskit.com" }) {
   const selected = siteOrigin(store);
+  // The Ship and DinkusKit.com the run is set to use (DINKUS_E2E_SHIP, DINKUS_E2E_ACCOUNT), exactly.
+  const services = new Set([siteOrigin(ship), siteOrigin(account)]);
   const access = new Set(accessOrigins.map(value => {
     const origin = siteOrigin(value);
     if (!new URL(origin).hostname.endsWith(".cloudflareaccess.com")) {
@@ -24,10 +26,9 @@ export function requestPolicy({ store, accessOrigins = [] }) {
     let url;
     try { url = new URL(value); } catch { return false; }
     if (url.username || url.password) return false;
-    if (url.origin === selected) return true;
+    if (url.origin === selected || services.has(url.origin)) return true;
     if (url.protocol !== "https:" || url.port) return false;
-    return ["https://dinkuskit.com", "https://ship.dinkuskit.com"].includes(url.origin)
-      || url.hostname === "stripe.com" || url.hostname.endsWith(".stripe.com")
+    return url.hostname === "stripe.com" || url.hostname.endsWith(".stripe.com")
       || url.hostname === "stripecdn.com" || url.hostname.endsWith(".stripecdn.com")
       || access.has(url.origin);
   };
@@ -97,9 +98,9 @@ async function intercept(session, context, policy) {
     if (!policy.isStore(request.url)) {
       // Rebuild only the destination's browser cookies, never a store Cookie override.
       const received = Object.entries(request.headers).find(([name]) => name.toLowerCase() === "cookie")?.[1] ?? "";
-      const sent = new Set(received.split(";").map(value => value.trim()));
-      const cookies = (await context.cookies(request.url))
-        .map(({ name, value }) => `${name}=${value}`).filter(value => sent.has(value));
+      // Keep the browser's order: a server reading the first of two same-named cookies must get the same one.
+      const jar = new Set((await context.cookies(request.url)).map(({ name, value }) => `${name}=${value}`));
+      const cookies = received.split(";").map(value => value.trim()).filter(value => jar.has(value));
       if (cookies.length) headers.Cookie = cookies.join("; ");
     }
     await session.send("Fetch.continueRequest", {

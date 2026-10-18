@@ -30,7 +30,8 @@ hand with `DINKUS_E2E_ADMIN_SIGNIN=wait`.
 ## Requests stay within the selected sites
 
 Pages the canonical journeys open filter requests to the selected `DINKUS_E2E_STORE`,
-DinkusKit.com, ship.dinkuskit.com, Stripe/Stripe CDN, and the exact Access origins
+the DinkusKit.com and Ship set by `DINKUS_E2E_ACCOUNT` and `DINKUS_E2E_SHIP` (the
+live ones unless set), Stripe/Stripe CDN, and the exact Access origins
 listed in `DINKUS_E2E_ACCESS_ORIGINS`. Other stores and lookalike domains are
 blocked. Store photos may use any dimensions or query parameters; the filter
 checks the origin, not a fixed image-size list. Service workers are disabled so

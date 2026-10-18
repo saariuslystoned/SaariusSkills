@@ -18,6 +18,15 @@ test("only the selected store, required services and exact Access hosts are allo
   }
 });
 
+test("a configured Ship and DinkusKit.com replace the default ones", () => {
+  const staging = requestPolicy({ ...settings, ship: "https://ship.staging.test", account: "https://account.staging.test" });
+  assert.equal(staging.allows("https://ship.staging.test/orders"), true);
+  assert.equal(staging.allows("https://account.staging.test/account"), true);
+  assert.equal(staging.allows("https://ship.dinkuskit.com/orders"), false);
+  assert.equal(staging.allows("https://dinkuskit.com/account"), false);
+  assert.throws(() => requestPolicy({ ...settings, ship: "http://ship.staging.test" }));
+});
+
 test("photo dimensions do not narrow a store request", () => {
   for (const width of [1, 300, 347, 600, 1200, 8192]) {
     assert.ok(policy.allows(`${settings.store}/_emdash/api/media/image/photo.webp?w=${width}&h=${width + 7}`));
@@ -108,4 +117,10 @@ test("the filter does not add a cookie the browser omitted", async () => {
   const { paused, commands } = await interceptor([{ name: "private-session", value: "synthetic" }]);
   await paused({ requestId: "no-cookie", request: { url: "https://ship.dinkuskit.com/orders", headers: { Accept: "text/html" } } });
   assert.deepEqual(commands.at(-1).value.headers, [{ name: "Accept", value: "text/html" }]);
+});
+
+test("same-named cookies keep the order the browser sent them in", async () => {
+  const { paused, commands } = await interceptor([{ name: "session", value: "root" }, { name: "session", value: "account" }]);
+  await paused({ requestId: "order", request: { url: "https://dinkuskit.com/account", headers: { Cookie: "session=account; session=root" } } });
+  assert.deepEqual(commands.at(-1).value.headers, [{ name: "Cookie", value: "session=account; session=root" }]);
 });
