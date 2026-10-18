@@ -240,6 +240,18 @@ async function findCard(cards, { id, path, name }) {
 }
 
 const shopCards = page => page.locator("[data-commerce-catalog] [data-commerce-product]");
+
+/**
+ * Why the homepage's Shop list can't be read, or "" when it lists products or says it has none. A card
+ * missing from a Shop list that couldn't have shown it proves nothing.
+ */
+async function unreadableShop(shopper) {
+  const catalog = shopper.locator("[data-commerce-catalog]");
+  if (!await catalog.count()) return "the homepage has no Shop list";
+  if (await catalog.locator("[data-commerce-product], [data-commerce-empty]").count()) return "";
+  const said = await text(catalog.locator('[role="alert"]'));
+  return said ? `the Shop list says "${said}"` : "the Shop list shows neither products nor that it has none";
+}
 const categoryCards = page => page.locator("main").locator("[data-commerce-product], [data-merch-item]");
 
 /** What's wrong with how one product card shows this run's product. */
@@ -283,8 +295,11 @@ const places = state => ["the Shop list", ...state.productPath ? [state.productP
  */
 async function storeShows(shopper, state) {
   const { id, name, cents, productPath, categoryPath } = state;
-  const checks = [await catchUp(shopper, "/", async () => {
+  const checks = [await catchUp(shopper, "/", async response => {
+    if (response.status() !== 200) return [`the homepage answered HTTP ${response.status()}`];
     const card = await findCard(shopCards(shopper), { id, name });
+    const unreadable = card ? "" : await unreadableShop(shopper);
+    if (unreadable) return [unreadable];
     // A product shown without its own ID still tells the journey which ID the Shop list gave it.
     if (card && !state.id) state.id = await card.getAttribute("data-commerce-product") ?? "";
     return cardProblems(card, "the Shop list", { name, cents, path: productPath });
@@ -303,9 +318,13 @@ async function storeShows(shopper, state) {
  * published then, must answer for the missing card to count.
  */
 async function storeHides(shopper, { id, name, productPath, categoryPath }, { archived = false } = {}) {
-  // A homepage that doesn't answer shows no cards either, which proves nothing.
-  const checks = [await catchUp(shopper, "/", async response => response.status() !== 200 ? [`the homepage answered HTTP ${response.status()}`]
-    : await findCard(shopCards(shopper), { id, name }) ? ["the Shop list still lists it"] : [])];
+  // A homepage that doesn't answer, or whose Shop list can't be read, shows no cards either, which proves nothing.
+  const checks = [await catchUp(shopper, "/", async response => {
+    if (response.status() !== 200) return [`the homepage answered HTTP ${response.status()}`];
+    if (await findCard(shopCards(shopper), { id, name })) return ["the Shop list still lists it"];
+    const unreadable = await unreadableShop(shopper);
+    return unreadable ? [unreadable] : [];
+  })];
   if (productPath) {
     checks.push(await catchUp(shopper, productPath, async response => {
       const product = shopper.locator("[data-product-page]");
