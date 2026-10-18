@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { inflateSync } from "node:zlib";
+import { crc32, inflateSync } from "node:zlib";
 import { dirname } from "node:path";
 
 /** Render the downloaded label's first page. A missing renderer is a failed proof step. */
@@ -42,6 +42,7 @@ export function decodedPngSize(bytes) {
     const type = bytes.toString("latin1", at + 4, at + 8);
     if (at + 12 + length > bytes.length) throw invalid();
     const body = bytes.subarray(at + 8, at + 8 + length);
+    if (crc32(bytes.subarray(at + 4, at + 8 + length)) !== bytes.readUInt32BE(at + 8 + length)) throw invalid();
     if (!header && type !== "IHDR") throw invalid();
     if (type === "IHDR") header = { width: body.readUInt32BE(0), height: body.readUInt32BE(4), depth: body[8], color: body[9], interlace: body[12] };
     else if (type === "IDAT") data.push(body);

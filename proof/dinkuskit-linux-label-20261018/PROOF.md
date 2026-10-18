@@ -5,7 +5,7 @@ Branch: codex/dinkuskit-linux-label-pdf-20261018.
 
 The canonical Buy and ship PDF step now renders the first page with Poppler's
 pdftoppm on Linux and retains Quick Look on macOS. It checks that the whole PNG
-decodes (every chunk, the pixel data and each row's filter type), records dimensions/SHA256, and fails clearly when the
+decodes (every chunk and its checksum, the pixel data and each row's filter type), records dimensions/SHA256, and fails clearly when the
 renderer is missing or does not produce a picture. It no longer silently omits
 visual proof outside macOS. The journey uses the same downloaded label PDF;
 no journey fork, store change or provider call was introduced.
@@ -34,7 +34,7 @@ merge approval and exact-head review remain required.
 ## Re-run after the review fixes
 
 Review tightened the PNG check, so the published release covers the first
-revision only. The current helper (sha256 7497cd9a…, 3383 bytes) was run on
+revision only. The current helper (sha256 d6ac2d84…, 3503 bytes) was run on
 Linux with pdftoppm 24.02.0 against the release's own sandbox-label.pdf
 (sha256 8c8d9bba…, unchanged). It rendered 934×1400, image sha256 cecb2e71….
 The image hash differs from the release's because the Poppler version differs;

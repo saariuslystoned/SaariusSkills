@@ -49,6 +49,8 @@ test("no output, invalid output and stale output cannot claim a rendered label",
   fixture(file => assert.throws(() => renderLabelPdf(file,{platform:"linux",run:()=>writeFileSync(file+".png",headerOnly)}), /invalid label picture/));
   const badFilter = pngBytes(1, 1, 255);
   fixture(file => assert.throws(() => renderLabelPdf(file,{platform:"linux",run:()=>writeFileSync(file+".png",badFilter)}), /invalid label picture/));
+  const badCrc = pngBytes(); badCrc[badCrc.length - 1] ^= 0xff;
+  fixture(file => assert.throws(() => renderLabelPdf(file,{platform:"linux",run:()=>writeFileSync(file+".png",badCrc)}), /invalid label picture/));
   const whole = pngBytes();
   fixture(file => assert.throws(() => renderLabelPdf(file,{platform:"linux",run:()=>writeFileSync(file+".png",whole.subarray(0, whole.length - 40))}), /invalid label picture/));
   fixture(file => { png(file); assert.throws(() => renderLabelPdf(file,{platform:"linux",run:()=>{}}), /no label picture/); });
