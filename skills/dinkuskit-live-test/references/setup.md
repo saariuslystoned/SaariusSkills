@@ -48,6 +48,11 @@ link for the store owner, and Cloudflare Access's one-time PIN for the store adm
   "Live test product <date and time> renamed" and its photo in the Media library;
   its product page and category go to EmDash's Trash. Empty the Trash or delete
   the photos by hand whenever you like.
+- For Mark as completed, Commerce 0.2.0 or later and a store admin sign-in with
+  the Administrator role, which the test uses to make the agent's one-hour key.
+  Each run places two Stripe TEST orders and leaves both Completed. When
+  Cloudflare Access fronts the store's API as well as its admin, the agent's
+  calls carry the saved Access sign-in.
 - Ship turned on for the store, with a ship-from address and at least one box size
   in Ship Settings. Ship makes free Pitney Bowes sandbox labels for TEST orders.
 - The Cloudflare Access app in front of the store admin, or of the whole test
