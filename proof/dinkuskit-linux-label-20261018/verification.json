@@ -27,8 +27,8 @@
   },
   "review_rerun": {
     "helper": "skills/dinkuskit-live-test/runner/support/label-pdf.mjs after the review fixes",
-    "helper_sha256": "d6ac2d8448f062c2207209bb00c59b7055b137d1b860e934b35b66bd038b9c55",
-    "helper_bytes": 3503,
+    "helper_sha256": "5671fdf394d7b4fb91f7a763eb5e06c389652b3006e7bfae4492212f7c0babae",
+    "helper_bytes": 3914,
     "input": "sandbox-label.pdf downloaded from the release, sha256 8c8d9bbac5c245cffbccb3602fe3417aa38a99151698d6602c6c56e6d82c0fcb",
     "renderer": "pdftoppm 24.02.0 on Linux",
     "width": 934,

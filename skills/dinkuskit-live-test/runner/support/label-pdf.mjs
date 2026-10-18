@@ -28,7 +28,8 @@ export function renderLabelPdf(file, { platform = process.platform, run = execFi
 }
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-const CHANNELS = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+// Channels and allowed bit depths for each PNG color type.
+const COLORS = { 0: [1, [1, 2, 4, 8, 16]], 2: [3, [8, 16]], 3: [1, [1, 2, 4, 8]], 4: [2, [8, 16]], 6: [4, [8, 16]] };
 
 /** Walk every chunk and inflate the pixel data, so a header-only or truncated file is refused. */
 export function decodedPngSize(bytes) {
@@ -44,13 +45,18 @@ export function decodedPngSize(bytes) {
     const body = bytes.subarray(at + 8, at + 8 + length);
     if (crc32(bytes.subarray(at + 4, at + 8 + length)) !== bytes.readUInt32BE(at + 8 + length)) throw invalid();
     if (!header && type !== "IHDR") throw invalid();
-    if (type === "IHDR") header = { width: body.readUInt32BE(0), height: body.readUInt32BE(4), depth: body[8], color: body[9], interlace: body[12] };
+    if (type === "IHDR") {
+      if (length !== 13) throw invalid();
+      header = { width: body.readUInt32BE(0), height: body.readUInt32BE(4), depth: body[8], color: body[9], interlace: body[12] };
+      // Compression and filter method 0 are the only ones PNG defines; interlace is 0 or 1.
+      if (body[10] !== 0 || body[11] !== 0 || header.interlace > 1) throw invalid();
+    }
     else if (type === "IDAT") data.push(body);
     else if (type === "IEND") ended = true;
     at += 12 + length;
   }
-  const channels = header && CHANNELS[header.color];
-  if (!header?.width || !header.height || !channels || !data.length) throw invalid();
+  const [channels, depths] = (header && COLORS[header.color]) ?? [];
+  if (!header?.width || !header.height || !channels || !depths.includes(header.depth) || !data.length) throw invalid();
   let pixels;
   try { pixels = inflateSync(Buffer.concat(data)); } catch { throw invalid(); }
   const rowBytes = Math.ceil((header.width * channels * header.depth) / 8);

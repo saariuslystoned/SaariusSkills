@@ -18,8 +18,8 @@ function chunk(type, body) {
   return Buffer.concat([length, Buffer.from(type, "latin1"), body, crc]);
 }
 /** A small but complete greyscale PNG; the renderer contract only cares that it decodes. */
-function pngBytes(width = 933, height = 1400, filter = 0) {
-  const header = Buffer.alloc(13); header.writeUInt32BE(width,0); header.writeUInt32BE(height,4); header[8]=8; header[9]=0;
+function pngBytes(width = 933, height = 1400, filter = 0, { depth = 8, compression = 0 } = {}) {
+  const header = Buffer.alloc(13); header.writeUInt32BE(width,0); header.writeUInt32BE(height,4); header[8]=depth; header[9]=0; header[10]=compression;
   const pixels = Buffer.alloc(height * (width + 1), 0xff);
   for (let row = 0; row < height; row++) pixels[row * (width + 1)] = filter;
   return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]), chunk("IHDR", header), chunk("IDAT", deflateSync(pixels)), chunk("IEND", Buffer.alloc(0))]);
@@ -49,6 +49,9 @@ test("no output, invalid output and stale output cannot claim a rendered label",
   fixture(file => assert.throws(() => renderLabelPdf(file,{platform:"linux",run:()=>writeFileSync(file+".png",headerOnly)}), /invalid label picture/));
   const badFilter = pngBytes(1, 1, 255);
   fixture(file => assert.throws(() => renderLabelPdf(file,{platform:"linux",run:()=>writeFileSync(file+".png",badFilter)}), /invalid label picture/));
+  for (const bad of [pngBytes(1, 1, 0, { depth: 0 }), pngBytes(1, 1, 0, { compression: 1 })]) {
+    fixture(file => assert.throws(() => renderLabelPdf(file,{platform:"linux",run:()=>writeFileSync(file+".png",bad)}), /invalid label picture/));
+  }
   const badCrc = pngBytes(); badCrc[badCrc.length - 1] ^= 0xff;
   fixture(file => assert.throws(() => renderLabelPdf(file,{platform:"linux",run:()=>writeFileSync(file+".png",badCrc)}), /invalid label picture/));
   const whole = pngBytes();
