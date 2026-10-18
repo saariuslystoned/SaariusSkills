@@ -80,10 +80,22 @@ async function findProduct(page, name) {
     }
     const next = page.getByRole("button", { name: "Next", exact: true });
     if (!await next.count()) return false;
-    const first = await page.getByRole("button", { name: /^Open / }).first().textContent();
+    const before = await listedRows(page);
     await next.click();
-    await expect.poll(() => page.getByRole("button", { name: /^Open / }).first().textContent(), { timeout: 30_000 }).not.toBe(first);
+    await expect.poll(() => listedRows(page), { timeout: 30_000 }).not.toEqual(before);
   }
+}
+
+/**
+ * The rows the shown page of Commerce Products lists, each read with the text beside its Open button
+ * ("name — SKU"). SKUs are unique, so the rows tell one page from the next even when products share a name.
+ */
+function listedRows(page) {
+  return page.getByRole("button", { name: /^Open / }).evaluateAll(buttons => buttons.map(button => {
+    let row = button;
+    while (row.parentElement && row.textContent === button.textContent) row = row.parentElement;
+    return row.textContent;
+  }));
 }
 
 /** Opens a product in Commerce Products; a product the list doesn't have fails. */
