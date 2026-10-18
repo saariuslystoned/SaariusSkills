@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { inflateSync } from "node:zlib";
 import { dirname } from "node:path";
@@ -7,7 +7,8 @@ import { dirname } from "node:path";
 /** Render the downloaded label's first page. A missing renderer is a failed proof step. */
 export function renderLabelPdf(file, { platform = process.platform, run = execFileSync } = {}) {
   const image = `${file}.png`;
-  if (existsSync(image)) throw new Error("The label picture already exists; use a fresh proof folder.");
+  // A picture left by an earlier run in a reused proof folder must not count as this run's.
+  rmSync(image, { force: true });
   if (readFileSync(file).subarray(0, 5).toString() !== "%PDF-") throw new Error("The label is not a PDF.");
   try {
     if (platform === "linux") {

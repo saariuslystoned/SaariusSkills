@@ -47,7 +47,7 @@ test("no output, invalid output and stale output cannot claim a rendered label",
   fixture(file => assert.throws(() => renderLabelPdf(file,{platform:"linux",run:()=>writeFileSync(file+".png",headerOnly)}), /invalid label picture/));
   const whole = pngBytes();
   fixture(file => assert.throws(() => renderLabelPdf(file,{platform:"linux",run:()=>writeFileSync(file+".png",whole.subarray(0, whole.length - 40))}), /invalid label picture/));
-  fixture(file => { png(file); assert.throws(() => renderLabelPdf(file), /already exists/); });
+  fixture(file => { png(file); assert.throws(() => renderLabelPdf(file,{platform:"linux",run:()=>{}}), /no label picture/); });
 });
 test("non-PDF input is refused before running anything", () => fixture(file => {
   writeFileSync(file,"not a PDF");

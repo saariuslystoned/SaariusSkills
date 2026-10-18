@@ -131,7 +131,7 @@ Without a mail command, the test waits for a person to sign in in the window.
 | Ship has the order | Commerce sent the order to Ship |
 | Make the Pitney Bowes sandbox label | Ship quotes sandbox prices and buys a sandbox label |
 | Label is a TEST SANDBOX label with a tracking number | The label is a sandbox label, not a practice one, and carries a tracking number |
-| Label PDF downloads and is a real PDF | Ship serves the provider's PDF |
+| Label PDF downloads and renders | Ship serves the provider's PDF, and its first page draws as a picture of the label |
 | Commerce's 5-minute check collects the label | Commerce's background check collects the label without anyone opening the store admin |
 | Opening Commerce Orders collects the label | Runs only when the check above didn't: an owner opening Commerce Orders collects it |
 | Commerce marks the order Completed with the same tracking | Ship shows Commerce completed the order with the label's tracking number |
