@@ -182,6 +182,10 @@ export async function payOnStripe(page, email) {
 export async function submitCard(page, email, cardNumber) {
   // Only ever a TEST session: its URL carries a cs_test_ session id. Anything else stops the run unpaid.
   if (!/\/cs_test_/.test(new URL(page.url()).pathname)) throw new Error("Stripe opened a session that is not in test mode; nothing was paid.");
+  await orCaptcha(page, fillCard(page, email, cardNumber));
+}
+
+async function fillCard(page, email, cardNumber) {
   const card = page.locator("#cardNumber");
   // A card-only session shows the card form at once; with more methods on, Card is an accordion row.
   const cardRow = page.locator('[data-testid="card-accordion-item-button"]');
@@ -252,6 +256,10 @@ export async function failBankCheck(page) {
 
 /** Leaves Stripe Checkout unpaid by its link back to the store: Payments gives Stripe the store's cart as the way back. */
 export async function leaveStripe(page) {
+  await orCaptcha(page, followBackLink(page));
+}
+
+async function followBackLink(page) {
   const back = page.locator(`a[href^="${config.store}/cart"]:visible`).first();
   await orFail(back.waitFor({ timeout: 15_000 }), async () => "Stripe's page shows no link back to the store.");
   await back.click();
@@ -264,6 +272,25 @@ export async function leaveStripe(page) {
 
 // A visible captcha is for a person to answer, never the test.
 const captchaShown = page => page.locator('iframe[title*="hCaptcha challenge"]').isVisible().catch(() => false);
+
+/** Throws CaptchaShown when Stripe has a captcha up. */
+export async function stopIfCaptcha(page) {
+  if (await captchaShown(page)) throw new CaptchaShown();
+}
+
+/**
+ * Awaits `work`, actions on Stripe's page. A captcha over the page can make a click time out, or catch
+ * it so nothing happens, before anything looks for the captcha, so when `work` fails with one up,
+ * throws CaptchaShown instead.
+ */
+async function orCaptcha(page, work) {
+  try {
+    return await work;
+  } catch (error) {
+    await stopIfCaptcha(page);
+    throw error;
+  }
+}
 
 /** Stripe showed a captcha. Nobody answers it for the test, so a journey that meets one stops unpaid. */
 export class CaptchaShown extends Error {

@@ -1,7 +1,7 @@
 import { test, expect } from "../support/browser.mjs";
 import {
-  CaptchaShown, checkoutStatus, confirmCheckout, failBankCheck, leaveStripe, openCheckout, payOnStripe, resumeCheckout, stripeRefusal,
-  submitCard,
+  CaptchaShown, checkoutStatus, confirmCheckout, failBankCheck, leaveStripe, openCheckout, payOnStripe, resumeCheckout, stopIfCaptcha,
+  stripeRefusal, submitCard,
 } from "../support/checkout.mjs";
 import { stripeSession, thankYouShown } from "../support/checkout-text.mjs";
 import { config } from "../support/env.mjs";
@@ -36,9 +36,13 @@ async function refuse(page, shopper, { card, says, bankCheck }) {
     if (bankCheck) await failBankCheck(page);
     answer = await stripeRefusal(page, says);
   } catch (error) {
-    // Whatever went wrong on Stripe's page, a payment Commerce recorded is never paid again or left
-    // open. A captcha stops the journey as it is.
-    if (!(error instanceof CaptchaShown) && await paidInCommerce(page)) {
+    // A captcha stops the journey as it is, also one that made an action time out before anything
+    // checked for it.
+    if (error instanceof CaptchaShown) throw error;
+    await stopIfCaptcha(page);
+    // Whatever else went wrong on Stripe's page, a payment Commerce recorded is never paid again or
+    // left open.
+    if (await paidInCommerce(page)) {
       shopper.paid = true;
       // The proof keeps a step's first line, so the reason goes on that line.
       const reason = String(error?.message ?? error).split("\n")[0].replace(/\.?$/, ".");
@@ -124,8 +128,9 @@ test("Problems", { tag: "@next" }, journey(async ({ page }) => {
     return opened.resumed ? "the shopper went back to the Stripe Checkout an earlier run left open" : "Stripe Checkout opened for one product";
   });
 
-  // Each refused card is soft, so one run reports every message. A captcha is the exception: nobody
-  // answers it for the test, so it stops the journey before another card or the payment.
+  // Each refused card is soft, so one run reports every message. A captcha is the exception, here and
+  // when the shopper leaves Stripe: nobody answers it for the test, so it stops the journey before
+  // another card or the payment.
   const unlessCaptcha = { soft: error => !(error instanceof CaptchaShown) };
   for (const refused of REFUSED_CARDS) {
     if (shopper.paid) {
@@ -145,7 +150,7 @@ test("Problems", { tag: "@next" }, journey(async ({ page }) => {
     await step(page, "The shopper leaves Stripe by its back link and lands on the cart", async () => {
       await leaveStripe(page);
       return "Stripe's back link opened the store's cart";
-    }, soft);
+    }, unlessCaptcha);
     wayBack = await step(page, "The cart offers a way back to the same Stripe checkout", () => cartWayBack(page, shopper), soft);
   }
 
