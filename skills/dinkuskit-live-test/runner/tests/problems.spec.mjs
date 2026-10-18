@@ -30,9 +30,22 @@ const ALREADY_PAID = "Stripe already took a payment for this checkout, so the te
  * still waiting for payment with no order. Sets `paid` when Stripe or Commerce shows a payment instead.
  */
 async function refuse(page, shopper, { card, says, bankCheck }) {
-  await submitCard(page, shopper.email, card);
-  if (bankCheck) await failBankCheck(page);
-  const answer = await stripeRefusal(page, says);
+  let answer;
+  try {
+    await submitCard(page, shopper.email, card);
+    if (bankCheck) await failBankCheck(page);
+    answer = await stripeRefusal(page, says);
+  } catch (error) {
+    // Whatever went wrong on Stripe's page, a payment Commerce recorded is never paid again or left
+    // open. A captcha stops the journey as it is.
+    if (!(error instanceof CaptchaShown) && await paidInCommerce(page)) {
+      shopper.paid = true;
+      // The proof keeps a step's first line, so the reason goes on that line.
+      const reason = String(error?.message ?? error).split("\n")[0].replace(/\.?$/, ".");
+      throw new Error(`${reason} Commerce reports the checkout paid, so the test pays nothing more.`);
+    }
+    throw error;
+  }
   if (answer.paid) {
     shopper.paid = true;
     throw new Error("Stripe took the payment instead of turning the card down, so the test pays nothing more.");
@@ -45,6 +58,12 @@ async function refuse(page, shopper, { card, says, bankCheck }) {
   }
   if (checkout.state !== "pending") throw new Error(`Stripe said "${answer.message}", but Commerce reports the checkout as "${checkout.state}", not still waiting for payment.`);
   return `Stripe said "${answer.message}"; Commerce still waits for payment, with no order`;
+}
+
+/** Whether Commerce reports this browser's checkout paid; false when it can't be asked. */
+async function paidInCommerce(page) {
+  const { checkout } = await checkoutStatus(page).catch(() => ({}));
+  return Boolean(checkout?.order || checkout?.state === "paid");
 }
 
 /**
