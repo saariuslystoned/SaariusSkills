@@ -1,18 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import test, { after } from "node:test";
-
-// checkout.mjs reads the run's settings as it loads, so this file gives it a throwaway proof folder and profile.
-const dir = mkdtempSync(join(tmpdir(), "dinkus-checkout-"));
-after(() => rmSync(dir, { recursive: true, force: true }));
-Object.assign(process.env, {
-  DINKUS_E2E_ENV_FILE: join(dir, "no-settings"),
-  DINKUS_E2E_PROOF: dir,
-  DINKUS_E2E_PROFILE: join(dir, "profile"),
-});
-const { stripeSession, thankYouShown } = await import("../support/checkout.mjs");
+import test from "node:test";
+import { stripeSession, thankYouShown } from "../support/checkout-text.mjs";
 
 test("a Stripe Checkout address names its session, with or without Stripe's fragment", () => {
   assert.equal(stripeSession("https://checkout.stripe.com/c/pay/cs_test_a1B2c3#fidabc"), "cs_test_a1B2c3");

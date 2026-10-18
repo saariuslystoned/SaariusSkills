@@ -7,7 +7,8 @@ import { config } from "../support/env.mjs";
 import { note, record } from "../support/proof.mjs";
 import { journey, step } from "../support/steps.mjs";
 import { openShip, openStoreAdmin } from "../support/signin.mjs";
-import { placeTestOrder, thankYouShown } from "../support/checkout.mjs";
+import { placeTestOrder } from "../support/checkout.mjs";
+import { thankYouShown } from "../support/checkout-text.mjs";
 import { describePlugins } from "../support/store-plugins.mjs";
 
 const sitePath = () => `/stores/${encodeURIComponent(config.siteId)}`;

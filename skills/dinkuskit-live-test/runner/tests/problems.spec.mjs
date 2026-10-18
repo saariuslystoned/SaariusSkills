@@ -1,8 +1,8 @@
 import { test, expect } from "../support/browser.mjs";
 import {
-  checkoutStatus, confirmCheckout, failBankCheck, leaveStripe, openCheckout, payOnStripe, resumeCheckout, stripeRefusal,
-  stripeSession, submitCard, thankYouShown,
+  checkoutStatus, confirmCheckout, failBankCheck, leaveStripe, openCheckout, payOnStripe, resumeCheckout, stripeRefusal, submitCard,
 } from "../support/checkout.mjs";
+import { stripeSession, thankYouShown } from "../support/checkout-text.mjs";
 import { config } from "../support/env.mjs";
 import { note, record } from "../support/proof.mjs";
 import { numberOf, openOrder, orderShown, ordersListed, testOrders } from "../support/orders-admin.mjs";
