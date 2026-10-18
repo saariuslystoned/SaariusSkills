@@ -19,7 +19,7 @@ no assertion relaxed, and no store/credential/provider setting was changed.
 
 ## Proof
 
-- `node --test skills/dinkuskit-live-test/runner/unit/*.test.mjs`: 29 PASS.
+- `node --test skills/dinkuskit-live-test/runner/unit/*.test.mjs`: 30 PASS.
   Includes allowed origins, sibling/Access/lookalike denial, variable photo
   sizes, credential header stripping, per-hop checks and one interceptor per
   reused persistent page. Direct link/photo/PDF probes apply the same origin

@@ -1,17 +1,17 @@
 {
   "base": "bdd71b7bb1f113a288d12223fccff7a2f26e1e58",
   "source_sha256": {
-    "skills/dinkuskit-live-test/runner/support/request-policy.mjs": "d67071db6f0a840749b48829941864d2bdfd70c6a53ac265aacf2a51d285b4d0",
+    "skills/dinkuskit-live-test/runner/support/request-policy.mjs": "6c82f043368fc5c1739b9a38350f5d008e7df1730c9a2daf1c39655fa8a795a0",
     "skills/dinkuskit-live-test/runner/support/browser.mjs": "bd1a2c868c802466b80407a1e473df20725d465b8c19434239baa58937d3f433",
     "skills/dinkuskit-live-test/runner/support/checkout.mjs": "98a6ca4715b61dd59937bddd09690ceee9b1f01c5aa28ae4d43f1d6c28c51e03",
     "skills/dinkuskit-live-test/runner/support/env.mjs": "a001a4bcbdf4dba9ec37d04bd1ca375a465db6ecc9202124433d2571c7593e24",
     "skills/dinkuskit-live-test/runner/tests/manage-products.spec.mjs": "54590edf37e765c14d27a57c2e76e864d6e96632e6fcc16939eb22e4bfa6610c",
-    "skills/dinkuskit-live-test/runner/unit/request-policy.test.mjs": "fb3c1a6f8c937ea7709d5338efa906d23e2717a4424291142fa5cf488bcc3350",
+    "skills/dinkuskit-live-test/runner/unit/request-policy.test.mjs": "06684c6e4e6aa54919e86a5178f1abbeb9c860cdd53141cba08aa3e82d6953a9",
     "skills/dinkuskit-live-test/runner/support/store-admin.mjs": "5fe9b9f1dc110d2efc5df3f49f2655a36973252bad724a8ff1f87c9e0c4faa94",
     "skills/dinkuskit-live-test/runner/tests/storefront.spec.mjs": "e1201775af345f6b38216b3ac077001cf7048b8d3e8a8ddfd6057aa821827caa",
     "skills/dinkuskit-live-test/runner/tests/buy-and-ship.spec.mjs": "2059c0e0cbfaeddd7addcf8abc89409757ae38efb0550e37c5917b0e62221e63"
   },
-  "unit_log_sha256": "9b560904cc8afe9020abe31d03cc45f659e32e2d6ce2989c8b61a1c52863f60f",
+  "unit_log_sha256": "0659359ef45fdcff4b272531ed07041b4b67545aaa8ad40203eae256f5863eba",
   "browser_proof": {
     "result": "PASS",
     "scope": "loopback only; synthetic header",
@@ -22,23 +22,23 @@
     "requests": [
       {
         "path": "/",
-        "host": "127.0.0.1:53268"
+        "host": "127.0.0.1:53430"
       },
       {
         "path": "/photo?w=3471&h=29",
-        "host": "127.0.0.1:53268"
+        "host": "127.0.0.1:53430"
       },
       {
         "path": "/favicon.ico",
-        "host": "127.0.0.1:53268"
+        "host": "127.0.0.1:53430"
       },
       {
         "path": "/redirect",
-        "host": "127.0.0.1:53268"
+        "host": "127.0.0.1:53430"
       },
       {
         "path": "/api-redirect",
-        "host": "127.0.0.1:53268"
+        "host": "127.0.0.1:53430"
       }
     ]
   },

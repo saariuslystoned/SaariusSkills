@@ -43,7 +43,7 @@ async function interceptor(cookies = []) {
 test("third-party requests cannot inherit store auth headers", async () => {
   const { paused, commands } = await interceptor([{ name: "ship-session", value: "synthetic" }]);
   await paused({ requestId: "one", request: { url: "https://ship.dinkuskit.com/orders", headers: {
-    Authorization: "synthetic-store-key", Cookie: "store-session=synthetic", "CF-Access-Client-Secret": "synthetic", Accept: "text/html",
+    Authorization: "synthetic-store-key", Cookie: "store-session=synthetic; ship-session=synthetic", "CF-Access-Client-Secret": "synthetic", Accept: "text/html",
   } } });
   const forwarded = commands.at(-1);
   assert.equal(forwarded.method, "Fetch.continueRequest");
@@ -99,4 +99,10 @@ test("direct probes never contact an off-list redirect or initial address", asyn
   assert.equal(calls, 1);
   await assert.rejects(filteredGet(client, "https://example.com/", settings), /left the selected sites/);
   assert.equal(calls, 1);
+});
+
+test("the filter does not add a cookie the browser omitted", async () => {
+  const { paused, commands } = await interceptor([{ name: "private-session", value: "synthetic" }]);
+  await paused({ requestId: "no-cookie", request: { url: "https://ship.dinkuskit.com/orders", headers: { Accept: "text/html" } } });
+  assert.deepEqual(commands.at(-1).value.headers, [{ name: "Accept", value: "text/html" }]);
 });

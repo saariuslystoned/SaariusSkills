@@ -57,8 +57,11 @@ async function install(page, policy) {
     const headers = policy.isStore(request.url) ? request.headers : policy.publicHeaders(request.headers);
     if (!policy.isStore(request.url)) {
       // Rebuild only the destination's browser cookies, never a store Cookie override.
-      const cookies = await page.context().cookies(request.url);
-      if (cookies.length) headers.Cookie = cookies.map(({ name, value }) => `${name}=${value}`).join("; ");
+      const received = Object.entries(request.headers).find(([name]) => name.toLowerCase() === "cookie")?.[1] ?? "";
+      const sent = new Set(received.split(";").map(value => value.trim()));
+      const cookies = (await page.context().cookies(request.url))
+        .map(({ name, value }) => `${name}=${value}`).filter(value => sent.has(value));
+      if (cookies.length) headers.Cookie = cookies.join("; ");
     }
     await session.send("Fetch.continueRequest", {
       requestId, headers: Object.entries(headers).map(([name, value]) => ({ name, value: String(value) })),
