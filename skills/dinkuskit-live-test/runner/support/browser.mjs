@@ -34,12 +34,23 @@ export const test = base.extend({
 
 /**
  * A page in a separate browser with no sign-ins, cookies or saved cart, so a journey sees the
- * store exactly as a new shopper does. Close it with `page.context().browser().close()`.
+ * store exactly as a new shopper does. Close it with `closeShopper`.
  */
 export async function shopperPage() {
   const browser = await chromium.launch(launch());
   const context = await browser.newContext({ viewport: SIZE, ...video() });
   return context.newPage();
+}
+
+/**
+ * Closes a page from `shopperPage` and its browser. The context closes first, since only that waits
+ * for the window's video to be saved; a browser closed straight away leaves it empty for a while.
+ */
+export async function closeShopper(page) {
+  const context = page.context();
+  const browser = context.browser();
+  await context.close();
+  await browser?.close();
 }
 
 export { expect } from "@playwright/test";

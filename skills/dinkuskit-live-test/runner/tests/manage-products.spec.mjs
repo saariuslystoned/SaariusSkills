@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { test, expect, shopperPage } from "../support/browser.mjs";
+import { test, expect, shopperPage, closeShopper } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
 import { record } from "../support/proof.mjs";
 import { openShopperPage } from "../support/shopper.mjs";
@@ -657,7 +657,7 @@ test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
       if (problems.length) throw new Error(`${problems.join("; ")}.`);
       return `${state.archived ? `archived "${state.adminName}" in Commerce` : "Commerce never added the product"}${made.page || made.category ? " and moved its page and category to EmDash's Trash" : ""}; the store shows none of them`;
     }, soft);
-    await shopper.context().browser().close();
+    await closeShopper(shopper);
     await content.close();
   }
 }));

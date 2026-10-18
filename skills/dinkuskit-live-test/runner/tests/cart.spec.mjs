@@ -1,4 +1,4 @@
-import { test, expect, shopperPage } from "../support/browser.mjs";
+import { test, expect, shopperPage, closeShopper } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
 import { STORE_OPENS, openShopperPage, storeOpens } from "../support/shopper.mjs";
 import { journey, step } from "../support/steps.mjs";
@@ -203,6 +203,6 @@ test("Cart", { tag: "@next" }, journey(async () => {
       return `the cart says "${(await text(empty)).split(/(?<=\.)\s/)[0]}" and the header shows no items, also after a reload`;
     }, soft);
   } finally {
-    await page.context().browser().close();
+    await closeShopper(page);
   }
 }, { profile: false }));

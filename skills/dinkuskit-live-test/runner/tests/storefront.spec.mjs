@@ -1,4 +1,4 @@
-import { test, expect, shopperPage } from "../support/browser.mjs";
+import { test, expect, shopperPage, closeShopper } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
 import { note, record } from "../support/proof.mjs";
 import { STORE_OPENS, elsewhere, openShopperPage as open, storeOpens } from "../support/shopper.mjs";
@@ -161,6 +161,6 @@ test("Storefront", { tag: "@next" }, journey(async () => {
       return `checked ${seen.map(({ where }) => where).join(", ")}`;
     }, soft);
   } finally {
-    await page.context().browser().close();
+    await closeShopper(page);
   }
 }, { profile: false }));
