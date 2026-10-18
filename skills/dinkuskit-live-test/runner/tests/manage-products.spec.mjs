@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { test, expect, shopperPage, closeShopper } from "../support/browser.mjs";
+import { get, newPage, test, expect, shopperPage, closeShopper } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
 import { record } from "../support/proof.mjs";
 import { openShopperPage } from "../support/shopper.mjs";
@@ -116,7 +116,7 @@ async function archive(page, name) {
 async function uploadPhoto(page, fileName, label) {
   // The browser draws the photo, so the test carries no image file. Its label makes each run's photo
   // its own: the Media library keeps one copy of identical files, under the first one's name.
-  const painter = await page.context().newPage();
+  const painter = await newPage(page.context());
   await painter.setContent(`<div style="width:480px;height:480px;display:grid;place-items:center;background:linear-gradient(135deg,#2a6,#246);color:#fff;font:600 28px sans-serif">${label}</div>`);
   const png = await painter.locator("div").screenshot();
   await painter.close();
@@ -139,7 +139,7 @@ async function uploadPhoto(page, fileName, label) {
  */
 async function imageHash(page, src) {
   if (!src) return "";
-  const response = await page.request.get(new URL(src, config.store).href).catch(() => null);
+  const response = await get(page, new URL(src, config.store).href).catch(() => null);
   return response?.ok() ? createHash("sha256").update(await response.body()).digest("hex") : "";
 }
 
@@ -407,7 +407,7 @@ test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
   expect(config.store, `Set DINKUS_E2E_STORE to the store's address (in ${config.settingsFile})`).not.toBe("");
   const run = runNames();
   // Commerce keeps the product open in the saved profile's page; Media and Content work in a second tab.
-  const content = await page.context().newPage();
+  const content = await newPage(page.context());
   const shopper = await shopperPage();
   // What the store should show, and what this run made, so the last step can take it all off the store.
   const state = { id: "", idShown: false, name: run.product, adminName: run.product, cents: 1200, productPath: "", categoryPath: "", archived: false,

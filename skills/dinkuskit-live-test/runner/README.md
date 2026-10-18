@@ -25,8 +25,41 @@ signs in with an emailed link, and the Cloudflare Access app in front of the
 store admin (or of the whole test store) signs in with an emailed one-time PIN.
 The test reads both emails itself through the mail command, so nobody has to
 step in. It takes only Access emails that name the store's address, so it never
-types a code another store sent to the same inbox. If the Access app offers
-only Google, set `DINKUS_E2E_ADMIN_SIGNIN=wait` and sign in once in the window.
+types a code another store sent to the same inbox. The Access app must offer
+One-time PIN: the request filter below blocks other sign-in providers such as
+Google, so a Google-only Access app can't be signed in to from a run, not even by
+hand with `DINKUS_E2E_ADMIN_SIGNIN=wait`.
+
+## Requests stay within the selected sites
+
+Pages the canonical journeys open filter requests to the selected `DINKUS_E2E_STORE`,
+the DinkusKit.com and Ship set by `DINKUS_E2E_ACCOUNT` and `DINKUS_E2E_SHIP` (the
+live ones unless set), Stripe/Stripe CDN, and the exact Access origins
+listed in `DINKUS_E2E_ACCESS_ORIGINS`. Other stores and lookalike domains are
+blocked. Store photos may use any dimensions or query parameters; the filter
+checks the origin, not a fixed image-size list. Service workers are disabled so
+they cannot bypass the browser request filter, and WebSocket connections to other
+hosts are closed before they connect.
+
+When the store sends visitors to a Cloudflare Access sign-in that
+`DINKUS_E2E_ACCESS_ORIGINS` doesn't list, the run stops before its first page and
+names the origin to add, since the filter would block that sign-in. Shopper
+windows check only the storefront, so a journey that never opens the admin isn't
+stopped by an admin-only Access app.
+
+Popups the site opens and cross-site frames (Stripe's) get the same origin check and
+lose store headers on every request they start. Redirects are where they differ:
+Chromium shows a cross-site frame's redirects to no interceptor the runner can attach,
+and a popup's interceptor attaches only after its first request has left, so a redirect
+answering a cross-site frame's request, or a popup's first one, is not checked. Later
+requests and redirects in a popup are.
+
+Store authorization headers are removed from requests to other allowed sites;
+those sites use their own browser cookies. Chromium pauses every network hop, including redirects, for the origin check;
+headers are scoped again at each destination. The filter never
+adds credentials. Direct link, photo and PDF probes use the same origin policy and check each
+redirect before following it. The agent's separate store API calls retain their
+existing same-store URLs and manual-redirect behavior.
 
 Leave the window alone while it runs: the test drives it, and a click or a tab
 of yours can get in its way. To see the label, look in the proof folder for
@@ -113,6 +146,7 @@ the environment, which wins.
 | `DINKUS_E2E_GOG_CLIENT` | gogcli's default | A named gogcli OAuth client for that inbox |
 | `DINKUS_E2E_MAIL_CMD` | the gogcli script | Any command that prints the bodies of the messages matching `$DINKUS_MAIL_QUERY`, newest first |
 | `DINKUS_E2E_ACCESS_MAIL_QUERY` | Cloudflare's senders, last hour, naming the store's address | The Gmail search for the Access code email; set it when your Access emails don't name the store's address |
+| `DINKUS_E2E_ACCESS_ORIGINS` | none | Comma-separated exact HTTPS Cloudflare Access origins for this store (for example `https://your-team.cloudflareaccess.com`). Other Access tenants are blocked. |
 | `DINKUS_E2E_SHOPPER_EMAIL` | the owner's address | The checkout contact |
 | `DINKUS_E2E_PRODUCT_PATH` | the first shippable product | The product page to buy |
 | `DINKUS_E2E_SERVICE` | `GA` | The label service (Ground Advantage) |

@@ -2,7 +2,7 @@ import { renderLabelPdf } from "../support/label-pdf.mjs";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { test, expect } from "../support/browser.mjs";
+import { get, test, expect } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
 import { note, record } from "../support/proof.mjs";
 import { journey, step } from "../support/steps.mjs";
@@ -24,7 +24,7 @@ async function openOrdersAdmin(page) {
   if (signedIn && !pluginsNoted) {
     pluginsNoted = true;
     try {
-      const response = await page.context().request.get(`${config.store}/_emdash/api/admin/plugins`, { headers: { "X-EmDash-Request": "1" } });
+      const response = await get(page, `${config.store}/_emdash/api/admin/plugins`, { headers: { "X-EmDash-Request": "1" } });
       note("plugins", response.ok() ? describePlugins(await response.json()) : `couldn't read the plugin list (HTTP ${response.status()})`);
     } catch (error) {
       note("plugins", `couldn't read the plugin list (${error.message.split("\n")[0]})`);
@@ -172,7 +172,7 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
 
     await step(page, "Label PDF downloads and renders", async () => {
       if (!label.pdf) throw new Error("No 'Open PDF to print' link.");
-      const response = await page.context().request.get(new URL(label.pdf, config.ship).href);
+      const response = await get(page, new URL(label.pdf, config.ship).href);
       expect(response.status()).toBe(200);
       expect(response.headers()["content-type"]).toMatch(/application\/pdf/);
       const body = await response.body();

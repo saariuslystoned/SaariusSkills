@@ -1,4 +1,4 @@
-import { test, expect, shopperPage, closeShopper } from "../support/browser.mjs";
+import { get, test, expect, shopperPage, closeShopper } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
 import { note, record } from "../support/proof.mjs";
 import { STORE_OPENS, elsewhere, openShopperPage as open, storeOpens } from "../support/shopper.mjs";
@@ -44,7 +44,7 @@ async function brokenLinks(page, links) {
   const broken = [];
   for (const href of new Set(links)) {
     // A link that gets no answer at all is a finding too, and the rest are still checked.
-    const response = await page.request.get(new URL(href, config.store).href).catch(error => error);
+    const response = await get(page, new URL(href, config.store).href).catch(error => error);
     if (response instanceof Error) broken.push(`${href} didn't answer (${response.message.split("\n")[0]})`);
     else if (new URL(response.url()).origin !== config.store) broken.push(`${href} sent the shopper to ${elsewhere(response.url())}`);
     else if (response.status() !== 200) broken.push(`${href} answered HTTP ${response.status()}`);

@@ -1,3 +1,4 @@
+import { get } from "./browser.mjs";
 import { config } from "./env.mjs";
 import { note } from "./proof.mjs";
 import { openStoreAdmin } from "./signin.mjs";
@@ -10,7 +11,7 @@ const SIGN_IN_ONCE = "Run once with DINKUS_E2E_ADMIN_SIGNIN=wait and sign in by 
 /** Opens a page of the store admin, signing in to its Access app with a one-time PIN when it asks. */
 export async function openAdmin(page, url) {
   if (!await openStoreAdmin(page, url, { waitForPerson: config.adminSignIn === "wait" })) {
-    throw new Error(`The store admin needs a sign-in the test can't make: its Access app offers no one-time PIN and the saved profile has no sign-in. ${SIGN_IN_ONCE}`);
+    throw new Error("The store admin needs a sign-in the test can't make: its Access app offers no one-time PIN and the saved profile has no sign-in. Turn on One-time PIN in the Access app; the request filter blocks other sign-in providers such as Google.");
   }
   // A store whose admin isn't signed in through Access asks for EmDash's own sign-in (passkey or email link).
   if (!new URL(page.url()).pathname.startsWith("/_emdash/admin/login")) return;
@@ -22,7 +23,7 @@ export async function openAdmin(page, url) {
 
 /** Notes which plugin versions the store runs, so the proof says what it covers. */
 export async function notePlugins(page) {
-  const response = await page.context().request.get(`${config.store}/_emdash/api/admin/plugins`, { headers: { "X-EmDash-Request": "1" } }).catch(error => error);
+  const response = await get(page, `${config.store}/_emdash/api/admin/plugins`, { headers: { "X-EmDash-Request": "1" } }).catch(error => error);
   if (response instanceof Error) note("plugins", `couldn't read the plugin list (${firstLine(response)})`);
   else note("plugins", response.ok() ? describePlugins(await response.json()) : `couldn't read the plugin list (HTTP ${response.status()})`);
 }
