@@ -53,6 +53,9 @@ link for the store owner, and Cloudflare Access's one-time PIN for the store adm
   Each run places two Stripe TEST orders and leaves both Completed. When
   Cloudflare Access fronts the store's API as well as its admin, the agent's
   calls carry the saved Access sign-in.
+- For Problems, Buy and ship's Stripe TEST checkout and a store admin sign-in
+  that can complete orders in Commerce Orders. Each run places one Stripe TEST
+  order and leaves it Completed; the test cards Stripe turns down make no order.
 - Ship turned on for the store, with a ship-from address and at least one box size
   in Ship Settings. Ship makes free Pitney Bowes sandbox labels for TEST orders.
 - The Cloudflare Access app in front of the store admin, or of the whole test

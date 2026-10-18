@@ -1,6 +1,6 @@
 ---
 name: dinkuskit-live-test
-description: Run the saved DinkusKit live test journeys (Buy and ship - Stripe TEST order, Commerce order, Pitney Bowes sandbox label in Ship, Completed; Storefront - homepage, product list, product page, category page; Cart - add, change quantity, remove, cart total; Manage products - add a product with a photo, page in a category, new price and name, archive and restore; Mark as completed - the owner and an agent each complete a paid TEST order without a label) and hand back their proof. Use when the owner says "run the test", asks to prove a DinkusKit release or plugin update works on a live store, asks for one journey, or wants a stuck TEST order finished.
+description: Run the saved DinkusKit live test journeys (Buy and ship - Stripe TEST order, Commerce order, Pitney Bowes sandbox label in Ship, Completed; Storefront - homepage, product list, product page, category page; Cart - add, change quantity, remove, cart total; Manage products - add a product with a photo, page in a category, new price and name, archive and restore; Mark as completed - the owner and an agent each complete a paid TEST order without a label; Problems - declined, insufficient-funds and failed bank check test cards turned down with no order, leaving Stripe for the cart and coming back, paying once) and hand back their proof. Use when the owner says "run the test", asks to prove a DinkusKit release or plugin update works on a live store, asks for one journey, or wants a stuck TEST order finished.
 ---
 
 # DinkusKit live test
@@ -18,7 +18,11 @@ name, and archives and restores it, and the Shop list, product page and category
 page follow each change. In Mark as completed, the owner marks a paid TEST order
 completed in Commerce Orders with a carrier and tracking number, and an agent
 marks another completed through Commerce's orders API with neither, using an
-admin key the test makes for an hour and deletes at the end.
+admin key the test makes for an hour and deletes at the end. In Problems, Stripe
+turns down three of its test cards that never pay (declined, not enough funds,
+a failed bank security check) with a clear message and no order, the shopper
+leaves Stripe for the cart and finds the way back to the same checkout, pays
+once with the test card, and the owner completes that one order.
 
 Each journey has a stage. `@running` journeys run on every `npm test` and must all
 pass on the beta store before a final release. A new journey starts as `@next` and
@@ -49,6 +53,8 @@ authorization the test needs.
      Manage products works in the store admin and takes its product, page and
      category off the store again, leaving one archived product and its photo.
      Mark as completed places two Stripe TEST orders and leaves both Completed.
+     Problems tries three refused test cards and the way back from the cart in
+     one Stripe TEST checkout, pays it once and leaves that order Completed.
    - `npm run finish` finishes a Buy and ship order that already exists. Set
      `DINKUS_E2E_ORDER=1001` to pick one, or leave it unset to pick the only TEST
      order still waiting for a label.
@@ -57,7 +63,7 @@ authorization the test needs.
    background check up to 7 minutes to collect the label on its own. Storefront
    and Cart each take about a minute, and Manage products about two, plus up to a
    minute for each change the store is slow to show. Mark as completed takes about
-   four, most of it in its two checkouts.
+   four, most of it in its two checkouts, and Problems about three.
 4. Read the proof. The run prints each journey's verdict, then `Verdict: PASS` or
    `Verdict: FAIL` and the path to its `PROOF.md`. Read `PROOF.md` and
    `report.json`, and actually look at `label.pdf.png` (macOS draws it from the
@@ -79,7 +85,9 @@ authorization the test needs.
 ## Rules
 
 - TEST mode only. The checkout pays only with Stripe's test card
-  4242 4242 4242 4242, and Ship makes sandbox labels only for TEST orders. Stop if
+  4242 4242 4242 4242, and Ship makes sandbox labels only for TEST orders.
+  Problems also tries three Stripe test cards that never take a payment
+  (4000 0000 0000 0002, 4000 0000 0000 9995 and 4000 0027 6000 3184). Stop if
   a page shows live mode or offers real postage. The test itself stops unpaid if
   Stripe opens a session that isn't in test mode or shows a captcha.
 - Never pay twice. If a payment went through and a later step failed, finish that
@@ -98,6 +106,7 @@ authorization the test needs.
 - Mark as completed completes only TEST orders: the two it places, paying each
   once with the test card, or the Processing TEST orders
   `DINKUS_E2E_ORDERS_TO_COMPLETE` names. It leaves every other order alone.
+  Problems completes only the one TEST order it places.
 - The agent's key is the only credential the test makes: an admin key for the
   owner that stops working after an hour. It never leaves the test's own calls,
   and the test deletes it at the end of every run. If that last step fails,
@@ -139,6 +148,15 @@ authorization the test needs.
   steps are soft: report a refused completion with Commerce's answer, and an
   order that shows the wrong status, carrier or tracking number with what it
   showed.
+- Problems stops when the owner can't open Commerce Orders, when Stripe
+  Checkout won't open, or when the payment fails. Its other steps are soft:
+  report each card Stripe didn't turn down with a clear message, with what the
+  shopper saw. If Stripe took a payment from a card it should have refused, say
+  so first: the test paid nothing more and completed that order instead. A
+  failure on "The cart offers a way back to the same Stripe checkout" means a
+  shopper who left Stripe couldn't get back to their open checkout from the cart;
+  the test still paid once through the checkout's own Stripe page, so the steps
+  after it ran.
 
 ## What each step proves
 
