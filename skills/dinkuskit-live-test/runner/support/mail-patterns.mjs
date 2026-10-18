@@ -12,6 +12,12 @@ export const extract = {
   },
 };
 
+/**
+ * The search for Cloudflare Access's code emails from the last hour. It names the store's host, as each code email
+ * does, so a run never types a code another store sent to the same test inbox.
+ */
+export const accessQuery = store => `from:(notify.cloudflare.com OR cloudflareaccess.com) newer_than:1h${store ? ` "${new URL(store).hostname}"` : ""}`;
+
 /** Undoes the encodings a mail body may still carry (HTML entities, quoted-printable). */
 export function clean(text) {
   return text.replace(/=\r?\n/g, "").replace(/=3D/gi, "=").replaceAll("&amp;", "&");

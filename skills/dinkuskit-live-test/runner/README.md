@@ -21,8 +21,9 @@ It runs in a visible Chrome window with its own saved profile
 signs in with an emailed link, and the Cloudflare Access app in front of the
 store admin (or of the whole test store) signs in with an emailed one-time PIN.
 The test reads both emails itself through the mail command, so nobody has to
-step in. If the Access app offers only Google, set
-`DINKUS_E2E_ADMIN_SIGNIN=wait` and sign in once in the window.
+step in. It takes only Access emails that name the store's address, so it never
+types a code another store sent to the same inbox. If the Access app offers
+only Google, set `DINKUS_E2E_ADMIN_SIGNIN=wait` and sign in once in the window.
 
 ## Run
 
@@ -102,7 +103,7 @@ the environment, which wins.
 | `DINKUS_E2E_MAIL_ACCOUNT` | none | The test inbox; picks the bundled read-only `scripts/gog-mail.sh` |
 | `DINKUS_E2E_GOG_CLIENT` | gogcli's default | A named gogcli OAuth client for that inbox |
 | `DINKUS_E2E_MAIL_CMD` | the gogcli script | Any command that prints the bodies of the messages matching `$DINKUS_MAIL_QUERY`, newest first |
-| `DINKUS_E2E_ACCESS_MAIL_QUERY` | Cloudflare's senders, last hour | The Gmail search for the Access code email |
+| `DINKUS_E2E_ACCESS_MAIL_QUERY` | Cloudflare's senders, last hour, naming the store's address | The Gmail search for the Access code email; set it when your Access emails don't name the store's address |
 | `DINKUS_E2E_SHOPPER_EMAIL` | the owner's address | The checkout contact |
 | `DINKUS_E2E_PRODUCT_PATH` | the first shippable product | The product page to buy |
 | `DINKUS_E2E_SERVICE` | `GA` | The label service (Ground Advantage) |

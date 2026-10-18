@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { clean, extract } from "../support/mail-patterns.mjs";
+import { accessQuery, clean, extract } from "../support/mail-patterns.mjs";
 import { parseSettings } from "../support/settings-file.mjs";
 import { describePlugins } from "../support/store-plugins.mjs";
 import { cantBuyClaims, cartCount, cartTotal, dollars, money } from "../support/storefront-text.mjs";
@@ -25,6 +25,12 @@ test("the Access code is found after PIN on its own line", () => {
 
 test("longer numbers, dates and ids are not codes", () => {
   assert.deepEqual(extract.access("Order 1234567 placed 2026-10-17, ref ab123456, id=654321"), []);
+});
+
+test("the Access code search looks only for the store under test", () => {
+  assert.equal(accessQuery("https://beta.store.example"), 'from:(notify.cloudflare.com OR cloudflareaccess.com) newer_than:1h "beta.store.example"');
+  assert.equal(accessQuery("http://localhost:4321"), 'from:(notify.cloudflare.com OR cloudflareaccess.com) newer_than:1h "localhost"');
+  assert.equal(accessQuery(""), "from:(notify.cloudflare.com OR cloudflareaccess.com) newer_than:1h");
 });
 
 test("the settings file takes only DINKUS_E2E_ keys", () => {
