@@ -45,7 +45,8 @@ authorization the test needs.
    If it doesn't, set the machine up once from [setup](references/setup.md). Ask the
    owner only for values you can't find yourself.
 3. Start the run and let it finish. It opens a Chrome window with its own saved
-   profile.
+   profile. Nobody should click in that window while it runs; the label and its
+   picture are in the proof folder.
    - `npm test` runs every `@running` journey: Buy and ship, Storefront, Cart,
      Mark as completed and Problems, in about 25 minutes. Buy and ship goes from
      a new Stripe TEST checkout to Completed. The run places four TEST orders and

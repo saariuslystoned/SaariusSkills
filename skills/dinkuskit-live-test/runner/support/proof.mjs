@@ -78,9 +78,13 @@ export function note(key, value) {
   write();
 }
 
+/**
+ * Saves the page's screenshot for the step about to be recorded. A picture is never worth holding the
+ * run for: one that hasn't come within 30 s is skipped, and the step's result stands.
+ */
 export async function shot(page, name) {
   const file = join(config.runDir, `${String(steps.length + 1).padStart(2, "0")}-${name}.png`);
-  await page.screenshot({ path: file, fullPage: true }).catch(() => {});
+  await page.screenshot({ path: file, fullPage: true, timeout: 30_000 }).catch(() => {});
   return file;
 }
 
