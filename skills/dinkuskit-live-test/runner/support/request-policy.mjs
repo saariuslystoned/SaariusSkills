@@ -40,7 +40,6 @@ export function requestPolicy({ store, accessOrigins = [] }) {
 }
 
 const installed = new WeakMap();
-const frames = new WeakMap();
 const guarded = new WeakMap();
 
 /** Chromium pauses every hop, including redirects; install before navigating. */
@@ -51,25 +50,15 @@ export function filterPage(page, settings) {
 
 async function install(page, policy, settings) {
   await guardContext(page.context(), policy, settings);
-  page.on("frameattached", frame => { filterFrame(frame, policy); });
   await intercept(await page.context().newCDPSession(page), page.context(), policy);
   return page;
 }
 
-/** A cross-site frame runs in its own renderer, which the page's interceptor never sees. */
-function filterFrame(frame, policy) {
-  if (!frames.has(frame)) frames.set(frame, frame.page().context().newCDPSession(frame)
-    .then(session => intercept(session, frame.page().context(), policy))
-    // A same-site frame has no session of its own and is already covered. Forget it, so the
-    // frame's next request tries again in case it has since moved to a renderer of its own.
-    .catch(() => { frames.delete(frame); }));
-  return frames.get(frame);
-}
-
 /**
- * Popups the site opens and cross-site frames start before an interceptor can attach. The context
- * checks every first request and holds it until its page or frame has an interceptor, so the
- * redirect hops that follow are checked too.
+ * The page's interceptor sees its own requests and redirects, but not a cross-site frame's (Chromium
+ * gives those their own renderer) or a popup's first one, sent before the popup's interceptor exists.
+ * The context route sees every request's first hop from any of them: it refuses an off-list
+ * destination, removes store headers, and holds a popup's request until its interceptor is ready.
  */
 function guardContext(context, policy, settings) {
   if (!guarded.has(context)) guarded.set(context, (async () => {
@@ -78,11 +67,19 @@ function guardContext(context, policy, settings) {
       if (!policy.allows(request.url())) return route.abort("blockedbyclient");
       let frame = null;
       try { frame = request.frame(); } catch {} // A worker's request belongs to its page's interceptor.
-      if (frame) {
-        await filterPage(frame.page(), settings);
-        if (frame !== frame.page().mainFrame()) await filterFrame(frame, policy);
+      try {
+        if (frame) await filterPage(frame.page(), settings);
+      } catch {
+        // No interceptor could attach (the page is closing, say), so nothing would check a redirect.
+        return route.abort("blockedbyclient").catch(() => {});
       }
-      return route.fallback();
+      if (policy.isStore(request.url())) return route.fallback();
+      // This first request left before its interceptor attached, so strip store headers here too.
+      const headers = request.headers();
+      const kept = policy.publicHeaders(Object.fromEntries(Object.entries(headers).filter(([name]) => name.toLowerCase() !== "cookie")));
+      const cookie = Object.entries(headers).find(([name]) => name.toLowerCase() === "cookie");
+      if (Object.keys(kept).length + (cookie ? 1 : 0) === Object.keys(headers).length) return route.fallback();
+      return route.fallback({ headers: cookie ? { ...kept, [cookie[0]]: cookie[1] } : kept });
     });
     // Chromium's Fetch interception never pauses a WebSocket handshake.
     await context.routeWebSocket(url => !policy.allows(url.href.replace(/^ws/, "http")), ws => ws.close());

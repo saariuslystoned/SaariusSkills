@@ -39,10 +39,12 @@ When the store sends visitors to a Cloudflare Access sign-in that
 `DINKUS_E2E_ACCESS_ORIGINS` doesn't list, the run stops before its first page and
 names the origin to add, since the filter would block that sign-in.
 
-Popups the site opens and cross-site frames (Stripe's) get the same filter. Their very
-first request is checked by origin before it leaves; a redirect answering that first
-request is not checked, because their own interceptor can only attach once it has
-started. Every later request and redirect from them is checked.
+Popups the site opens and cross-site frames (Stripe's) get the same origin check and
+lose store headers on every request they start. Redirects are where they differ:
+Chromium shows a cross-site frame's redirects to no interceptor the runner can attach,
+and a popup's interceptor attaches only after its first request has left, so a redirect
+answering a cross-site frame's request, or a popup's first one, is not checked. Later
+requests and redirects in a popup are.
 
 Store authorization headers are removed from requests to other allowed sites;
 those sites use their own browser cookies. Chromium pauses every network hop, including redirects, for the origin check;
