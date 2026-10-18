@@ -37,8 +37,9 @@ they cannot bypass the browser request filter.
 Store authorization headers are removed from requests to other allowed sites;
 those sites use their own browser cookies. Chromium pauses every network hop, including redirects, for the origin check;
 headers are scoped again at each destination. The filter never
-adds credentials. The agent's separate store API calls retain their existing
-same-store URLs and manual-redirect behavior; they are not browser requests.
+adds credentials. Direct link, photo and PDF probes use the same origin policy and check each
+redirect before following it. The agent's separate store API calls retain their
+existing same-store URLs and manual-redirect behavior.
 
 ## Run
 

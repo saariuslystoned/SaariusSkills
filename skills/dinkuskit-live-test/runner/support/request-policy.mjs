@@ -69,3 +69,21 @@ async function install(page, policy) {
   await session.send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] });
   return page;
 }
+
+/** Direct photo/link/PDF probes use the same sites and check redirects before following. */
+export async function filteredGet(client, address, settings, options = {}) {
+  const policy = requestPolicy(settings);
+  let url = address;
+  for (let hop = 0; hop < 6; hop++) {
+    if (!policy.allows(url)) throw new Error("A direct request left the selected sites.");
+    const headers = policy.isStore(url) ? options.headers : policy.publicHeaders(options.headers ?? {});
+    const response = await client.get(url, { ...options, headers, maxRedirects: 0 });
+    const location = response.headers().location;
+    if (![301, 302, 303, 307, 308].includes(response.status()) || !location) return response;
+    const next = new URL(location, url).href;
+    await response.dispose();
+    if (!policy.isStore(next)) options = { ...options, headers: policy.publicHeaders(options.headers ?? {}) };
+    url = next;
+  }
+  throw new Error("Too many redirects in a direct site request.");
+}

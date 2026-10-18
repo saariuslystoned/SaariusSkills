@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { newPage, test, expect, shopperPage, closeShopper } from "../support/browser.mjs";
+import { get, newPage, test, expect, shopperPage, closeShopper } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
 import { record } from "../support/proof.mjs";
 import { openShopperPage } from "../support/shopper.mjs";
@@ -139,7 +139,7 @@ async function uploadPhoto(page, fileName, label) {
  */
 async function imageHash(page, src) {
   if (!src) return "";
-  const response = await page.request.get(new URL(src, config.store).href).catch(() => null);
+  const response = await get(page, new URL(src, config.store).href).catch(() => null);
   return response?.ok() ? createHash("sha256").update(await response.body()).digest("hex") : "";
 }
 

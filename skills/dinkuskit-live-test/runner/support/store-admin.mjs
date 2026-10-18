@@ -1,3 +1,4 @@
+import { get } from "./browser.mjs";
 import { config } from "./env.mjs";
 import { note } from "./proof.mjs";
 import { openStoreAdmin } from "./signin.mjs";
@@ -22,7 +23,7 @@ export async function openAdmin(page, url) {
 
 /** Notes which plugin versions the store runs, so the proof says what it covers. */
 export async function notePlugins(page) {
-  const response = await page.context().request.get(`${config.store}/_emdash/api/admin/plugins`, { headers: { "X-EmDash-Request": "1" } }).catch(error => error);
+  const response = await get(page, `${config.store}/_emdash/api/admin/plugins`, { headers: { "X-EmDash-Request": "1" } }).catch(error => error);
   if (response instanceof Error) note("plugins", `couldn't read the plugin list (${firstLine(response)})`);
   else note("plugins", response.ok() ? describePlugins(await response.json()) : `couldn't read the plugin list (HTTP ${response.status()})`);
 }

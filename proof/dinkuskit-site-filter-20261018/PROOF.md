@@ -19,14 +19,16 @@ no assertion relaxed, and no store/credential/provider setting was changed.
 
 ## Proof
 
-- `node --test skills/dinkuskit-live-test/runner/unit/*.test.mjs`: 27 PASS.
+- `node --test skills/dinkuskit-live-test/runner/unit/*.test.mjs`: 29 PASS.
   Includes allowed origins, sibling/Access/lookalike denial, variable photo
   sizes, credential header stripping, per-hop checks and one interceptor per
-  reused persistent page.
+  reused persistent page. Direct link/photo/PDF probes apply the same origin
+  rules and follow redirects only after validating the next destination.
 - Real installed Chromium, disposable context, two loopback hostnames: a
   photo request with width3471 decoded; a request bearing a synthetic header
   redirected to the off-list hostname and was blocked before any destination
-  request. One original redirect request, zero off-list requests. The initial
+  request. One original browser redirect request and one direct-client redirect request,
+  zero off-list requests. The initial
   Playwright route implementation failed this check and was replaced before
   commit; no false-pass evidence is retained as successful proof.
 - No live-store request, sign-in, mailbox access, real secret, checkout or label

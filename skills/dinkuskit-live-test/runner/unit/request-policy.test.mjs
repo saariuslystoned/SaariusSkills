@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { requestPolicy, filterPage } from "../support/request-policy.mjs";
+import { requestPolicy, filterPage, filteredGet } from "../support/request-policy.mjs";
 
 const settings = { store: "https://e2e.sm0ky.dev", accessOrigins: ["https://store-team.cloudflareaccess.com"] };
 const policy = requestPolicy(settings);
@@ -76,4 +76,27 @@ test("a reused persistent page has one interceptor", async () => {
   await Promise.all([filterPage(page, settings), filterPage(page, settings)]);
   await filterPage(page, settings);
   assert.equal(sessions, 1);
+});
+
+test("direct probes check redirect destinations and do not forward store headers", async () => {
+  const calls = [];
+  const client = { get: async (url, options) => {
+    calls.push({ url, options });
+    return { status: () => calls.length === 1 ? 302 : 200,
+      headers: () => ({ location: "https://ship.dinkuskit.com/label.pdf" }), dispose: async () => {} };
+  } };
+  await filteredGet(client, settings.store + "/label", settings, { headers: { Authorization: "synthetic", Accept: "application/pdf" } });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].options.maxRedirects, 0);
+  assert.deepEqual(calls[1].options.headers, { Accept: "application/pdf" });
+});
+
+test("direct probes never contact an off-list redirect or initial address", async () => {
+  let calls = 0;
+  const client = { get: async () => { calls++; return { status: () => 302,
+    headers: () => ({ location: "https://e2e-v2.sm0ky.dev/private" }), dispose: async () => {} }; } };
+  await assert.rejects(filteredGet(client, settings.store + "/go", settings), /left the selected sites/);
+  assert.equal(calls, 1);
+  await assert.rejects(filteredGet(client, "https://example.com/", settings), /left the selected sites/);
+  assert.equal(calls, 1);
 });

@@ -1,4 +1,4 @@
-import { newPage } from "./browser.mjs";
+import { newPage, get } from "./browser.mjs";
 import { expect } from "@playwright/test";
 import { config } from "./env.mjs";
 import { openStorePage } from "./signin.mjs";
@@ -155,7 +155,7 @@ async function findPhysicalProduct(page) {
     await page.goto(new URL(path, config.store).href);
     const ids = await page.locator("[data-add-to-cart]").evaluateAll(buttons => buttons.map(button => button.getAttribute("data-add-to-cart")));
     for (const id of ids.filter(Boolean)) {
-      const response = await page.request.get(`${config.store}/api/guest-cart/snapshot?ids=${encodeURIComponent(id)}`);
+      const response = await get(page, `${config.store}/api/guest-cart/snapshot?ids=${encodeURIComponent(id)}`);
       const product = response.ok() ? (await response.json()).products?.[0] : null;
       if (product?.found && product.fulfillment !== "digital") { productId = id; return path; }
     }

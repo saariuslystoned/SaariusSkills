@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { test as base, chromium } from "@playwright/test";
 import { config } from "./env.mjs";
-import { filterPage } from "./request-policy.mjs";
+import { filterPage, filteredGet } from "./request-policy.mjs";
 
 const SIZE = { width: 1280, height: 900 };
 const launch = () => ({
@@ -61,3 +61,6 @@ export { expect } from "@playwright/test";
 export async function newPage(context) {
   return filterPage(await context.newPage(), config);
 }
+
+/** A link/photo/PDF probe with the same origin and redirect policy. */
+export const get = (page, url, options) => filteredGet(page.context().request, url, config, options);

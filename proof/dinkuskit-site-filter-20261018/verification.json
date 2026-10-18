@@ -1,39 +1,47 @@
 {
   "base": "bdd71b7bb1f113a288d12223fccff7a2f26e1e58",
   "source_sha256": {
-    "skills/dinkuskit-live-test/runner/support/request-policy.mjs": "c46b7aa9a2c44588f0a106a388aade0483d87146e1bdc807ca6d79d3ef3879cc",
-    "skills/dinkuskit-live-test/runner/support/browser.mjs": "23c7789300b388595772b41625cb7dca4a6aece9f9a9887805b4a07a37a5364b",
-    "skills/dinkuskit-live-test/runner/support/checkout.mjs": "ea7124a450470ca2d1ab67544ac2a7b021dcc4c47061d638ec7b50b9f3dee080",
+    "skills/dinkuskit-live-test/runner/support/request-policy.mjs": "d67071db6f0a840749b48829941864d2bdfd70c6a53ac265aacf2a51d285b4d0",
+    "skills/dinkuskit-live-test/runner/support/browser.mjs": "bd1a2c868c802466b80407a1e473df20725d465b8c19434239baa58937d3f433",
+    "skills/dinkuskit-live-test/runner/support/checkout.mjs": "98a6ca4715b61dd59937bddd09690ceee9b1f01c5aa28ae4d43f1d6c28c51e03",
     "skills/dinkuskit-live-test/runner/support/env.mjs": "a001a4bcbdf4dba9ec37d04bd1ca375a465db6ecc9202124433d2571c7593e24",
-    "skills/dinkuskit-live-test/runner/tests/manage-products.spec.mjs": "b56818124b2358e3cc1451dc22f6259cd14887b8abb0bc9052265913404e592d",
-    "skills/dinkuskit-live-test/runner/unit/request-policy.test.mjs": "a419597dac3714086f35e7f74fe26e86c928820022447d43a471002995666a34"
+    "skills/dinkuskit-live-test/runner/tests/manage-products.spec.mjs": "54590edf37e765c14d27a57c2e76e864d6e96632e6fcc16939eb22e4bfa6610c",
+    "skills/dinkuskit-live-test/runner/unit/request-policy.test.mjs": "fb3c1a6f8c937ea7709d5338efa906d23e2717a4424291142fa5cf488bcc3350",
+    "skills/dinkuskit-live-test/runner/support/store-admin.mjs": "5fe9b9f1dc110d2efc5df3f49f2655a36973252bad724a8ff1f87c9e0c4faa94",
+    "skills/dinkuskit-live-test/runner/tests/storefront.spec.mjs": "e1201775af345f6b38216b3ac077001cf7048b8d3e8a8ddfd6057aa821827caa",
+    "skills/dinkuskit-live-test/runner/tests/buy-and-ship.spec.mjs": "2059c0e0cbfaeddd7addcf8abc89409757ae38efb0550e37c5917b0e62221e63"
   },
-  "unit_log_sha256": "6fd5d1f2d211dc24c1d62d88b542f5bb0be5519b679127811a720a8a28d18e8b",
+  "unit_log_sha256": "9b560904cc8afe9020abe31d03cc45f659e32e2d6ce2989c8b61a1c52863f60f",
   "browser_proof": {
     "result": "PASS",
     "scope": "loopback only; synthetic header",
     "variablePhotoDecoded": true,
     "credentialedRedirectSentOnce": true,
     "offSiteRedirectRequests": 0,
+    "directProbeRedirectBlocked": true,
     "requests": [
       {
         "path": "/",
-        "host": "127.0.0.1:52352"
+        "host": "127.0.0.1:53268"
       },
       {
         "path": "/photo?w=3471&h=29",
-        "host": "127.0.0.1:52352"
+        "host": "127.0.0.1:53268"
       },
       {
         "path": "/favicon.ico",
-        "host": "127.0.0.1:52352"
+        "host": "127.0.0.1:53268"
       },
       {
         "path": "/redirect",
-        "host": "127.0.0.1:52352"
+        "host": "127.0.0.1:53268"
+      },
+      {
+        "path": "/api-redirect",
+        "host": "127.0.0.1:53268"
       }
     ]
   },
-  "full_python_suite": "running at commit; terminal status will be in local run",
+  "full_python_suite": "PASS locally; raw log in run root",
   "live_requests": 0
 }
