@@ -22,19 +22,26 @@ let productId = null;
  * return URL, and `state` is Commerce's checkout state ("paid" once it has recorded the order).
  */
 export async function placeTestOrder(page) {
+  const { email } = await openCheckout(page);
+  await payOnStripe(page, email);
+  return confirmCheckout(page);
+}
+
+/**
+ * Takes a guest shopper to Stripe's hosted Checkout for one physical product: product page, Add to
+ * cart, /cart with a US delivery address, then Continue to secure checkout. Returns the checkout
+ * contact's email, and `resumed` when the browser already had a checkout pending in Commerce and
+ * went back to its Stripe session instead.
+ */
+export async function openCheckout(page) {
   const email = config.shopper.email || config.ownerEmail;
   if (!email) throw new Error("Set DINKUS_E2E_SHOPPER_EMAIL (or DINKUS_E2E_OWNER_EMAIL) for the checkout contact.");
 
   let path = config.productPath || null;
-  // A store behind Cloudflare Access sends the browser to Access's login once the saved sign-in lapses.
-  await openStorePage(page, config.store + "/");
   // Never two checkouts at once: a checkout an earlier run left pending in Commerce is paid on its
   // own Stripe session instead of starting another.
-  const earlier = await page.evaluate(readStatus, { key: CHECKOUT_KEY, routes: statusRoutes() });
-  const resume = earlier.checkout?.state === "pending" ? earlier.checkout.redirectUrl : null;
-  if (resume && new URL(resume).hostname === "checkout.stripe.com") {
-    await page.goto(resume);
-  } else {
+  const resumed = await resumeCheckout(page);
+  if (!resumed) {
     // The saved profile keeps an earlier run's cart and checkout; a leftover checkout locks the cart.
     await page.evaluate(keys => keys.forEach(key => localStorage.removeItem(key)), [CART_KEY, CHECKOUT_KEY]);
     path = config.productPath || await findPhysicalProduct(page);
@@ -64,8 +71,28 @@ export async function placeTestOrder(page) {
     await orFail(page.waitForURL(url => url.hostname === "checkout.stripe.com", { timeout: 60_000 }), async () =>
       `The store did not open Stripe Checkout: ${await cartMessage(page)}`);
   }
+  return { email, resumed };
+}
 
-  await payOnStripe(page, email);
+/**
+ * Goes back to the Stripe page of the checkout this browser left pending in Commerce, as a shopper
+ * returning to it would. False, leaving the browser on the store's homepage, when there is none.
+ */
+export async function resumeCheckout(page) {
+  // A store behind Cloudflare Access sends the browser to Access's login once the saved sign-in lapses.
+  await openStorePage(page, config.store + "/");
+  const earlier = await page.evaluate(readStatus, { key: CHECKOUT_KEY, routes: statusRoutes() });
+  const resume = earlier.checkout?.state === "pending" ? earlier.checkout.redirectUrl : null;
+  if (!resume || new URL(resume).hostname !== "checkout.stripe.com") return false;
+  await page.goto(resume);
+  return true;
+}
+
+/**
+ * Once Stripe has sent the shopper back to the store: what the thank-you page shows, and Commerce's
+ * word on the checkout. See placeTestOrder for what it returns.
+ */
+export async function confirmCheckout(page) {
   // Payments sends Stripe back to <store>/checkout/success?session_id=cs_test_...
   const sessionId = new URL(page.url()).searchParams.get("session_id");
   // What the shopper sees comes first: the test's own status call below would record the order
@@ -135,10 +162,34 @@ async function findPhysicalProduct(page) {
   throw new Error(`No product on ${config.store} can be added to the cart and shipped; set DINKUS_E2E_PRODUCT_PATH.`);
 }
 
-/** Stripe's hosted Checkout keeps its fields on the page itself, not in frames, under stable ids. */
-async function payOnStripe(page, email) {
-  // Only ever a TEST session: its URL carries a cs_test_ session id. Anything else stops the run unpaid.
+/** Pays on Stripe's hosted Checkout with the 4242 test card and waits for Stripe to send the shopper back. */
+export async function payOnStripe(page, email) {
+  await submitCard(page, email, "4242424242424242");
+  const back = url => url.origin === config.store;
+  await page.waitForURL(back, { timeout: 120_000 }).catch(async () => {
+    const problem = await texts(page, '[role="alert"], .FieldError');
+    if (await captchaShown(page)) throw new CaptchaShown();
+    if (config.headless) throw new Error(`Stripe did not send the shopper back to the store: ${problem}`);
+    console.log("\n>>> Finish paying on the Stripe page in this test's browser window (card 4242 4242 4242 4242, 12/34, CVC 123).\n");
+    await page.waitForURL(back, { timeout: HUMAN_WAIT_MS });
+  });
+}
+
+/**
+ * Fills Stripe's hosted Checkout with one of Stripe's test cards and submits it. Stripe keeps the
+ * fields on the page itself, not in frames, under stable ids.
+ */
+export async function submitCard(page, email, cardNumber) {
+  requireTestMode(page);
+  await orCaptcha(page, fillCard(page, email, cardNumber));
+}
+
+/** Only ever a TEST session: its URL carries a cs_test_ session id. Anything else stops the run unpaid. */
+export function requireTestMode(page) {
   if (!/\/cs_test_/.test(new URL(page.url()).pathname)) throw new Error("Stripe opened a session that is not in test mode; nothing was paid.");
+}
+
+async function fillCard(page, email, cardNumber) {
   const card = page.locator("#cardNumber");
   // A card-only session shows the card form at once; with more methods on, Card is an accordion row.
   const cardRow = page.locator('[data-testid="card-accordion-item-button"]');
@@ -149,9 +200,9 @@ async function payOnStripe(page, email) {
   // A prefilled email is shown as text, not an input.
   const emailInput = page.locator("#email");
   if (await emailInput.isVisible() && await emailInput.isEditable() && !await emailInput.inputValue()) await emailInput.fill(email);
-  await card.pressSequentially("4242424242424242");
-  await page.locator("#cardExpiry").pressSequentially("1234");
-  await page.locator("#cardCvc").pressSequentially("123");
+  await retype(card, cardNumber);
+  await retype(page.locator("#cardExpiry"), "1234");
+  await retype(page.locator("#cardCvc"), "123");
   const name = page.locator("#billingName");
   if (await name.isVisible()) await name.fill(config.shopper.name);
   const country = page.locator("#billingCountry");
@@ -162,16 +213,106 @@ async function payOnStripe(page, email) {
   const saveInfo = page.locator("#enableStripePass");
   if (await saveInfo.isVisible() && await saveInfo.isChecked()) await saveInfo.uncheck();
   await page.getByTestId("hosted-payment-submit-button").or(page.locator(".SubmitButton")).first().click();
+}
 
-  const back = url => url.origin === config.store;
-  await page.waitForURL(back, { timeout: 120_000 }).catch(async () => {
-    const problem = await texts(page, '[role="alert"], .FieldError');
-    // A visible captcha is for a person to answer, never the test.
-    if (await page.locator('iframe[title*="hCaptcha challenge"]').isVisible().catch(() => false)) throw new Error("Stripe showed a captcha challenge; stopped without answering it.");
-    if (config.headless) throw new Error(`Stripe did not send the shopper back to the store: ${problem}`);
-    console.log("\n>>> Finish paying on the Stripe page in this test's browser window (card 4242 4242 4242 4242, 12/34, CVC 123).\n");
-    await page.waitForURL(back, { timeout: HUMAN_WAIT_MS });
+/** Types into one of Stripe's card fields, emptying it first: after Stripe turns a card down, its fields can still hold that card. */
+async function retype(field, value) {
+  if (await field.inputValue()) await field.clear();
+  await field.pressSequentially(value);
+}
+
+/**
+ * After a card Stripe should turn down: Stripe's message saying why, as the shopper reads it. Returns
+ * { paid: true } instead when Stripe took the payment and sent the shopper back to the store.
+ */
+export async function stripeRefusal(page, says) {
+  const deadline = Date.now() + 60_000;
+  for (;;) {
+    if (new URL(page.url()).origin === config.store) return { paid: true };
+    if (await captchaShown(page)) throw new CaptchaShown();
+    const shown = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
+    const message = shown.split("\n").map(line => line.trim()).find(line => says.test(line));
+    if (message) return { message };
+    if (Date.now() > deadline) throw new Error(`Stripe showed no message saying why it turned the card down: ${await texts(page, '[role="alert"], .FieldError')}`);
+    await page.waitForTimeout(1_000);
+  }
+}
+
+/**
+ * Fails Stripe's test bank check (3D Secure) as a shopper who can't verify would. Stripe's test page
+ * opens in frames inside Checkout and offers Complete and Fail. Returns at once if Stripe takes the
+ * payment without asking, which stripeRefusal then reports.
+ */
+export async function failBankCheck(page) {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    if (new URL(page.url()).origin === config.store) return;
+    if (await captchaShown(page)) throw new CaptchaShown();
+    for (const frame of page.frames()) {
+      for (const fail of [frame.locator("#test-source-fail-3ds"), frame.getByRole("button", { name: /^Fail( authentication)?$/i })]) {
+        if (await fail.first().isVisible().catch(() => false)) return fail.first().click();
+      }
+    }
+    await page.waitForTimeout(1_000);
+  }
+  throw new Error("Stripe never showed its test bank check with a Fail button.");
+}
+
+/** Leaves Stripe Checkout unpaid by its link back to the store: Payments gives Stripe the store's cart as the way back. */
+export async function leaveStripe(page) {
+  await orCaptcha(page, followBackLink(page));
+}
+
+async function followBackLink(page) {
+  const back = page.locator(`a[href^="${config.store}/cart"]:visible`).first();
+  await orFail(back.waitFor({ timeout: 15_000 }), async () => "Stripe's page shows no link back to the store.");
+  await back.click();
+  // A Stripe address carries the session, so only a store page is named by its path.
+  await orFail(page.waitForURL(url => url.origin === config.store && url.pathname === "/cart", { timeout: 30_000 }), async () => {
+    const at = new URL(page.url());
+    return `Stripe's link back led to ${at.origin === config.store ? at.pathname : at.hostname}, not the store's cart.`;
   });
+}
+
+// A visible captcha is for a person to answer, never the test.
+const captchaShown = page => page.locator('iframe[title*="hCaptcha challenge"]').isVisible().catch(() => false);
+
+/** Throws CaptchaShown when Stripe has a captcha up. */
+export async function stopIfCaptcha(page) {
+  if (await captchaShown(page)) throw new CaptchaShown();
+}
+
+/**
+ * Awaits `work`, actions on Stripe's page. A captcha over the page can make a click time out, or catch
+ * it so nothing happens, before anything looks for the captcha, so when `work` fails with one up,
+ * throws CaptchaShown instead.
+ */
+async function orCaptcha(page, work) {
+  try {
+    return await work;
+  } catch (error) {
+    await stopIfCaptcha(page);
+    throw error;
+  }
+}
+
+/** Stripe showed a captcha. Nobody answers it for the test, so a journey that meets one stops unpaid. */
+export class CaptchaShown extends Error {
+  constructor() {
+    super("Stripe showed a captcha challenge; stopped without answering it.");
+    this.name = "CaptchaShown";
+  }
+}
+
+/** Commerce's status for the checkout this browser saved, read from a store page opened beside the shopper's. */
+export async function checkoutStatus(page) {
+  const storePage = await page.context().newPage();
+  try {
+    await openStorePage(storePage, config.store + "/");
+    return await storePage.evaluate(readStatus, { key: CHECKOUT_KEY, routes: statusRoutes() });
+  } finally {
+    await storePage.close();
+  }
 }
 
 /**

@@ -11,6 +11,7 @@ journeys plan:
 | [Cart](tests/cart.spec.mjs) | `@next` | A new shopper adds a product to the cart, changes its quantity and removes it, with the cart total right each time |
 | [Manage products](tests/manage-products.spec.mjs) | `@next` | The owner adds a product with a photo, gives it a page in a new category, changes its price and name, and archives and restores it, with the store following each change |
 | [Mark as completed](tests/mark-completed.spec.mjs) | `@next` | The owner marks a paid TEST order completed in Commerce Orders, typing a carrier and tracking number, and an agent completes another through Commerce's orders API, sending neither; both end Completed |
+| [Problems](tests/problems.spec.mjs) | `@next` | A shopper's checkout going wrong: Stripe turns down a declined card, a card without enough funds and a card that fails the bank's security check, each with a clear message and no order; the shopper leaves Stripe for the cart, finds the way back to the same checkout and pays once with the test card, and the owner completes that one order |
 
 `npm test` runs every `@running` journey. A new journey starts as `@next` and
 moves to `@running` once it has passed on the test store.
@@ -28,7 +29,7 @@ step in. If the Access app offers only Google, set
 ```sh
 npm ci
 npm test                      # every @running journey; Buy and ship goes from checkout to Completed
-npm run journey -- storefront # one journey, by its file name (storefront, cart, manage-products, mark-completed, buy-and-ship)
+npm run journey -- storefront # one journey, by its file name (storefront, cart, manage-products, mark-completed, problems, buy-and-ship)
 npm run finish                # Buy and ship from an existing order (DINKUS_E2E_ORDER=1001, or the only unfinished TEST order)
 npm run unit                  # the runner's own offline checks
 ```
@@ -67,6 +68,20 @@ its admin, the agent's calls also carry the saved Access sign-in, as an agent's
 Access service token would. To complete existing Processing TEST orders instead
 of placing new ones, set `DINKUS_E2E_ORDERS_TO_COMPLETE` (the owner's order,
 then the agent's).
+
+Problems works in one Stripe TEST checkout and places one order. On Stripe's
+hosted Checkout it tries three of Stripe's test cards that never take a payment:
+4000 0000 0000 0002 (declined), 4000 0000 0000 9995 (not enough funds) and
+4000 0027 6000 3184, which brings up Stripe's test bank check, where the test
+presses Fail. Then it leaves by Stripe's link back to the store, which Payments
+points at the cart, follows the cart's way back to the same checkout and pays
+once with the 4242 test card. The owner completes the order in Commerce Orders,
+so the run leaves no order open. If Stripe takes a payment from a card it should
+turn down, the test pays nothing more and checks and completes that order
+instead. On a store whose cart offers no way back to an open checkout
+(Template Store before #100), the cart step fails and the test pays through the
+checkout's own Stripe page, as Buy and ship does with a checkout an earlier run
+left open.
 
 The machine's settings come from `~/.dinkus-e2e/env`; see
 [setup](../references/setup.md).
@@ -184,6 +199,31 @@ the key was made, the last step deletes it.
 | An agent marks the order completed through Commerce's orders API, sending no carrier or tracking number | With only the key, the agent reads the order and completes it at the version it read; Commerce answers "saved" with the order completed, its version raised and no carrier or tracking number. Only a processing TEST order is completed |
 | Commerce Orders shows the agent's order Completed | In the store admin the agent's order is listed Completed, and its page shows "Not recorded" for the carrier and the tracking number |
 | The test deletes the agent's key | EmDash deletes the key, and a call with it then gets HTTP 401. Runs whenever the key was made |
+
+### Problems
+
+The steps that open Commerce Orders, open the checkout and pay stop the journey
+when they fail, since nothing after them can run; every other step is soft, so
+one run reports every card's message. A captcha on Stripe stops the journey at
+once, unpaid, since nobody answers it for the test.
+
+| Step | What it proves |
+| --- | --- |
+| The owner can open Commerce Orders | Commerce Orders opens in the store admin, and the test notes the newest TEST order, so it can tell later that the refused cards made no order |
+| A shopper opens Stripe Checkout for one product | As in Buy and ship, a shopper puts a physical product in the cart, gives a US delivery address and reaches Stripe's hosted Checkout in test mode; a session that isn't in test mode stops the journey here, before any card. A checkout an earlier run left open is reopened instead of starting another |
+| A declined card is turned down with a clear message and no order | Stripe answers 4000 0000 0000 0002 with "Your card has been declined.", and Commerce still reports the checkout waiting for payment, with no order |
+| A card without enough funds is turned down with a clear message and no order | The same for 4000 0000 0000 9995 and "Your card has insufficient funds." |
+| A card that fails the bank's security check is turned down with a clear message and no order | 4000 0027 6000 3184 brings up Stripe's test bank check; the test presses Fail, Stripe says it can't authenticate the payment method, and Commerce still waits for payment |
+| The shopper leaves Stripe by its back link and lands on the cart | Stripe's link back to the store opens the store's cart page |
+| The cart offers a way back to the same Stripe checkout | After "Check checkout status", the cart's "Return to secure checkout" link goes to the same Stripe checkout, and its checkout button stays locked, so the shopper can't start a second one |
+| The shopper goes back to Stripe and pays once with the 4242 test card | The shopper follows that link (or, when the cart offers none, the test opens the checkout's own Stripe page) and pays once, and Commerce records the payment |
+| The thank-you page confirms the order and empties the cart | As in Buy and ship |
+| Commerce Orders lists one new order for the checkout, Processing | The order is listed Processing, and it is the only TEST order newer than the one noted at the start |
+| The owner marks the order completed, so the run leaves no order open | As in Mark as completed, with no carrier or tracking number, since nothing was sent. Only a Processing TEST order is completed |
+
+If Stripe takes a payment from a card it should turn down, that card's step
+fails, the other cards and both cart steps are skipped, and "Commerce records the
+payment Stripe took" checks that order in place of paying again.
 
 ## Proof
 

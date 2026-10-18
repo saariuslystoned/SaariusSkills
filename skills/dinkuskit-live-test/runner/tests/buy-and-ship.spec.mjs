@@ -8,6 +8,7 @@ import { note, record } from "../support/proof.mjs";
 import { journey, step } from "../support/steps.mjs";
 import { openShip, openStoreAdmin } from "../support/signin.mjs";
 import { placeTestOrder } from "../support/checkout.mjs";
+import { thankYouShown } from "../support/checkout-text.mjs";
 import { describePlugins } from "../support/store-plugins.mjs";
 
 const sitePath = () => `/stores/${encodeURIComponent(config.siteId)}`;
@@ -93,13 +94,7 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
       return placed.number ?? placed.orderId;
     });
     // Soft: a broken thank-you page fails the run, and the steps after it still show the rest.
-    await step(page, "The thank-you page confirms the order and empties the cart", async () => {
-      const shown = placed.thankYou;
-      if (!shown?.shown) throw new Error(`Stripe sent the shopper to a page without the store's order confirmation ("${shown?.heading || "no heading"}").`);
-      if (!shown.confirmed) throw new Error(`The shopper saw "${shown.heading}: ${shown.message}" instead of their order.`);
-      if (shown.cart !== 0) throw new Error(`The order is confirmed, but the cart shows ${shown.cart ?? "an unreadable number of"} item(s).`);
-      return `"${shown.message}" with ${shown.items} item(s) listed; cart empty`;
-    }, { soft: true });
+    await step(page, "The thank-you page confirms the order and empties the cart", async () => thankYouShown(placed.thankYou), { soft: true });
     if (!await openOrdersAdmin(page)) {
       record("Commerce Orders shows the paid TEST order", "SKIP", "the saved profile has no store admin sign-in yet; Commerce's background check sends the order to Ship");
     } else await step(page, "Commerce Orders shows the paid TEST order", async () => {
