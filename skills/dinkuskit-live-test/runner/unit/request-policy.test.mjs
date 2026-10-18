@@ -278,6 +278,23 @@ test("a request the page sends with no-cache asks the store again, and its answe
   assert.deepEqual(await answer(script), { fallback: true });
 });
 
+test("only the newest store answer from the network can be the copy, and it replaces the old one even when not kept", async () => {
+  const { answer, loaded } = await contextRoute();
+  const script = settings.store + "/_astro/newest.synthetic.js";
+  await loaded(script, { ...immutable, vary: "Accept" }, { body: Buffer.from("old"), requestHeaders: { accept: "text/javascript" } });
+  assert.deepEqual(await answer(script, "GET", { accept: "*/*" }), { fallback: true });
+  await loaded(script, { "cache-control": "no-cache", vary: "*" }, { requestHeaders: { accept: "*/*" } });
+  assert.deepEqual(await answer(script, "GET", { accept: "text/javascript" }), { fallback: true });
+  let release;
+  const older = loaded(script, immutable, { body: new Promise(resolve => { release = () => resolve(Buffer.from("older")); }) });
+  await loaded(script, immutable, { body: Buffer.from("newer") });
+  release();
+  await older;
+  assert.equal((await answer(script)).fulfilled.body.toString(), "newer");
+  await loaded(script, immutable, { status: 404 });
+  assert.deepEqual(await answer(script), { fallback: true });
+});
+
 test("a replayed answer never makes its copy last longer", async () => {
   const { answer, loaded, lastRequest } = await contextRoute();
   const script = settings.store + "/_astro/replayed.synthetic.js";

@@ -102,14 +102,19 @@ function guardContext(context, policy, settings) {
  */
 function immutableCopies(context, policy) {
   const copies = new Map();
+  const newest = new Map();
   const replayed = new WeakSet();
   context.on("response", async response => {
     try {
       const url = response.url();
       const received = Date.now();
-      // A store answer that came from the network replaces the copy for its URL; a replay never does,
-      // so it can't stretch the copy's lifetime.
-      if (replayed.has(response.request()) || !policy.isStore(url) || response.status() !== 200 || response.request().method() !== "GET") return;
+      // A replay never touches its copy, so it can't stretch the copy's lifetime.
+      if (replayed.has(response.request()) || !policy.isStore(url) || response.request().method() !== "GET") return;
+      // Any store answer from the network takes the old copy's place, whether or not it is kept, and only
+      // the newest one can become the copy, however long an older one's body takes to arrive.
+      copies.delete(url);
+      newest.set(url, response);
+      if (response.status() !== 200) return;
       const headers = response.headers();
       const sent = cacheDirectives(headers["cache-control"]);
       // immutable never overrides a store's no-store or no-cache, and holds only while the file is fresh.
@@ -124,7 +129,8 @@ function immutableCopies(context, policy) {
       const chosenBy = await Promise.all(vary.map(async name => [name, await response.request().headerValue(name)]));
       const kept = Object.fromEntries(Object.entries(headers).filter(([name]) =>
         !["content-encoding", "content-length", "transfer-encoding", "set-cookie"].includes(name)));
-      copies.set(url, { received, age, lifetime, chosenBy, answer: { status: 200, headers: kept, body: await response.body() } });
+      const body = await response.body();
+      if (newest.get(url) === response) copies.set(url, { received, age, lifetime, chosenBy, answer: { status: 200, headers: kept, body } });
     } catch {} // The page closed before the body arrived, say; the next load fetches the file again.
   });
   return {
