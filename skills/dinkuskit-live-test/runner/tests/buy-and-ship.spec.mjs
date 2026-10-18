@@ -185,6 +185,9 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
       note("label picture", `label.pdf.png, ${picture.width}×${picture.height}, sha256 ${picture.sha256}`);
       // Show the label in the window, so this step's screenshot and the run's video carry the label itself.
       const image = readFileSync(picture.image).toString("base64");
+      // setContent writes into the open page, and Ship's page allows no pictures at all (its
+      // Content-Security-Policy), so the label goes on a blank page.
+      await page.goto("about:blank");
       await page.setContent(`<body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#e8e8e8"><img alt="Shipping label" src="data:image/png;base64,${image}" style="max-height:96vh;background:#fff;box-shadow:0 2px 12px #0004"></body>`);
       // A decode has no time limit of its own, so the check gives up after 10 s rather than hold the run.
       const shown = await page.getByAltText("Shipping label").evaluate(img =>
