@@ -151,7 +151,7 @@ async function deleteAgentKey(page, agent) {
 // Completing an order without a label: the owner marks a paid TEST order completed in Commerce
 // Orders, typing a carrier and tracking number, and an agent completes another through Commerce's
 // orders API, sending neither. Both end Completed.
-test("Mark as completed", { tag: "@next" }, journey(async ({ page }) => {
+test("Mark as completed", { tag: "@running" }, journey(async ({ page }) => {
   expect(config.store, `Set DINKUS_E2E_STORE to the store's address (in ${config.settingsFile})`).not.toBe("");
   // Every action gets a limit, so a control that never shows fails its step instead of holding the run.
   page.context().setDefaultTimeout(60_000);

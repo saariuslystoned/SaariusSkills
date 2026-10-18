@@ -53,7 +53,7 @@ async function brokenLinks(page, links) {
 }
 
 // A new shopper's first look: the homepage, the product list, a product page and its category.
-test("Storefront", { tag: "@next" }, journey(async () => {
+test("Storefront", { tag: "@running" }, journey(async () => {
   expect(config.store, `Set DINKUS_E2E_STORE to the store's address (in ${config.settingsFile})`).not.toBe("");
   const page = await shopperPage();
   // Each page's visible text, for the last step's check of what it says about buying.
