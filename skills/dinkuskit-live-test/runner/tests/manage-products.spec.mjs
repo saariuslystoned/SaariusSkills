@@ -3,7 +3,7 @@ import { get, newPage, test, expect, shopperPage, closeShopper } from "../suppor
 import { config } from "../support/env.mjs";
 import { PAGE_ROOM, paceStore } from "../support/pace.mjs";
 import {
-  addCategory, addProductPage, archive, findProduct, onProduct, openProduct, publishedLink, setPrice, setWeight, shownProductId, trash, uploadPhoto,
+  addCategory, addProduct, addProductPage, archive, findProduct, onProduct, openProduct, publishedLink, setPrice, setWeight, shownProductId, trash, uploadPhoto,
 } from "../support/products-admin.mjs";
 import { record } from "../support/proof.mjs";
 import { openShopperPage } from "../support/shopper.mjs";
@@ -296,14 +296,8 @@ test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
 
     // Nothing after this can run without the product, so this step stops the journey too.
     await step(page, "The owner adds a product with a price and a weight", async () => {
-      await page.getByRole("textbox", { name: "Name", exact: true }).fill(run.product);
-      await page.getByRole("textbox", { name: "SKU", exact: true }).fill(run.sku);
-      await page.getByRole("radio", { name: "Physical", exact: true }).check();
       // A product Commerce adds without confirming it still gets cleaned up.
-      made.product = "asked";
-      await page.getByRole("button", { name: "Add product", exact: true }).click();
-      await confirmed(page, "Product added");
-      made.product = true;
+      await addProduct(page, { name: run.product, sku: run.sku }, made);
       if (state.checkNewProduct) {
         const missing = await missingControls(page);
         state.cantArchive = missing.includes("archive");

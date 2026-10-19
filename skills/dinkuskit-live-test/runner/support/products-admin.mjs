@@ -78,6 +78,21 @@ export async function openProduct(page, name) {
   if (!await findProduct(page, name)) throw new Error(`Commerce Products doesn't list "${name}".`);
 }
 
+/**
+ * Adds a physical product on the open Commerce Products page. `made.product` is "asked" from the moment
+ * Add product is pressed and true once Commerce confirms it, so a caller can take off the store a product
+ * Commerce added without confirming it.
+ */
+export async function addProduct(page, { name, sku }, made = {}) {
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill(name);
+  await page.getByRole("textbox", { name: "SKU", exact: true }).fill(sku);
+  await page.getByRole("radio", { name: "Physical", exact: true }).check();
+  made.product = "asked";
+  await page.getByRole("button", { name: "Add product", exact: true }).click();
+  await confirmed(page, "Product added");
+  made.product = true;
+}
+
 /** Makes sure the saved profile's page shows this product in Commerce, opening it again when a step left it elsewhere. */
 export async function onProduct(page, name) {
   if (await page.getByRole("heading", { name, level: 2 }).isVisible() && await page.getByText("Commerce / Products", { exact: true }).isVisible()) return;
@@ -286,7 +301,8 @@ async function fileAndPublish(content, category, { mayBeFiled = false } = {}) {
 /**
  * EmDash's `collection` entry titled `title`, as its list shows it once searched for: its editor's
  * address, and where its "View published" link goes when the list shows it as Published (else null).
- * Null when the list has no entry by that title.
+ * Null when the list says it has no entry by that title; a list that doesn't answer fails instead, so a
+ * slow list never gets the entry added twice.
  */
 async function listedEntry(page, title, collection) {
   await openAdmin(page, `${config.store}/_emdash/admin/content/${collection}`);
@@ -294,9 +310,13 @@ async function listedEntry(page, title, collection) {
   const edit = page.getByRole("link", { name: `Edit ${title}`, exact: true });
   // The list answers the search with the entry's row or says it has no results, so a missing entry isn't waited out.
   const none = page.getByText(`No results for "${title}"`, { exact: true });
-  if (!await edit.first().or(none).first().waitFor({ timeout: 15_000 }).then(() => true, () => false) || !await edit.count()) return null;
-  const view = page.getByRole("row").filter({ has: page.getByRole("cell", { name: "Published", exact: true }) })
-    .getByRole("link", { name: `View published ${title}`, exact: true }).first();
+  if (!await edit.first().or(none).first().waitFor({ timeout: 30_000 }).then(() => true, () => false)) {
+    throw new Error(`EmDash's list of ${collection} didn't answer the search for "${title}" within 30 seconds.`);
+  }
+  if (!await edit.count()) return null;
+  // The list draws a row's View published link with the rest of the row, and only for a published entry,
+  // including one with changes saved since it was published (its status then says so too).
+  const view = page.getByRole("link", { name: `View published ${title}`, exact: true }).first();
   const href = await view.count() ? await view.getAttribute("href") : null;
   return { editor: new URL(await edit.first().getAttribute("href"), config.store).href, view: href === null ? null : new URL(href, config.store).href };
 }

@@ -17,16 +17,27 @@ export function pluginVersion(body, id) {
 }
 
 /**
- * Whether `version` ("0.3.0-beta.4", "0.3.0") is `floor` or later. A release comes after its betas;
- * a version it can't read is never late enough.
+ * Whether `version` ("0.3.0-beta.4", "0.3.0-rc.1", "0.3.0") is `floor` or later, in semver's order: a
+ * release comes after its pre-releases, whose parts compare one by one, numbers as numbers and before
+ * words, and build details after "+" don't count. A version that isn't semver is never late enough.
  */
 export function versionAtLeast(version, floor) {
   const parse = value => {
-    const [, major, minor, patch, beta] = String(value).match(/^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$/) ?? [];
-    return major === undefined ? null : [major, minor, patch, beta ?? Infinity].map(Number);
+    const [, core, pre] = String(value).match(/^(\d+\.\d+\.\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/) ?? [];
+    return core === undefined ? null : { core: core.split(".").map(Number), pre: pre?.split(".") ?? [] };
   };
   const [have, need] = [parse(version), parse(floor)];
   if (!have || !need) return false;
-  for (let i = 0; i < have.length; i++) if (have[i] !== need[i]) return have[i] > need[i];
+  for (let i = 0; i < 3; i++) if (have.core[i] !== need.core[i]) return have.core[i] > need.core[i];
+  if (!have.pre.length || !need.pre.length) return !have.pre.length;
+  for (let i = 0; i < Math.max(have.pre.length, need.pre.length); i++) {
+    const [mine, theirs] = [have.pre[i], need.pre[i]];
+    // With every part before it equal, the pre-release with fewer parts comes first.
+    if (mine === undefined || theirs === undefined) return theirs === undefined;
+    if (mine === theirs) continue;
+    const [mineNumber, theirsNumber] = [/^\d+$/.test(mine), /^\d+$/.test(theirs)];
+    if (mineNumber && theirsNumber) return Number(mine) > Number(theirs);
+    return mineNumber || theirsNumber ? theirsNumber : mine > theirs;
+  }
   return true;
 }

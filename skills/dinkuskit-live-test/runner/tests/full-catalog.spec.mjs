@@ -2,8 +2,8 @@ import { newPage, test, expect, shopperPage, closeShopper } from "../support/bro
 import { catalogPlan } from "../support/catalog.mjs";
 import { config } from "../support/env.mjs";
 import {
-  addCategory, addProductPage, choosePhoto, finishProductPage, listedProducts, openProduct, productPageEntry, publish, publishedLink, setPrice, setWeight,
-  shownProductId, uploadPhotos,
+  addCategory, addProduct, addProductPage, choosePhoto, finishProductPage, listedProducts, openProduct, productPageEntry, publish, publishedLink, setPrice,
+  setWeight, shownProductId, uploadPhotos,
 } from "../support/products-admin.mjs";
 import { PAGE_ROOM, PHOTO_ROOM, STORE_BUDGET, paceStore } from "../support/pace.mjs";
 import { note } from "../support/proof.mjs";
@@ -134,10 +134,10 @@ async function productPageProblems(shopper, product) {
  * Gives one catalog product what the store lacks for it, as an owner would: adds it to Commerce when
  * it isn't there (or restores it when archived), saves its price and weight where they differ, chooses
  * its photo when Commerce shows none (uploading it first unless its batch did), and gives it a published
- * page in its category when it has none. Returns what it did, which is nothing when Commerce had it all.
+ * page in its category when it has none. Records in `did` what it did, which stays nothing when Commerce
+ * had it all, and keeps what was done when a later part fails.
  */
-async function completeProduct(page, content, product, { inCommerce, card, shelved }) {
-  const did = [];
+async function completeProduct(page, content, product, { inCommerce, uploaded, card, shelved }, did) {
   if (inCommerce) {
     await openProduct(page, product.name);
     const restore = page.getByRole("button", { name: "Restore product", exact: true });
@@ -148,12 +148,12 @@ async function completeProduct(page, content, product, { inCommerce, card, shelv
     }
   } else {
     await openAdmin(page, config.productsAdmin);
-    await page.getByRole("textbox", { name: "Name", exact: true }).fill(product.name);
-    await page.getByRole("textbox", { name: "SKU", exact: true }).fill(product.sku);
-    await page.getByRole("radio", { name: "Physical", exact: true }).check();
-    await page.getByRole("button", { name: "Add product", exact: true }).click();
-    await confirmed(page, "Product added");
+    await addProduct(page, product);
     did.push("added");
+  }
+  // Every drawing of the product screen has the Images section's button, so the screen is read once that's there.
+  if (!await page.getByRole("button", { name: /^(Choose|Change) image$/ }).waitFor({ timeout: 30_000 }).then(() => true, () => false)) {
+    throw new Error("Commerce's product page has no Images section");
   }
   const id = await shownProductId(page);
   // Commerce shows the price and weight it stored, so only one that differs is saved, and reported.
@@ -166,15 +166,12 @@ async function completeProduct(page, content, product, { inCommerce, card, shelv
     await setWeight(page, product.ounces);
     did.push("weight");
   }
-  // Every drawing of the product screen has the Images section's button, so it's read once that's there.
-  if (!await page.getByRole("button", { name: /^(Choose|Change) image$/ }).waitFor({ timeout: 30_000 }).then(() => true, () => false)) {
-    throw new Error("Commerce's product page has no Images section");
-  }
   // Commerce says so in the image's place when the product has none, or when the Media library has lost
   // it. A photo Commerce already shows stays, since choosing it again can't change what the store shows.
   if (!inCommerce || await page.getByText(/^(No image|Image .+ is unavailable\.)$/).count()) {
-    // A new product's photo came with its batch; one Commerce already had gets its photo only now.
-    if (inCommerce) await uploadPhotos(content, [{ fileName: product.photo, label: product.name }]);
+    // A new product's photo came with its batch, unless that upload failed; then, like a product Commerce
+    // already had, it gets its photo uploaded only now. The Media library keeps one copy of a photo it has.
+    if (!uploaded) await uploadPhotos(content, [{ fileName: product.photo, label: product.name }]);
     await choosePhoto(page, product.photo);
     did.push("photo");
   }
@@ -184,7 +181,7 @@ async function completeProduct(page, content, product, { inCommerce, card, shelv
     // unless the product was archived, which kept the store from showing it; the later steps check it.
     const entry = await productPageEntry(content, product.name);
     if (entry?.published) {
-      if (did.includes("restored")) return did;
+      if (did.includes("restored")) return;
       throw new Error(`its published page ${card?.href ? "isn't on its category page" : "isn't linked from the Shop list"}; check that page's Commerce product and category`);
     }
     if (!id) throw new Error("Commerce's product page shows no Product ID to link its page to");
@@ -193,7 +190,6 @@ async function completeProduct(page, content, product, { inCommerce, card, shelv
     else await addProductPage(content, { title: product.name, ...details }, { lost: [] });
     did.push(entry ? "page published" : "page");
   }
-  return did;
 }
 
 // A store with as many products as a real shop: the catalog's categories, each holding several products
@@ -292,16 +288,23 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
         const batch = todo.slice(start, start + UPLOAD_BATCH);
         // New products' photos go up together; a product Commerce has gets one only if its screen shows none.
         const photos = batch.filter(product => !listed.names.has(product.name));
-        if (photos.length) await uploadPhotos(content, photos.map(product => ({ fileName: product.photo, label: product.name })), UPLOADS_ROOM);
+        // When they don't all go up, it's recorded, and each of those products uploads its own photo instead.
+        const uploaded = !photos.length || await uploadPhotos(content, photos.map(product => ({ fileName: product.photo, label: product.name })), UPLOADS_ROOM)
+          .then(() => true, error => {
+            problems.push(`uploading the photos of ${short(photos.map(product => product.name)).join(", ")} together failed (${firstLine(error)}); each is uploaded with its product instead`);
+            return false;
+          });
         for (const product of batch) {
           await paceStore(PRODUCT_ROOM);
-          // One product's trouble is recorded and the rest still get added.
-          const state = { inCommerce: listed.names.has(product.name), card: shop.found.get(product.name)?.[0], shelved: shelved(product) };
-          const did = await completeProduct(page, content, product, state)
-            .catch(error => { problems.push(`"${product.name}": ${firstLine(error)}`); });
-          if (did?.includes("added")) added.push(product.name);
-          else if (did?.length) completed.push(`${product.name} (${did.join(", ")})`);
-          else if (did) whole.push(product.name);
+          // One product's trouble is recorded, with what was done for it first, and the rest still get added.
+          const inCommerce = listed.names.has(product.name);
+          const state = { inCommerce, uploaded: !inCommerce && uploaded, card: shop.found.get(product.name)?.[0], shelved: shelved(product) };
+          const did = [];
+          const failed = await completeProduct(page, content, product, state, did).then(() => null, error => error);
+          if (failed) problems.push(`"${product.name}"${did.length ? ` (${did.join(", ")})` : ""}: ${firstLine(failed)}`);
+          else if (did.includes("added")) added.push(product.name);
+          else if (did.length) completed.push(`${product.name} (${did.join(", ")})`);
+          else whole.push(product.name);
         }
       }
       const done = [

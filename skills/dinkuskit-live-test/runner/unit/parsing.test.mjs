@@ -157,7 +157,19 @@ test("a release comes after its betas, and an unreadable version is never late e
   assert.equal(versionAtLeast("0.3.0-beta.3", "0.3.0-beta.4"), false);
   assert.equal(versionAtLeast("0.2.2", "0.3.0-beta.4"), false);
   assert.equal(versionAtLeast(null, "0.3.0-beta.4"), false);
-  assert.equal(versionAtLeast("0.3.0-rc.1", "0.3.0-beta.4"), false);
+  // Any pre-release reads, in semver's order.
+  assert.equal(versionAtLeast("0.3.0-rc.1", "0.3.0-beta.4"), true);
+  assert.equal(versionAtLeast("0.3.1-alpha.0", "0.3.0-beta.4"), true);
+  assert.equal(versionAtLeast("0.3.0-alpha.9", "0.3.0-beta.4"), false);
+  assert.equal(versionAtLeast("0.3.0-beta", "0.3.0-beta.4"), false);
+  assert.equal(versionAtLeast("0.3.0-beta.4.1", "0.3.0-beta.4"), true);
+  assert.equal(versionAtLeast("0.3.0-7", "0.3.0-beta.4"), false);
+  assert.equal(versionAtLeast("0.3.0-beta.4", "0.3.0-7"), true);
+  // Build details don't count.
+  assert.equal(versionAtLeast("0.3.0+abc123", "0.3.0-beta.4"), true);
+  assert.equal(versionAtLeast("0.3.0-beta.3+abc123", "0.3.0-beta.4"), false);
+  assert.equal(versionAtLeast("latest", "0.3.0-beta.4"), false);
+  assert.equal(versionAtLeast("0.3", "0.3.0-beta.4"), false);
 });
 
 test("the catalog's products each have their own name, SKU, price and photo, in their category", () => {
