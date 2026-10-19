@@ -126,7 +126,8 @@ Problems works in one Stripe TEST checkout and places one order. On Stripe's
 hosted Checkout it tries three of Stripe's test cards that never take a payment:
 4000 0000 0000 0002 (declined), 4000 0000 0000 9995 (not enough funds) and
 4000 0027 6000 3184, which brings up Stripe's test bank check, where the test
-presses Fail. Then it leaves by Stripe's link back to the store, which Payments
+presses Fail, and again if Stripe's test page is still open seconds later.
+Then it leaves by Stripe's link back to the store, which Payments
 points at the cart, follows the cart's way back to the same checkout and pays
 once with the 4242 test card. The owner completes the order in Commerce Orders,
 so the run leaves no order open. If Stripe takes a payment from a card it should
@@ -274,7 +275,7 @@ once, unpaid, since nobody answers it for the test.
 | A shopper opens Stripe Checkout for one product | As in Buy and ship, a shopper puts a physical product in the cart, gives a US delivery address and reaches Stripe's hosted Checkout in test mode; a session that isn't in test mode stops the journey here, before any card. A checkout an earlier run left open is reopened instead of starting another |
 | A declined card is turned down with a clear message and no order | Stripe answers 4000 0000 0000 0002 with "Your card has been declined.", and Commerce still reports the checkout waiting for payment, with no order |
 | A card without enough funds is turned down with a clear message and no order | The same for 4000 0000 0000 9995 and "Your card has insufficient funds." |
-| A card that fails the bank's security check is turned down with a clear message and no order | 4000 0027 6000 3184 brings up Stripe's test bank check; the test presses Fail, Stripe says it can't authenticate the payment method, and Commerce still waits for payment |
+| A card that fails the bank's security check is turned down with a clear message and no order | 4000 0027 6000 3184 brings up Stripe's test bank check; the test presses Fail (again if the test page ignored a press), Stripe says it can't authenticate the payment method, and Commerce still waits for payment |
 | The shopper leaves Stripe by its back link and lands on the cart | Stripe's link back to the store opens the store's cart page |
 | The cart offers a way back to the same Stripe checkout | After "Check checkout status", the cart's "Return to secure checkout" link goes to the same Stripe checkout, and its checkout button stays locked, so the shopper can't start a second one |
 | The shopper goes back to Stripe and pays once with the 4242 test card | The shopper follows that link (or, when the cart offers none, the test opens the checkout's own Stripe page) and pays once, and Commerce records the payment |
