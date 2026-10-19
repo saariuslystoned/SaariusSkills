@@ -133,7 +133,8 @@ async function productPageProblems(shopper, product) {
 /**
  * Gives one catalog product what the store lacks for it, as an owner would: adds it to Commerce when
  * it isn't there (or restores it when archived), saves its price and weight, chooses its photo when
- * Commerce shows none, and gives it a published page in its category when it has none. Returns what it did.
+ * Commerce shows none (uploading it first unless its batch did), and gives it a published page in its
+ * category when it has none. Returns what it did.
  */
 async function completeProduct(page, content, product, { inCommerce, card, shelved }) {
   const did = [];
@@ -157,17 +158,25 @@ async function completeProduct(page, content, product, { inCommerce, card, shelv
   const id = await shownProductId(page);
   await setPrice(page, (product.cents / 100).toFixed(2));
   await setWeight(page, product.ounces);
+  // Every drawing of the product screen has the Images section's button, so it's read once that's there.
+  if (!await page.getByRole("button", { name: /^(Choose|Change) image$/ }).waitFor({ timeout: 30_000 }).then(() => true, () => false)) {
+    throw new Error("Commerce's product page has no Images section");
+  }
   // Commerce says so in the image's place when the product has none, or when the Media library has lost
   // it. A photo Commerce already shows stays, since choosing it again can't change what the store shows.
   if (!inCommerce || await page.getByText(/^(No image|Image .+ is unavailable\.)$/).count()) {
+    // A new product's photo came with its batch; one Commerce already had gets its photo only now.
+    if (inCommerce) await uploadPhotos(content, [{ fileName: product.photo, label: product.name }]);
     await choosePhoto(page, product.photo);
     did.push("photo");
   }
   if (!card?.href || !shelved) {
     // A page an earlier run saved and never published is finished, not added again. A published page
-    // the store doesn't show belongs to the owner to fix, so the test reports it and leaves it alone.
+    // the store doesn't show belongs to the owner to fix, so the test reports it and leaves it alone,
+    // unless the product was archived, which kept the store from showing it; the later steps check it.
     const entry = await productPageEntry(content, product.name);
     if (entry?.published) {
+      if (did.includes("restored")) return did;
       throw new Error(`its published page ${card?.href ? "isn't on its category page" : "isn't linked from the Shop list"}; check that page's Commerce product and category`);
     }
     if (!id) throw new Error("Commerce's product page shows no Product ID to link its page to");
@@ -263,15 +272,14 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
       const twins = lacking.filter(product => listed.names.get(product.name) > 1);
       const problems = twins.map(product => `"${product.name}": Commerce Products lists ${listed.names.get(product.name)} products by that name, so the test can't tell which to complete; rename the extra one`);
       const todo = lacking.filter(product => !twins.includes(product));
-      // Only a product the Shop list doesn't show with a photo may need one uploaded.
-      const needsPhoto = product => !listed.names.has(product.name) || shop.found.get(product.name)?.[0]?.image !== "photo";
       // Adding takes about a minute a product, so a big catalog's first run gets that time on top of the usual limit.
       test.info().setTimeout(test.info().timeout + todo.length * 2 * 60_000);
       const added = [];
       const completed = [];
       for (let start = 0; start < todo.length; start += UPLOAD_BATCH) {
         const batch = todo.slice(start, start + UPLOAD_BATCH);
-        const photos = batch.filter(needsPhoto);
+        // New products' photos go up together; a product Commerce has gets one only if its screen shows none.
+        const photos = batch.filter(product => !listed.names.has(product.name));
         if (photos.length) {
           await paceStore(UPLOADS_ROOM);
           await uploadPhotos(content, photos.map(product => ({ fileName: product.photo, label: product.name })));

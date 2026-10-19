@@ -1,4 +1,4 @@
-import { appendFileSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { config } from "./env.mjs";
 import { wasReplayed } from "./request-policy.mjs";
@@ -21,27 +21,48 @@ export const PICKER_PAGE_ROOM = 15;
 const MINUTE = 60_000;
 // The store counts a visitor's requests, not one test process's: Playwright starts a new worker after a
 // journey fails, and a run started straight after another still has that run's last minute against it.
-// So each request that reached the store is also logged beside the proof folders, one log per store,
-// and every worker starts from the log's last minute.
-const log = config.store ? join(dirname(config.runDir), `.store-requests-${new URL(config.store).host.replace(/[^a-z0-9.-]/gi, "-")}.log`) : "";
+// So each store request is also logged beside the proof folders as it's sent, and every worker starts
+// from the logs' last minute. Each minute of each store gets its own log, so a log is only ever added
+// to, never rewritten while another process may be adding to it, and goes once none of it counts.
+const logs = config.store ? dirname(config.runDir) : "";
+const logPrefix = config.store ? `.store-requests-${new URL(config.store).host.replace(/[^a-z0-9.-]/gi, "-")}-` : "";
+const minuteOf = time => Math.floor(time / MINUTE);
 
-/** When the logged store requests of the last minute were sent, oldest first. The log keeps only those. */
+/** Adds `line` to the log of the minute in which the request it's about was sent, at `at`. */
+const logLine = (at, line) => {
+  if (logs) try { appendFileSync(join(logs, `${logPrefix}${minuteOf(at)}.log`), `${line}\n`); } catch {}
+};
+
+/**
+ * When the logged store requests of the last minute were sent, oldest first. A line "-<time>" takes back
+ * one request sent then, which the browser answered from its own copy. Older minutes' logs are removed.
+ */
 function logged() {
-  let lines = [];
-  try { lines = readFileSync(log, "utf8").split("\n").filter(Boolean); } catch { return []; }
-  const since = Date.now() - MINUTE;
-  const times = lines.map(Number).filter(time => time > since).sort((a, b) => a - b);
-  // Older requests no longer count, so the log drops them, and with none left it starts over.
-  try {
-    if (!times.length) unlinkSync(log);
-    else if (times.length < lines.length) writeFileSync(log, times.map(time => `${time}\n`).join(""));
-  } catch {}
-  return times;
+  const now = Date.now();
+  let names = [];
+  try { names = readdirSync(logs); } catch { return []; }
+  const counts = new Map();
+  for (const name of names) {
+    const minute = name.startsWith(logPrefix) && name.endsWith(".log") ? Number(name.slice(logPrefix.length, -4)) : NaN;
+    if (!Number.isInteger(minute)) continue;
+    // Only this minute's log and the one before can hold a request of the last 60 seconds.
+    if (minute < minuteOf(now) - 1) {
+      try { unlinkSync(join(logs, name)); } catch {}
+      continue;
+    }
+    let lines = [];
+    try { lines = readFileSync(join(logs, name), "utf8").split("\n").filter(Boolean); } catch {}
+    for (const line of lines) {
+      const time = Math.abs(Number(line));
+      if (time > now - MINUTE) counts.set(time, (counts.get(time) ?? 0) + (line.startsWith("-") ? -1 : 1));
+    }
+  }
+  return [...counts].flatMap(([time, count]) => Array(Math.max(count, 0)).fill(time)).sort((a, b) => a - b);
 }
 
 // When each store request of the last minute was sent, oldest first, with the request itself until the
 // run knows whether it reached the store.
-const sent = log ? logged().map(at => ({ at })) : [];
+const sent = logs ? logged().map(at => ({ at })) : [];
 const watched = new WeakSet();
 
 const isStore = url => {
@@ -54,9 +75,6 @@ const isStore = url => {
 // Scripts only a local development server sends (a deployed store bundles them under /_astro/).
 const DEV_SERVER = /^\/(?:@|node_modules\/|src\/)/;
 
-const logSent = at => {
-  if (log) try { appendFileSync(log, `${at}\n`); } catch {}
-};
 // Requests more than a minute old no longer count.
 const forgetOld = () => {
   while (sent.length && sent[0].at <= Date.now() - MINUTE) sent.shift();
@@ -64,9 +82,9 @@ const forgetOld = () => {
 
 /**
  * Counts `context`'s requests that reach the store, from when each is sent, since the store counts it
- * then. One the run answers from the browser's own copy of an immutable store file (see
- * request-policy.mjs) never reaches the store, and stops counting once it's answered. One that fails on
- * the way may still have reached the store, so it counts.
+ * then, and logs each as it's sent. One the run answers from the browser's own copy of an immutable store
+ * file (see request-policy.mjs) never reaches the store, so once it's answered it stops counting and the
+ * log takes it back. One that fails on the way may still have reached the store, so it counts.
  */
 export function watchStoreRequests(context, { replayed = wasReplayed } = {}) {
   if (watched.has(context)) return;
@@ -75,16 +93,17 @@ export function watchStoreRequests(context, { replayed = wasReplayed } = {}) {
     const url = request.url();
     if (!isStore(url) || DEV_SERVER.test(new URL(url).pathname)) return;
     forgetOld();
-    sent.push({ at: Date.now(), request });
+    const at = Date.now();
+    sent.push({ at, request });
+    logLine(at, at);
   });
   const done = request => {
     const index = sent.findLastIndex(entry => entry.request === request);
     if (index < 0) return;
-    if (replayed(request)) sent.splice(index, 1);
-    else {
-      logSent(sent[index].at);
-      delete sent[index].request;
-    }
+    if (replayed(request)) {
+      logLine(sent[index].at, `-${sent[index].at}`);
+      sent.splice(index, 1);
+    } else delete sent[index].request;
   };
   context.on("requestfinished", done);
   context.on("requestfailed", done);
@@ -96,7 +115,7 @@ export function countStoreRequest(url) {
   forgetOld();
   const at = Date.now();
   sent.push({ at });
-  logSent(at);
+  logLine(at, at);
 }
 
 /**

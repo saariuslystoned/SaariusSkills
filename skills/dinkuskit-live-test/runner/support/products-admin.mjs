@@ -283,18 +283,29 @@ async function fileAndPublish(content, category, { mayBeFiled = false } = {}) {
 }
 
 /**
+ * EmDash's `collection` entry titled `title`, as its list shows it once searched for: its editor's
+ * address, and where its "View published" link goes when the list shows it as Published (else null).
+ * Null when the list has no entry by that title.
+ */
+async function listedEntry(page, title, collection) {
+  await openAdmin(page, `${config.store}/_emdash/admin/content/${collection}`);
+  await page.getByRole("searchbox", { name: `Search ${collection}` }).fill(title);
+  const edit = page.getByRole("link", { name: `Edit ${title}`, exact: true });
+  // The list answers the search with the entry's row or says it has no results, so a missing entry isn't waited out.
+  const none = page.getByText(`No results for "${title}"`, { exact: true });
+  if (!await edit.first().or(none).first().waitFor({ timeout: 15_000 }).then(() => true, () => false) || !await edit.count()) return null;
+  const view = page.getByRole("row").filter({ has: page.getByRole("cell", { name: "Published", exact: true }) })
+    .getByRole("link", { name: `View published ${title}`, exact: true }).first();
+  const href = await view.count() ? await view.getAttribute("href") : null;
+  return { editor: new URL(await edit.first().getAttribute("href"), config.store).href, view: href === null ? null : new URL(href, config.store).href };
+}
+
+/**
  * The full address the "View published" link in EmDash's list of `collection` entries (product pages
  * unless named) goes to for this title, once the list shows the entry as Published; null when it doesn't.
  */
 export async function publishedLink(page, title, collection = "products") {
-  await openAdmin(page, `${config.store}/_emdash/admin/content/${collection}`);
-  await page.getByRole("searchbox", { name: `Search ${collection}` }).fill(title);
-  const view = page.getByRole("link", { name: `View published ${title}`, exact: true });
-  if (!await view.waitFor({ timeout: 15_000 }).then(() => true, () => false)) return null;
-  const row = page.getByRole("row").filter({ has: view });
-  if (!await row.getByRole("cell", { name: "Published", exact: true }).count()) return null;
-  const href = await view.getAttribute("href");
-  return href === null ? null : new URL(href, config.store).href;
+  return (await listedEntry(page, title, collection))?.view ?? null;
 }
 
 /**
@@ -302,10 +313,8 @@ export async function publishedLink(page, title, collection = "products") {
  * EmDash's list of product pages has none.
  */
 export async function productPageEntry(page, title) {
-  const view = await publishedLink(page, title);
-  const edit = page.getByRole("link", { name: `Edit ${title}`, exact: true }).first();
-  if (!await edit.count()) return null;
-  return { editor: new URL(await edit.getAttribute("href"), config.store).href, published: view !== null };
+  const entry = await listedEntry(page, title, "products");
+  return entry && { editor: entry.editor, published: entry.view !== null };
 }
 
 /** Moves an EmDash entry to the Trash, so the store stops showing it. */
