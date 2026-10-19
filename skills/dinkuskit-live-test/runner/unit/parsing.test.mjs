@@ -168,6 +168,11 @@ test("a release comes after its betas, and an unreadable version is never late e
   // Build details don't count.
   assert.equal(versionAtLeast("0.3.0+abc123", "0.3.0-beta.4"), true);
   assert.equal(versionAtLeast("0.3.0-beta.3+abc123", "0.3.0-beta.4"), false);
+  // A pre-release or build part can't be empty.
+  assert.equal(versionAtLeast("0.3.0-beta.", "0.3.0-beta.4"), false);
+  assert.equal(versionAtLeast("0.3.0-beta..4", "0.3.0-beta.4"), false);
+  assert.equal(versionAtLeast("0.3.0-.beta", "0.3.0-beta.4"), false);
+  assert.equal(versionAtLeast("0.3.0+", "0.3.0-beta.4"), false);
   assert.equal(versionAtLeast("latest", "0.3.0-beta.4"), false);
   assert.equal(versionAtLeast("0.3", "0.3.0-beta.4"), false);
 });

@@ -23,7 +23,8 @@ export function pluginVersion(body, id) {
  */
 export function versionAtLeast(version, floor) {
   const parse = value => {
-    const [, core, pre] = String(value).match(/^(\d+\.\d+\.\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/) ?? [];
+    // Every dot-separated part of a pre-release or build is one or more letters, digits or hyphens.
+    const [, core, pre] = String(value).match(/^(\d+\.\d+\.\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/) ?? [];
     return core === undefined ? null : { core: core.split(".").map(Number), pre: pre?.split(".") ?? [] };
   };
   const [have, need] = [parse(version), parse(floor)];
