@@ -21,11 +21,20 @@ export async function openAdmin(page, url) {
   await page.goto(url);
 }
 
-/** Notes which plugin versions the store runs, so the proof says what it covers. */
+/**
+ * Notes which plugin versions the store runs, so the proof says what it covers, and returns EmDash's
+ * plugin list, or null when it couldn't be read.
+ */
 export async function notePlugins(page) {
   const response = await get(page, `${config.store}/_emdash/api/admin/plugins`, { headers: { "X-EmDash-Request": "1" } }).catch(error => error);
   if (response instanceof Error) note("plugins", `couldn't read the plugin list (${firstLine(response)})`);
-  else note("plugins", response.ok() ? describePlugins(await response.json()) : `couldn't read the plugin list (HTTP ${response.status()})`);
+  else if (!response.ok()) note("plugins", `couldn't read the plugin list (HTTP ${response.status()})`);
+  else {
+    const body = await response.json();
+    note("plugins", describePlugins(body));
+    return body;
+  }
+  return null;
 }
 
 /** Waits for Commerce to confirm an action ("Product saved"); a refusal fails with the reason Commerce shows. */

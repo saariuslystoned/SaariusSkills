@@ -1,4 +1,5 @@
 import { config } from "./env.mjs";
+import { PAGE_ROOM, paceStore } from "./pace.mjs";
 import { note } from "./proof.mjs";
 import { openStorePage } from "./signin.mjs";
 
@@ -9,6 +10,7 @@ export const elsewhere = url => accessLogin(url) ? "a Cloudflare Access sign-in"
 
 /** Opens a store page as a shopper; ending up off the store (a sign-in elsewhere) or anything but HTTP 200 fails the step that opened it. */
 export async function openShopperPage(page, path) {
+  await paceStore(PAGE_ROOM);
   const response = await openStorePage(page, new URL(path, config.store).href);
   if (new URL(page.url()).origin !== config.store) {
     const how = accessLogin(page.url()) ? "; the test gets past Access only with a one-time PIN it reads from the test inbox" : "";

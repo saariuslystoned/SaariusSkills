@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { catalogPlan } from "../support/catalog.mjs";
 import { accessQuery, clean, extract } from "../support/mail-patterns.mjs";
 import { parseSettings } from "../support/settings-file.mjs";
-import { describePlugins } from "../support/store-plugins.mjs";
+import { describePlugins, pluginVersion, versionAtLeast } from "../support/store-plugins.mjs";
 import { cantBuyClaims, cartCount, cartTotal, dollars, money } from "../support/storefront-text.mjs";
 
 test("the DinkusKit sign-in link survives quoted-printable and HTML encoding", () => {
@@ -138,4 +139,44 @@ test("a product whose name starts with Total is no cart total", () => {
   assert.equal(cartTotal(["Subtotal", "Free shipping over $50.00"].join("\n")), null);
   const cart = ["Cart", "Total Eclipse Mug", "$15.00", "Quantity", "Remove", "Subtotal", "$30.00"].join("\n");
   assert.deepEqual(cartTotal(cart), { label: "Subtotal", cents: 3000 });
+});
+
+test("the plugin list gives a plugin's version by its runtime id", () => {
+  const body = { data: { items: [{ id: "r_beta", registrySlug: "dinkus-commerce-beta", version: "0.3.0-beta.4" }, { id: "r_old", version: 2 }] } };
+  assert.equal(pluginVersion(body, "r_beta"), "0.3.0-beta.4");
+  assert.equal(pluginVersion(body, "r_old"), null);
+  assert.equal(pluginVersion(body, "r_none"), null);
+  assert.equal(pluginVersion(null, "r_beta"), null);
+});
+
+test("a release comes after its betas, and an unreadable version is never late enough", () => {
+  assert.equal(versionAtLeast("0.3.0-beta.4", "0.3.0-beta.4"), true);
+  assert.equal(versionAtLeast("0.3.0-beta.10", "0.3.0-beta.4"), true);
+  assert.equal(versionAtLeast("0.3.0", "0.3.0-beta.4"), true);
+  assert.equal(versionAtLeast("0.3.1-beta.1", "0.3.0-beta.4"), true);
+  assert.equal(versionAtLeast("0.3.0-beta.3", "0.3.0-beta.4"), false);
+  assert.equal(versionAtLeast("0.2.2", "0.3.0-beta.4"), false);
+  assert.equal(versionAtLeast(null, "0.3.0-beta.4"), false);
+  assert.equal(versionAtLeast("0.3.0-rc.1", "0.3.0-beta.4"), false);
+});
+
+test("the catalog's products each have their own name, SKU, price and photo, in their category", () => {
+  const plan = catalogPlan("3x8");
+  assert.deepEqual(plan.map(category => category.title), ["Catalog Tees", "Catalog Hoodies", "Catalog Caps"]);
+  const products = plan.flatMap(category => category.products);
+  assert.equal(products.length, 24);
+  for (const key of ["name", "sku", "cents", "photo"]) assert.equal(new Set(products.map(product => product[key])).size, 24, key);
+  const all = catalogPlan("4x50").flatMap(category => category.products);
+  assert.equal(new Set(all.map(product => product.cents)).size, 200);
+  assert.deepEqual(products[0], { name: "Catalog Tee 01", sku: "CATALOG-TEE-01", cents: 1800, ounces: 6, photo: "catalog-tee-01.png", category: "Catalog Tees", style: "TEE" });
+  assert.equal(products[23].name, "Catalog Cap 08");
+  assert.equal(products[23].category, "Catalog Caps");
+  // No name is the start of another, so a search for one finds only it.
+  const big = catalogPlan("1x50").flatMap(category => category.products).map(product => product.name);
+  assert.equal(big.filter(name => big.some(other => other !== name && other.startsWith(name))).length, 0);
+});
+
+test("a catalog size the catalog can't take is refused, naming the sizes it can", () => {
+  for (const size of ["", "3", "0x8", "5x8", "3x0", "3x51", "three by eight"]) assert.throws(() => catalogPlan(size), /from 1x1 to 4x50, such as 3x8/, size);
+  assert.equal(catalogPlan(" 4 X 2 ").length, 4);
 });

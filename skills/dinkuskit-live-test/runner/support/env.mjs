@@ -50,6 +50,8 @@ export const config = {
   // Commerce Products sits beside Commerce Orders, so a beta install's Orders setting covers both.
   productsAdmin: read("DINKUS_E2E_PRODUCTS_ADMIN", ordersAdmin.replace(/\/orders\/?$/, "/products")),
   productPath: read("DINKUS_E2E_PRODUCT_PATH"),
+  // Full catalog: categories x products per category of the standing catalog the test keeps on the store.
+  catalog: read("DINKUS_E2E_CATALOG", "3x8"),
   // Mark as completed: Processing TEST orders (1003,1004) for the owner and then the agent to complete, instead of placing new ones.
   // Every entry is kept as written, blanks included, so the journey refuses a typo rather than placing an order in its place.
   ordersToComplete: ordersToComplete ? ordersToComplete.split(",").map(number => number.trim()) : [],

@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { test as base, chromium } from "@playwright/test";
 import { config } from "./env.mjs";
+import { countStoreRequest, watchStoreRequests } from "./pace.mjs";
 import { filterPage, filteredGet } from "./request-policy.mjs";
 
 const SIZE = { width: 1280, height: 900 };
@@ -25,6 +26,7 @@ export const test = base.extend({
       acceptDownloads: true,
       serviceWorkers: "block",
     });
+    watchStoreRequests(context);
     await use(context);
     await context.close();
   }, { scope: "worker" }],
@@ -43,6 +45,7 @@ export async function shopperPage() {
   await accessListed(["/"]);
   const browser = await chromium.launch(launch());
   const context = await browser.newContext({ viewport: SIZE, ...video(), serviceWorkers: "block" });
+  watchStoreRequests(context);
   return filterPage(await context.newPage(), config);
 }
 
@@ -90,4 +93,7 @@ async function accessAt(path) {
 }
 
 /** A link/photo/PDF probe with the same origin and redirect policy. */
-export const get = (page, url, options) => filteredGet(page.context().request, url, config, options);
+export const get = (page, url, options) => {
+  countStoreRequest(url);
+  return filteredGet(page.context().request, url, config, options);
+};

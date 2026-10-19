@@ -1,6 +1,6 @@
 ---
 name: dinkuskit-live-test
-description: Run the saved DinkusKit live test journeys (Buy and ship - Stripe TEST order, Commerce order, Pitney Bowes sandbox label in Ship, Completed; Storefront - homepage, product list, product page, category page; Cart - add, change quantity, remove, cart total; Manage products - add a product with a photo, page in a category, new price and name, archive and restore; Mark as completed - the owner and an agent each complete a paid TEST order without a label; Problems - declined, insufficient-funds and failed bank check test cards turned down with no order, leaving Stripe for the cart and coming back, paying once) and hand back their proof. Use when the owner says "run the test", asks to prove a DinkusKit release or plugin update works on a live store, asks for one journey, or wants a stuck TEST order finished.
+description: Run the saved DinkusKit live test journeys (Buy and ship - Stripe TEST order, Commerce order, Pitney Bowes sandbox label in Ship, Completed; Storefront - homepage, product list, product page, category page; Cart - add, change quantity, remove, cart total; Manage products - add a product with a photo, page in a category, new price and name, archive and restore; Full catalog - a standing catalog of several categories of products, each with its own price, photo and page, shown whole on the Shop list, category pages and product pages; Mark as completed - the owner and an agent each complete a paid TEST order without a label; Problems - declined, insufficient-funds and failed bank check test cards turned down with no order, leaving Stripe for the cart and coming back, paying once) and hand back their proof. Use when the owner says "run the test", asks to prove a DinkusKit release or plugin update works on a live store, asks for one journey, or wants a stuck TEST order finished.
 ---
 
 # DinkusKit live test
@@ -16,10 +16,15 @@ cart's count and total follow each change. In Manage products, the owner adds a
 product, gives it a photo that is still its image after a reload and a published
 page in a new category that the store links to, changes its price and name, and
 archives and restores it, and the Shop list, product page and category page
-follow each change. In Mark as completed, the owner marks a paid TEST order
-completed in Commerce Orders with a carrier and tracking number, and an agent
-marks another completed through Commerce's orders API with neither, using an
-admin key the test makes for an hour and deletes at the end. In Problems, Stripe
+follow each change. In Full catalog, the store carries a catalog as big as a real
+shop's, several categories of products that each have their own price, weight,
+photo and page; the test adds what's missing and leaves it there, then checks
+that the Shop list, every category page and every product page show all of it,
+and that the owner can still save a product with all of it in place. In Mark as
+completed, the owner marks a paid TEST order completed in Commerce Orders with a
+carrier and tracking number, and an agent marks another completed through
+Commerce's orders API with neither, using an admin key the test makes for an
+hour and deletes at the end. In Problems, Stripe
 turns down three of its test cards that never pay (declined, not enough funds,
 a failed bank security check) with a clear message and no order, the shopper
 leaves Stripe for the cart and finds the way back to the same checkout, pays
@@ -56,6 +61,8 @@ authorization the test needs.
      no order. Cart fills and empties a new shopper's cart and never checks out.
      Manage products works in the store admin and takes its product, page and
      category off the store again, leaving one archived product and its photo.
+     Full catalog adds whatever the standing catalog lacks and leaves it on the
+     store for later runs.
      Mark as completed places two Stripe TEST orders and leaves both Completed.
      Problems tries three refused test cards and the way back from the cart in
      one Stripe TEST checkout, pays it once and leaves that order Completed.
@@ -70,8 +77,11 @@ authorization the test needs.
    Buy and ship takes about 15 minutes, because it gives Commerce's 5-minute
    background check up to 7 minutes to collect the label on its own. Storefront
    and Cart each take about a minute, and Manage products about two, plus up to a
-   minute for each change the store is slow to show. Mark as completed takes about
-   four, most of it in its two checkouts, and Problems about three.
+   minute for each change the store is slow to show. Full catalog takes about
+   four once the store has the catalog; the run that first adds it takes about a
+   minute a product, because it keeps under the store's request limit. Mark as
+   completed takes about four, most of it in its two checkouts, and Problems
+   about three.
 4. Read the proof. The run prints each journey's verdict, then `Verdict: PASS` or
    `Verdict: FAIL` and the path to its `PROOF.md`. Read `PROOF.md` and
    `report.json`, and actually look at `label.pdf.png` (macOS draws it from the
@@ -87,11 +97,13 @@ authorization the test needs.
    and their versions under "plugins". If it shows the old version, update the
    plugin from the store admin's Plugins page, then run the test again.
 2. Run every `@running` journey with `npm test`. For a Commerce release, also run
-   Manage products while it is still `@next`, on the store that runs the release,
-   with that store's settings file:
-   `DINKUS_E2E_ENV_FILE=<that store's settings file> npm run journey -- manage-products`.
-   On a store whose Commerce can't rename and archive a product, it stops at its
-   first step.
+   Full catalog and Manage products while they are still `@next`, on the store that
+   runs the release, with that store's settings file:
+   `DINKUS_E2E_ENV_FILE=<that store's settings file> npm run journey -- full-catalog manage-products`.
+   Full catalog runs first, so Manage products works with the whole catalog in
+   place. On a store whose Commerce can't rename and archive a product, Manage
+   products stops at its first step; on one older than 0.3.0-beta.4, Full catalog
+   adds nothing.
 3. Hand back the verdict with the plugin versions it covered, so the owner knows
    which release passed.
 
@@ -116,6 +128,9 @@ authorization the test needs.
 - Manage products changes only the product, page and category it adds, each named
   "Live test" with the run's date and time. Never edit or archive the store's
   other products to make it pass.
+- Full catalog changes only the catalog's own categories and products, each named
+  "Catalog" and the same on every run, and it never takes them off the store.
+  Never edit or archive the store's other products to make it pass.
 - Mark as completed completes only TEST orders: the two it places, paying each
   once with the test card, or the Processing TEST orders
   `DINKUS_E2E_ORDERS_TO_COMPLETE` names. It leaves every other order alone.
@@ -156,6 +171,10 @@ authorization the test needs.
   report each page that didn't follow a change, with how long the test waited.
   When the last step fails, name what it couldn't take off the store, so the
   owner can archive or trash it by hand.
+- Full catalog stops when Commerce Products won't open or a category can't be
+  published. Its other steps are soft: report each product a page leaves out or
+  shows wrong, with the page. When it adds nothing because the store's Commerce
+  is older than 0.3.0-beta.4, report that the store needs that release first.
 - Mark as completed stops when the owner can't open Commerce Orders, when an
   order can't be placed, or when EmDash won't make the agent's key. Its other
   steps are soft: report a refused completion with Commerce's answer, and an

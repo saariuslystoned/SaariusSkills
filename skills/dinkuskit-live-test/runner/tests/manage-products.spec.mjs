@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { get, newPage, test, expect, shopperPage, closeShopper } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
+import { PAGE_ROOM, paceStore } from "../support/pace.mjs";
+import {
+  addCategory, addProductPage, archive, findProduct, onProduct, openProduct, publishedLink, setPrice, setWeight, shownProductId, trash, uploadPhoto,
+} from "../support/products-admin.mjs";
 import { record } from "../support/proof.mjs";
 import { openShopperPage } from "../support/shopper.mjs";
 import { confirmed, notePlugins, openAdmin } from "../support/store-admin.mjs";
@@ -24,53 +28,6 @@ function runNames() {
   };
 }
 
-/** Answers the question the admin asks before an action with one of its buttons. */
-async function answer(page, question, choice) {
-  // Commerce's question carries no name of its own, so it's found by what it asks.
-  const dialog = page.getByRole("dialog").or(page.getByRole("alertdialog")).filter({ hasText: question }).first();
-  if (!await dialog.waitFor({ timeout: 15_000 }).then(() => true, () => false)) throw new Error(`The admin never asked "${question}"`);
-  await dialog.getByRole("button", { name: choice, exact: true }).click();
-}
-
-/**
- * Opens a product in Commerce Products, paging through the list until it finds it. False only when
- * every page was read and none lists it; a page that won't open or turn fails instead.
- */
-async function findProduct(page, name) {
-  await openAdmin(page, config.productsAdmin);
-  for (;;) {
-    await page.getByRole("button", { name: "Add product", exact: true }).waitFor({ timeout: 30_000 });
-    const open = page.getByRole("button", { name: `Open ${name}`, exact: true });
-    if (await open.count()) {
-      await open.click();
-      await page.getByRole("heading", { name, level: 2 }).waitFor({ timeout: 30_000 });
-      return true;
-    }
-    const next = page.getByRole("button", { name: "Next", exact: true });
-    if (!await next.count()) return false;
-    const before = await listedRows(page);
-    await next.click();
-    await expect.poll(() => listedRows(page), { timeout: 30_000 }).not.toEqual(before);
-  }
-}
-
-/**
- * The rows the shown page of Commerce Products lists, each read with the text beside its Open button
- * ("name — SKU"). SKUs are unique, so the rows tell one page from the next even when products share a name.
- */
-function listedRows(page) {
-  return page.getByRole("button", { name: /^Open / }).evaluateAll(buttons => buttons.map(button => {
-    let row = button;
-    while (row.parentElement && row.textContent === button.textContent) row = row.parentElement;
-    return row.textContent;
-  }));
-}
-
-/** Opens a product in Commerce Products; a product the list doesn't have fails. */
-async function openProduct(page, name) {
-  if (!await findProduct(page, name)) throw new Error(`Commerce Products doesn't list "${name}".`);
-}
-
 /** What the open Commerce product page lacks of the controls the journey needs to take its product off the store again. */
 async function missingControls(page) {
   await page.getByText("Commerce / Products", { exact: true }).waitFor({ timeout: 30_000 });
@@ -87,49 +44,6 @@ const CANT_REMOVE = "It needs a Commerce release with rename and archive.";
 async function openRunProduct(page, names) {
   for (const name of new Set(names)) if (await findProduct(page, name)) return name;
   return null;
-}
-
-/** Makes sure the saved profile's page shows this product in Commerce, opening it again when a step left it elsewhere. */
-async function onProduct(page, name) {
-  if (await page.getByRole("heading", { name, level: 2 }).isVisible() && await page.getByText("Commerce / Products", { exact: true }).isVisible()) return;
-  await openProduct(page, name);
-}
-
-/** Saves the open Commerce product's regular price. */
-async function setPrice(page, regular) {
-  await page.getByRole("textbox", { name: "Regular", exact: true }).fill(regular);
-  await page.getByRole("button", { name: "Save", exact: true }).click();
-  await confirmed(page, "Product saved");
-}
-
-/** Archives the open Commerce product, answering the question Commerce asks first. */
-async function archive(page, name) {
-  await onProduct(page, name);
-  const button = page.getByRole("button", { name: "Archive product", exact: true });
-  if (!await button.count()) throw new Error("Commerce's product page has no Archive product.");
-  await button.click();
-  await answer(page, `Archive ${name}?`, "Archive");
-  await confirmed(page, "Product archived");
-}
-
-/** Uploads a plain square photo to the Media library, as an owner does before choosing it for a product. */
-async function uploadPhoto(page, fileName, label) {
-  // The browser draws the photo, so the test carries no image file. Its label makes each run's photo
-  // its own: the Media library keeps one copy of identical files, under the first one's name.
-  const painter = await newPage(page.context());
-  await painter.setContent(`<div style="width:480px;height:480px;display:grid;place-items:center;background:linear-gradient(135deg,#2a6,#246);color:#fff;font:600 28px sans-serif">${label}</div>`);
-  const png = await painter.locator("div").screenshot();
-  await painter.close();
-  await openAdmin(page, `${config.store}/_emdash/admin/media`);
-  await page.getByRole("button", { name: "Upload Files" }).first().click();
-  const dialog = page.getByRole("dialog", { name: "Upload to Library" });
-  const [chooser] = await Promise.all([page.waitForEvent("filechooser"), dialog.getByRole("button", { name: "Browse files", exact: true }).click()]);
-  await chooser.setFiles({ name: fileName, mimeType: "image/png", buffer: png });
-  const upload = dialog.getByRole("listitem").filter({ hasText: fileName });
-  if (!await expect(upload).toContainText("Complete", { timeout: 60_000 }).then(() => true, () => false)) {
-    throw new Error(`The Media library didn't take the photo: "${await text(upload) || "no upload listed"}".`);
-  }
-  await dialog.getByRole("button", { name: "Done" }).click();
 }
 
 /**
@@ -162,69 +76,6 @@ async function adminPhotoProblem(page, hash) {
   return await imageHash(page, await img.getAttribute("src")) === hash ? "" : "the product's Commerce page shows another image than the photo the owner chose";
 }
 
-/** An EmDash editor's field by its label; an editor without it fails with that plain reason. */
-async function field(page, label, editor) {
-  const box = page.getByRole("textbox", { name: label, exact: true });
-  if (!await box.waitFor({ timeout: 30_000 }).then(() => true, () => false)) throw new Error(`${editor} has no "${label}" field.`);
-  return box;
-}
-
-/** The slug EmDash makes from the title, once it has made one. */
-async function slugOf(page) {
-  const slug = page.getByRole("textbox", { name: "Slug", exact: true });
-  await expect.poll(() => slug.inputValue(), quick).not.toBe("");
-  return slug.inputValue();
-}
-
-/**
- * Saves a new EmDash entry and returns its editor's address. When the editor doesn't move there, the
- * address comes from EmDash's answer to the save; null when neither says, though the entry may exist.
- */
-async function saveNew(page, collection) {
-  const saved = page.waitForResponse(r => r.request().method() === "POST" && new URL(r.url()).pathname === `/_emdash/api/content/${collection}`, { timeout: 30_000 });
-  saved.catch(() => {});
-  await page.getByRole("button", { name: "Save", exact: true }).click();
-  if (await page.waitForURL(url => !url.pathname.endsWith("/new"), { timeout: 30_000 }).then(() => true, () => false)) return page.url();
-  const id = await saved.then(response => response.json()).then(body => body?.data?.item?.id, () => null);
-  return typeof id === "string" && id ? `${config.store}/_emdash/admin/content/${collection}/${id}` : null;
-}
-
-/** Publishes the open EmDash entry; a refusal fails with the reason the admin gives. */
-async function publish(page, collection) {
-  const published = page.waitForResponse(r => r.request().method() === "POST" && new RegExp(`/_emdash/api/content/${collection}/[^/]+/publish`).test(r.url()), { timeout: 30_000 });
-  // When the click or the question fails first, this wait's own failure mustn't go unhandled; awaiting it below still fails the step.
-  published.catch(() => {});
-  await page.getByRole("button", { name: "Publish now" }).click();
-  await answer(page, "Publish now?", "Publish now");
-  const response = await published;
-  if (response.ok()) return;
-  const body = await response.json().catch(() => null);
-  throw new Error(body?.error?.message ?? `HTTP ${response.status()}`);
-}
-
-/**
- * The full address the "View published" link in EmDash's list of product pages goes to for this title,
- * once the list shows the page as Published; null when it doesn't.
- */
-async function publishedLink(page, title) {
-  await openAdmin(page, `${config.store}/_emdash/admin/content/products`);
-  await page.getByRole("searchbox", { name: "Search products" }).fill(title);
-  const view = page.getByRole("link", { name: `View published ${title}`, exact: true });
-  if (!await view.waitFor({ timeout: 15_000 }).then(() => true, () => false)) return null;
-  const row = page.getByRole("row").filter({ has: view });
-  if (!await row.getByRole("cell", { name: "Published", exact: true }).count()) return null;
-  const href = await view.getAttribute("href");
-  return href === null ? null : new URL(href, config.store).href;
-}
-
-/** Moves an EmDash entry to the Trash, so the store stops showing it. */
-async function trash(page, url) {
-  await openAdmin(page, url);
-  await page.getByRole("button", { name: "Move to Trash" }).click();
-  await answer(page, "Move to Trash?", "Move to Trash");
-  await page.waitForURL(next => !next.href.startsWith(url.split("?")[0]), { timeout: 30_000 });
-}
-
 /**
  * Reloads a store page until `check` finds nothing wrong, giving the store a minute to show a change
  * the owner just made. Returns the last problems found (none once the page caught up) and the wait.
@@ -232,6 +83,8 @@ async function trash(page, url) {
 async function catchUp(shopper, path, check) {
   const started = Date.now();
   for (;;) {
+    // Each reload brings the page's photos again, so on a store with many products it waits its turn.
+    await paceStore(PAGE_ROOM);
     const response = await shopper.goto(new URL(path, config.store).href).catch(error => error);
     const problems = response instanceof Error ? [`${path} didn't answer (${firstLine(response)})`]
       : new URL(shopper.url()).origin !== config.store ? [`${path} sent the shopper away from the store`]
@@ -457,15 +310,11 @@ test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
         if (missing.length) throw new Error(`Commerce on this store can't ${missing.join(" or ")} a product yet, so the journey stops before pricing "${run.product}"; without a price the store doesn't list it. ${CANT_REMOVE}`);
       }
       // The product page shows the ID a product page's "Commerce product" field takes.
-      const id = await text(page.locator("main pre, main code"));
-      state.idShown = /^[\w-]{8,}$/.test(id);
+      const id = await shownProductId(page);
+      state.idShown = Boolean(id);
       if (state.idShown) state.id = id;
       await setPrice(page, "12.00");
-      await page.getByRole("textbox", { name: "Weight (oz)", exact: true }).fill("8");
-      await page.getByRole("button", { name: "Save weight", exact: true }).click();
-      await confirmed(page, "Weight saved");
-      // Commerce draws the product again from what it stored, so the field now shows the saved weight.
-      await expect(page.getByRole("textbox", { name: "Weight (oz)", exact: true }), "Commerce didn't keep the weight").toHaveValue("8", { timeout: 15_000 });
+      await setWeight(page, 8);
       return `"${run.product}" (SKU ${run.sku}) at $12.00, 8 oz${state.idShown ? `; Product ID ${state.id}` : ""}`;
     });
 
@@ -505,39 +354,8 @@ test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
     const pageStep = "The owner gives the product its own page in a new category";
     await step(content, pageStep, async () => {
       if (!state.id) throw new Error("The test couldn't learn the product's ID: Commerce's product page doesn't show it and the Shop list doesn't list the product.");
-      await openAdmin(content, `${config.store}/_emdash/admin/content/categories/new`);
-      await (await field(content, "Category title", "The new category editor")).fill(run.category);
-      made.categoryPath = `/categories/${await slugOf(content)}`;
-      made.category = await saveNew(content, "categories") ?? "";
-      if (!made.category) {
-        made.lost.push(`category "${run.category}"`);
-        throw new Error(`Saving the category "${run.category}" never opened its editor, and EmDash's answer didn't say where it is.`);
-      }
-      await publish(content, "categories").catch(error => { throw new Error(`Publishing the category failed: ${firstLine(error)}`); });
-
-      await openAdmin(content, `${config.store}/_emdash/admin/content/products/new`);
-      const editor = "The new product page editor";
-      await (await field(content, "Product title", editor)).fill(run.product);
-      await (await field(content, "Illustration style (TEE, HOODIE, CAP, or BEANIE)", editor)).fill("CAP");
-      await (await field(content, "Commerce product (optional)", editor)).fill(state.id);
-      made.pagePath = `/products/${await slugOf(content)}`;
-      made.page = await saveNew(content, "products") ?? "";
-      if (!made.page) {
-        made.lost.push(`product page "${run.product}"`);
-        throw new Error(`Saving the product page "${run.product}" never opened its editor, and EmDash's answer didn't say where it is.`);
-      }
-      await content.getByRole("button", { name: "Add reference" }).click();
-      const picker = content.getByRole("dialog", { name: "Add references" });
-      await picker.getByPlaceholder("Search content...").fill(run.category);
-      await picker.locator("label").filter({ hasText: run.category }).first().click({ timeout: 15_000 });
-      await picker.getByRole("button", { name: "Add selected" }).click();
-      await content.getByRole("button", { name: `Remove ${run.category}` }).waitFor({ timeout: 15_000 });
-      const save = content.getByRole("button", { name: "Save", exact: true });
-      if (await save.isEnabled()) {
-        await save.click();
-        await expect(save).toBeDisabled({ timeout: 15_000 }).catch(() => {});
-      }
-      await publish(content, "products").catch(error => { throw new Error(`Publishing the product page failed: ${firstLine(error)}`); });
+      await addCategory(content, run.category, made);
+      await addProductPage(content, { title: run.product, style: "CAP", productId: state.id, category: run.category }, made);
       Object.assign(state, { productPath: made.pagePath, categoryPath: made.categoryPath });
       // The owner's list of product pages says it's published and links to its address.
       const listed = await publishedLink(content, run.product);

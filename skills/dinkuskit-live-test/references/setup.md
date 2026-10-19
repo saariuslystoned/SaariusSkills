@@ -50,6 +50,10 @@ link for the store owner, and Cloudflare Access's one-time PIN for the store adm
   "Live test product <date and time> renamed" and its photo in the Media library;
   its product page and category go to EmDash's Trash. Empty the Trash or delete
   the photos by hand whenever you like.
+- For Full catalog, Commerce 0.3.0-beta.4 or later and the same admin sign-in and
+  collections as Manage products. Its first run adds the whole catalog (24
+  products in 3 categories unless `DINKUS_E2E_CATALOG` says otherwise), each with
+  a photo in the Media library, and the catalog stays on the store for later runs.
 - For Mark as completed, Commerce 0.2.0 or later and a store admin sign-in with
   the Administrator role, which the test uses to make the agent's one-hour key.
   Each run places two Stripe TEST orders and leaves both Completed. When

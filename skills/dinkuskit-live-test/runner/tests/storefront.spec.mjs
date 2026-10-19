@@ -1,5 +1,6 @@
 import { get, test, expect, shopperPage, closeShopper } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
+import { PHOTO_ROOM, paceStore } from "../support/pace.mjs";
 import { note, record } from "../support/proof.mjs";
 import { STORE_OPENS, elsewhere, openShopperPage as open, storeOpens } from "../support/shopper.mjs";
 import { journey, step } from "../support/steps.mjs";
@@ -28,6 +29,8 @@ async function readCards(cards) {
   const problems = [];
   const links = [];
   for (const card of await cards.all()) {
+    // A big catalog's photos can cross the store's request limit, so each card waits its turn.
+    await paceStore(PHOTO_ROOM);
     const { name, price, image, href } = await readCard(card);
     const label = name || `product ${listed.length + 1}`;
     if (!name) problems.push(`${label} has no name`);
@@ -43,6 +46,7 @@ async function readCards(cards) {
 async function brokenLinks(page, links) {
   const broken = [];
   for (const href of new Set(links)) {
+    await paceStore();
     // A link that gets no answer at all is a finding too, and the rest are still checked.
     const response = await get(page, new URL(href, config.store).href).catch(error => error);
     if (response instanceof Error) broken.push(`${href} didn't answer (${response.message.split("\n")[0]})`);
