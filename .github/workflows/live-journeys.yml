@@ -1,0 +1,122 @@
+name: Live journeys
+# Runs the DinkusKit live journeys (skills/dinkuskit-live-test/runner) against the beta test store,
+# beta.sm0ky.dev, on a GitHub runner. It never runs on pull requests or pushes: only from the
+# "Run workflow" button. This store belongs to this workflow alone; no Mac or other computer runs
+# journeys on it. Stripe TEST cards and Ship sandbox labels only.
+#
+# The job log is public, so it shows only each journey's pass or fail. Steps, screenshots, the
+# console output and videos go to the private R2 bucket.
+
+on:
+  workflow_dispatch:
+    inputs:
+      journeys:
+        description: Which journeys (a Playwright --grep; @running is all seven)
+        default: "@running"
+        required: true
+      video:
+        description: Record a video of every browser window
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# One run on the store at a time; a second press waits its turn instead of stopping the first.
+concurrency:
+  group: live-journeys-beta-store
+  cancel-in-progress: false
+
+jobs:
+  journeys:
+    name: Journeys on beta.sm0ky.dev
+    if: github.repository == 'saariuslystoned/SaariusSkills'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      DINKUS_E2E_STORE: https://beta.sm0ky.dev
+      DINKUS_E2E_SITE_ID: 858232f9-bc07-44f6-b3de-259a8055a9dd
+      DINKUS_E2E_ORDERS_ADMIN: https://beta.sm0ky.dev/_emdash/admin/plugins/r_fjzjvld3ssb4j63o/orders
+      DINKUS_E2E_ACCESS_ORIGINS: https://sm0kydev.cloudflareaccess.com
+      DINKUS_E2E_MAIL_CMD: node "$GITHUB_WORKSPACE/skills/dinkuskit-live-test/runner/scripts/gmail-mail.mjs"
+      DINKUS_E2E_VIDEO: ${{ inputs.video && '1' || '0' }}
+      DINKUS_E2E_RUN: github-${{ github.run_id }}-${{ github.run_attempt }}
+      # Points at an empty file, so nothing on the runner's disk can add settings.
+      DINKUS_E2E_ENV_FILE: /dev/null
+      PROOF_PREFIX: runs/github-${{ github.run_id }}-${{ github.run_attempt }}
+    defaults:
+      run:
+        working-directory: skills/dinkuskit-live-test/runner
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "22.13.0"
+
+      - name: Install the runner, the label PDF renderer and a virtual screen
+        run: |
+          # A fresh Chrome profile and proof folder for every run, outside the checkout.
+          echo "DINKUS_E2E_PROOF=$RUNNER_TEMP/proof" >> "$GITHUB_ENV"
+          echo "DINKUS_E2E_PROFILE=$RUNNER_TEMP/profile" >> "$GITHUB_ENV"
+          npm ci
+          sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils xvfb
+
+      - name: Check the settings
+        run: |
+          missing=0
+          for name in DINKUS_E2E_OWNER_EMAIL DINKUS_E2E_GMAIL_CLIENT_ID DINKUS_E2E_GMAIL_CLIENT_SECRET DINKUS_E2E_GMAIL_REFRESH_TOKEN R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET; do
+            if [ -z "${!name}" ]; then echo "::error::The repository secret $name is not set."; missing=1; fi
+          done
+          exit $missing
+        env:
+          DINKUS_E2E_OWNER_EMAIL: ${{ secrets.DINKUS_E2E_OWNER_EMAIL }}
+          DINKUS_E2E_GMAIL_CLIENT_ID: ${{ secrets.DINKUS_E2E_GMAIL_CLIENT_ID }}
+          DINKUS_E2E_GMAIL_CLIENT_SECRET: ${{ secrets.DINKUS_E2E_GMAIL_CLIENT_SECRET }}
+          DINKUS_E2E_GMAIL_REFRESH_TOKEN: ${{ secrets.DINKUS_E2E_GMAIL_REFRESH_TOKEN }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+
+      - name: Run the journeys
+        id: run
+        # The inbox key reaches only this step, never the install above.
+        env:
+          JOURNEYS: ${{ inputs.journeys }}
+          DINKUS_E2E_OWNER_EMAIL: ${{ secrets.DINKUS_E2E_OWNER_EMAIL }}
+          DINKUS_E2E_GMAIL_CLIENT_ID: ${{ secrets.DINKUS_E2E_GMAIL_CLIENT_ID }}
+          DINKUS_E2E_GMAIL_CLIENT_SECRET: ${{ secrets.DINKUS_E2E_GMAIL_CLIENT_SECRET }}
+          DINKUS_E2E_GMAIL_REFRESH_TOKEN: ${{ secrets.DINKUS_E2E_GMAIL_REFRESH_TOKEN }}
+        # Chrome runs with a window on a virtual screen, as on the Mac, rather than headless.
+        # Everything the run prints goes to the private proof, never to this public log; the
+        # next steps report the verdict.
+        run: |
+          mkdir -p "$DINKUS_E2E_PROOF/$DINKUS_E2E_RUN"
+          xvfb-run -a npx playwright test --grep "$JOURNEYS" > "$DINKUS_E2E_PROOF/$DINKUS_E2E_RUN/console.log" 2>&1 || true
+
+      - name: Save the proof to R2
+        if: always() && steps.run.outcome != 'skipped'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          aws s3 cp "$DINKUS_E2E_PROOF/$DINKUS_E2E_RUN" "s3://$R2_BUCKET/$PROOF_PREFIX/" --recursive --only-show-errors \
+            --endpoint-url "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com"
+
+      - name: Report pass or fail
+        if: always() && steps.run.outcome != 'skipped'
+        env:
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          node scripts/run-summary.mjs "$DINKUS_E2E_PROOF/$DINKUS_E2E_RUN" "R2 bucket $R2_BUCKET, folder $PROOF_PREFIX/" | tee -a "$GITHUB_STEP_SUMMARY"
