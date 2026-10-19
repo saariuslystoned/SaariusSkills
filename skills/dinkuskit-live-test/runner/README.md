@@ -71,12 +71,16 @@ starts with none. Without this, every page view fetches them all again, and a ru
 can cross the store's limit of 120 requests a minute per visitor.
 
 That limit counts every request from one address, pages, photos and admin calls
-alike, from every browser the run opens. So the run counts its own store requests,
-and before a step that sends many (opening a store page with its photos, reading
-each product's photo or link, uploading a photo to the Media library, the owner's
-work on a product in Full catalog) it waits until they fit under 100 in the last
-minute. On a store with a few products
-it never waits; with a large catalog it slows down rather than being turned away.
+alike, from every browser the run opens. So the run counts its own store requests
+from the moment each is sent, and before a step that sends many (opening a store
+page with its photos, reading each product's photo or link, uploading a photo to
+the Media library, the owner's work on a product in Full catalog) it waits until
+they fit under 100 in the last minute. The count carries on when Playwright
+starts a new worker after a journey fails, and into a run started straight after
+another: the time of each request that reached the store also goes in
+`.store-requests-<store>.log` beside the run folders in `DINKUS_E2E_PROOF`. On a
+store with a few products it never waits; with a large catalog it slows down
+rather than being turned away.
 
 Leave the window alone while it runs: the test drives it, and a click or a tab
 of yours can get in its way. To see the label, look in the proof folder for
@@ -127,8 +131,10 @@ published page. `DINKUS_E2E_CATALOG` sets the size, as categories x products per
 category (`3x8` unless set, up to `4x50`). The first run on a store adds the
 whole catalog as an owner would, in Commerce Products, the Media library and
 EmDash's content editor, which takes about a minute a product; later runs find
-it there, add only what's missing, and spend about four minutes checking it. The
-catalog stays on the store: Commerce archives products rather than deleting
+it there, add only what's missing, and spend about four minutes checking it. A
+bigger catalog gets more time before the journey times out: ten seconds for
+each product it checks, and two minutes for each it adds. The catalog stays on
+the store: Commerce archives products rather than deleting
 them, so taking it off each run would leave a pile of archived products behind.
 Before Commerce 0.3.0-beta.4, each product screen read the whole catalog, so a
 store with more than a handful of products couldn't save a product; on a store
@@ -282,10 +288,10 @@ store's request limit under [Requests stay within the selected sites](#requests-
 | --- | --- |
 | Commerce Products opens and lists every product | Commerce Products opens in the store admin and every page of its list turns, however many products the store has |
 | The catalog's categories are published | Each of the catalog's categories is a published category in EmDash, with a page on the store. The owner adds and publishes any that are missing, and publishes one an earlier run saved but didn't publish. On a store running Commerce before 0.3.0-beta.4 a missing category stops the journey with nothing added |
-| The owner adds what the catalog lacks | Every catalog product Commerce doesn't have, or the store doesn't show whole, gets what it lacks as an owner gives it: added in Commerce Products (or restored, when archived) with its price and weight, its own photo uploaded to the Media library and chosen as its image, and a published page in its category. A page an earlier run saved but didn't publish is finished and published rather than added again; a published page the store doesn't show is reported and left for the owner. It decides only from what the store shows, so when the Shop list or a category page won't open it adds nothing and fails. Each product it adds gives the journey two more minutes before it times out. Passes with nothing to do once the store has the whole catalog. On a store running Commerce before 0.3.0-beta.4 it adds nothing and fails, since there the owner couldn't save products with a full catalog in place |
+| The owner adds what the catalog lacks | Every catalog product Commerce doesn't have, or the store doesn't show whole, gets what it lacks as an owner gives it: added in Commerce Products (or restored, when archived) with its price and weight, its own photo uploaded to the Media library and chosen as its image, and a published page in its category. A page an earlier run saved but didn't publish is finished and published rather than added again; a published page the store doesn't show is reported and left for the owner. It decides only from what the store shows, so when the Shop list or a category page won't open, or the Shop list shows no products without saying it has none, it adds nothing and fails. Each product it adds gives the journey two more minutes before it times out. Passes with nothing to do once the store has the whole catalog. On a store running Commerce before 0.3.0-beta.4 it adds nothing and fails, since there the owner couldn't save products with a full catalog in place |
 | The Shop list shows every catalog product with its own price and photo | The homepage's Shop list shows each catalog product once, at its own price, with its own photo, loaded (the store's placeholder, "No image", or one photo shown for two products fails), linked to its page |
-| Each category page lists its products with their own price and photo | Each category's page lists its own products the same way, and none of the other categories' |
-| Every catalog product's page opens with its name, price and Add to cart | Every catalog product's page answers HTTP 200 with the product's name, its price and an Add to cart button. The test reads them one at a time, at the shopper's pace |
+| Each category page lists its products with their own price and photo | Each category's page lists its own products the same way, each linked to the page its Shop card links to, and none of the other categories' |
+| Every catalog product's page opens with its name, price and Add to cart | The shopper opens every catalog product's page from its Shop link, one at a time and at the shopper's pace. Each answers HTTP 200, is headed with the product's name, shows its price, and has an Add to cart button wired to the cart that a shopper can press (the test never presses it) |
 | The owner saves a product's weight with the whole catalog in place | With every page of Commerce Products read again and the whole catalog listed, the owner opens "Catalog Tee 01" and saves its weight, and Commerce keeps it. On Commerce 0.3.0-beta.3 this failed once a store had more than about six products |
 
 ### Mark as completed

@@ -35,38 +35,65 @@ test("requests that don't fit wait until enough of the oldest are a minute old",
   assert.equal(waitFor(times, STORE_BUDGET * 2, now), times.at(-1) + 60_000 - now);
 });
 
-test("only requests that reach the store count, and a step waits for room", { timeout: 10_000 }, async t => {
+test("requests that reach the store count from when they're sent, and a step waits for room", { timeout: 10_000 }, async t => {
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 5_000_000 });
   const context = new EventEmitter();
   const replays = new WeakSet();
   watchStoreRequests(context, { replayed: request => replays.has(request) });
   // A browser is watched once, however often it's handed over.
   watchStoreRequests(context, { replayed: () => false });
-  const done = (url, { replay = false, failed = false } = {}) => {
+  const send = url => {
     const request = { url: () => url };
+    context.emit("request", request);
+    return request;
+  };
+  const done = (request, { replay = false, failed = false } = {}) => {
     if (replay) replays.add(request);
     context.emit(failed ? "requestfailed" : "requestfinished", request);
   };
   // A file answered from the browser's own copy never reaches the store; its first load does.
-  done("https://store.example/_astro/page.js");
-  done("https://store.example/_astro/page.js", { replay: true });
+  done(send("https://store.example/_astro/page.js"));
+  done(send("https://store.example/_astro/page.js"), { replay: true });
   // A request that fails on the way may still have reached the store.
-  done("https://store.example/", { failed: true });
+  done(send("https://store.example/"), { failed: true });
+  // A photo still on its way counts already.
+  send("https://store.example/_emdash/api/media/file/cap.jpg");
   // Other sites, and a local development server's own scripts, never count.
-  done("https://dinkuskit.com/account");
-  done("https://store.example/@vite/client");
-  done("https://store.example/src/pages/index.astro");
-  done("https://store.example/node_modules/.vite/deps/react.js");
+  done(send("https://dinkuskit.com/account"));
+  done(send("https://store.example/@vite/client"));
+  done(send("https://store.example/src/pages/index.astro"));
+  done(send("https://store.example/node_modules/.vite/deps/react.js"));
   countStoreRequest("https://checkout.stripe.com/pay");
   countStoreRequest("https://store.example/products/cap");
-  // Three count: the file's first load, the failed page and the probe.
-  await paceStore(STORE_BUDGET - 3);
+  // Four count: the file's first load, the failed page, the photo on its way and the probe.
+  await paceStore(STORE_BUDGET - 4);
   let ready = false;
-  const waiting = paceStore(STORE_BUDGET - 2).then(() => { ready = true; });
+  const waiting = paceStore(STORE_BUDGET - 3).then(() => { ready = true; });
   t.mock.timers.tick(59_000);
   await Promise.resolve();
   assert.equal(ready, false);
   t.mock.timers.tick(1_500);
   await waiting;
   assert.equal(ready, true);
+});
+
+test("a file the browser answers from its own copy counts only until it's answered", { timeout: 10_000 }, async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 9_000_000 });
+  const context = new EventEmitter();
+  const replays = new WeakSet();
+  watchStoreRequests(context, { replayed: request => replays.has(request) });
+  const requests = Array.from({ length: STORE_BUDGET }, (_, i) => ({ url: () => `https://store.example/_astro/chunk-${i}.js` }));
+  for (const request of requests) context.emit("request", request);
+  // Until they're answered, nothing says they won't reach the store, so they fill the budget.
+  let ready = false;
+  const waiting = paceStore(1).then(() => { ready = true; });
+  await Promise.resolve();
+  assert.equal(ready, false);
+  for (const request of requests) {
+    replays.add(request);
+    context.emit("requestfinished", request);
+  }
+  await paceStore(STORE_BUDGET);
+  t.mock.timers.tick(60_250);
+  await waiting;
 });

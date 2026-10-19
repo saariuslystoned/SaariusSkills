@@ -1,4 +1,4 @@
-import { get, newPage, test, expect, shopperPage, closeShopper } from "../support/browser.mjs";
+import { newPage, test, expect, shopperPage, closeShopper } from "../support/browser.mjs";
 import { catalogPlan } from "../support/catalog.mjs";
 import { config } from "../support/env.mjs";
 import {
@@ -51,9 +51,8 @@ async function catalogCards(cards, names) {
 }
 
 /**
- * The homepage's Shop list: how many products it lists, and its cards for the catalog's products. An
- * empty list proves nothing about the catalog when it says why it's empty, unless `mayBeEmpty` and it
- * only says the store lists no products yet.
+ * The homepage's Shop list: how many products it lists, and its cards for the catalog's products. A list
+ * with no products counts as read only when it says the store lists none yet, and only with `mayBeEmpty`.
  */
 async function readShop(shopper, names, { mayBeEmpty = false } = {}) {
   await openShopperPage(shopper, "/");
@@ -61,8 +60,13 @@ async function readShop(shopper, names, { mayBeEmpty = false } = {}) {
   if (!await catalog.count()) throw new Error("The homepage has no Shop list.");
   const cards = catalog.locator("[data-commerce-product]");
   const count = await cards.count();
-  const said = count ? "" : await text(catalog.locator(mayBeEmpty ? '[role="alert"]' : '[role="alert"], [data-commerce-empty]'));
-  if (said) throw new Error(`The Shop list says "${said}".`);
+  if (!count) {
+    const said = await text(catalog.locator('[role="alert"]'));
+    if (said) throw new Error(`The Shop list says "${said}".`);
+    const empty = await text(catalog.locator("[data-commerce-empty]"));
+    if (!empty) throw new Error("The Shop list shows neither products nor that it has none.");
+    if (!mayBeEmpty) throw new Error(`The Shop list says "${empty}".`);
+  }
   return { count, found: await catalogCards(cards, names) };
 }
 
@@ -72,11 +76,14 @@ async function readCategory(shopper, path, names) {
   return catalogCards(shopper.locator("main").locator("[data-commerce-product], [data-merch-item]"), names);
 }
 
+const pathOf = href => new URL(href, config.store).pathname;
+
 /**
  * What's wrong with how a list page shows `products`: one it doesn't list or lists twice, one at
  * another price, without a photo of its own or a link to its page, or two showing the same photo.
+ * `pages` holds the page each product's Shop card links to, which its other cards must link to too.
  */
-function listProblems(found, products, where) {
+function listProblems(found, products, where, pages = new Map()) {
   const problems = [];
   const bySrc = new Map();
   for (const product of products) {
@@ -90,10 +97,27 @@ function listProblems(found, products, where) {
     if (money(card.price) !== product.cents) problems.push(`${where} shows "${product.name}" at ${card.price ? `"${card.price}"` : "no price"} instead of ${dollars(product.cents)}`);
     if (card.image !== "photo") problems.push(`"${product.name}" on ${where} ${photoProblem[card.image]}`);
     if (!card.href) problems.push(`"${product.name}" on ${where} links to no product page`);
+    else if (pages.has(product.name) && pathOf(card.href) !== pages.get(product.name)) problems.push(`"${product.name}" on ${where} links to ${pathOf(card.href)} instead of ${pages.get(product.name)}`);
     if (card.src) bySrc.set(card.src, [...bySrc.get(card.src) ?? [], product.name]);
   }
   // Every product has a photo of its own, so two products showing one photo means one shows the wrong photo.
   for (const shared of bySrc.values()) if (shared.length > 1) problems.push(`${where} shows one photo for ${shared.map(name => `"${name}"`).join(" and ")}`);
+  return problems;
+}
+
+/** What's wrong with how the open product page shows `product`: its name, its price and a working Add to cart button. */
+async function productPageProblems(shopper, product) {
+  const shown = shopper.locator("[data-product-page]");
+  if (!await shown.count()) return ["shows no product"];
+  const problems = [];
+  const heading = await text(shown.locator("h1"));
+  if (heading !== product.name) problems.push(`is headed "${heading || "nothing"}" instead of "${product.name}"`);
+  const price = await text(shown.locator("[data-product-price]"));
+  if (money(price) !== product.cents) problems.push(`shows ${price ? `"${price}"` : "no price"} instead of ${dollars(product.cents)}`);
+  // Ready means wired to the cart and pressable; the journey never presses it.
+  const add = shown.locator('[data-add-to-cart][data-guest-cart-ready="1"]').first();
+  if (!await add.waitFor({ timeout: 15_000 }).then(() => true, () => false)) problems.push("has no working Add to cart button");
+  else if (!await add.isEnabled()) problems.push("has an Add to cart button shoppers can't press");
   return problems;
 }
 
@@ -154,6 +178,8 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
   const products = plan.flatMap(category => category.products);
   const names = new Set(products.map(product => product.name));
   note("catalog", `${plural(plan.length, "category", "categories")} of ${plural(plan[0].products.length, "product")} (${products.length} in all)`);
+  // Checking takes a few seconds a product at the shopper's pace, so a big catalog gets that time on top of the usual limit.
+  test.info().setTimeout(test.info().timeout + products.length * 10_000);
   // Media and Content work in a second tab, so Commerce keeps its product open in the first.
   const content = await newPage(page.context());
   const shopper = await shopperPage();
@@ -257,11 +283,13 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
     await step(shopper, "Each category page lists its products with their own price and photo", async () => {
       const problems = [];
       const shown = [];
+      // Each product's card links to the page its Shop card does, which the next step opens.
+      const pages = new Map([...shopFound].filter(([, [card]]) => card.href).map(([name, [card]]) => [name, pathOf(card.href)]));
       for (const category of plan) {
         const path = categoryPaths.get(category.title);
         const found = await readCategory(shopper, path, names).catch(error => { problems.push(firstLine(error)); });
         if (!found) continue;
-        problems.push(...listProblems(found, category.products, path));
+        problems.push(...listProblems(found, category.products, path, pages));
         // The other categories' products don't belong here.
         const strays = [...found.keys()].filter(name => !category.products.some(product => product.name === name));
         if (strays.length) problems.push(`${path} also lists ${strays.map(name => `"${name}"`).join(", ")}`);
@@ -279,19 +307,16 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
           problems.push(`the Shop list links "${product.name}" to no page`);
           continue;
         }
-        await paceStore();
-        const response = await get(shopper, new URL(href, config.store).href).catch(error => error);
-        if (response instanceof Error) problems.push(`${href} didn't answer (${firstLine(response)})`);
-        else if (response.status() !== 200) problems.push(`${href} answered HTTP ${response.status()}`);
-        else {
-          const html = await response.text();
-          const lacks = [...html.includes(product.name) ? [] : ["its name"], ...html.includes(dollars(product.cents)) ? [] : [`its price ${dollars(product.cents)}`],
-            ...html.includes("data-add-to-cart") ? [] : ["an Add to cart button"]];
-          if (lacks.length) problems.push(`${href} shows no ${lacks.join(", ")}`);
-        }
+        const path = pathOf(href);
+        const failed = await openShopperPage(shopper, path).then(() => "", error => {
+          const line = firstLine(error).replace(/\.$/, "");
+          return line.startsWith(path) ? line : `${path} didn't open (${line})`;
+        });
+        if (failed) problems.push(failed);
+        else problems.push(...(await productPageProblems(shopper, product)).map(problem => `${path} ${problem}`));
       }
       if (problems.length) throw new Error(`${problems.join("; ")}.`);
-      return `all ${products.length} pages answered HTTP 200 with the product's name, its price and an Add to cart button`;
+      return `all ${products.length} pages show the product's name and price and a working Add to cart button`;
     }, soft);
 
     const [first] = products;
