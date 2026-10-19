@@ -22,7 +22,8 @@ on:
 permissions:
   contents: read
 
-# One run on the store at a time; a second press waits its turn instead of stopping the first.
+# One run on the store at a time. A press while a run is going waits its turn; GitHub keeps only
+# one waiting run, so a further press replaces the waiting one (and its choices).
 concurrency:
   group: live-journeys-beta-store
   cancel-in-progress: false
@@ -39,6 +40,8 @@ jobs:
       DINKUS_E2E_ORDERS_ADMIN: https://beta.sm0ky.dev/_emdash/admin/plugins/r_fjzjvld3ssb4j63o/orders
       DINKUS_E2E_ACCESS_ORIGINS: https://sm0kydev.cloudflareaccess.com
       DINKUS_E2E_MAIL_CMD: node "$GITHUB_WORKSPACE/skills/dinkuskit-live-test/runner/scripts/gmail-mail.mjs"
+      # Nobody watches a GitHub run, so the runner fails at once where it would wait for a person.
+      DINKUS_E2E_HEADLESS: "1"
       DINKUS_E2E_VIDEO: ${{ inputs.video && '1' || '0' }}
       DINKUS_E2E_RUN: github-${{ github.run_id }}-${{ github.run_attempt }}
       # Points at an empty file, so nothing on the runner's disk can add settings.
@@ -46,6 +49,8 @@ jobs:
       PROOF_PREFIX: runs/github-${{ github.run_id }}-${{ github.run_attempt }}
     defaults:
       run:
+        # Named, so GitHub adds pipefail: a failing command before a pipe fails its step.
+        shell: bash
         working-directory: skills/dinkuskit-live-test/runner
 
     steps:
@@ -59,13 +64,13 @@ jobs:
         with:
           node-version: "22.13.0"
 
-      - name: Install the runner, the label PDF renderer and a virtual screen
+      - name: Install the runner and the label PDF renderer
         run: |
           # A fresh Chrome profile and proof folder for every run, outside the checkout.
           echo "DINKUS_E2E_PROOF=$RUNNER_TEMP/proof" >> "$GITHUB_ENV"
           echo "DINKUS_E2E_PROFILE=$RUNNER_TEMP/profile" >> "$GITHUB_ENV"
           npm ci
-          sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils xvfb
+          sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
 
       - name: Check the settings
         run: |
@@ -93,12 +98,15 @@ jobs:
           DINKUS_E2E_GMAIL_CLIENT_ID: ${{ secrets.DINKUS_E2E_GMAIL_CLIENT_ID }}
           DINKUS_E2E_GMAIL_CLIENT_SECRET: ${{ secrets.DINKUS_E2E_GMAIL_CLIENT_SECRET }}
           DINKUS_E2E_GMAIL_REFRESH_TOKEN: ${{ secrets.DINKUS_E2E_GMAIL_REFRESH_TOKEN }}
-        # Chrome runs with a window on a virtual screen, as on the Mac, rather than headless.
-        # Everything the run prints goes to the private proof, never to this public log; the
-        # next steps report the verdict.
+        # Everything the run prints goes to the private proof, never to this public log. Its exit
+        # code goes to the report step, which fails the job unless it is 0 and every journey passed.
+        # The step's own limit leaves time to save the proof when a run hangs.
+        timeout-minutes: 100
         run: |
           mkdir -p "$DINKUS_E2E_PROOF/$DINKUS_E2E_RUN"
-          xvfb-run -a npx playwright test --grep "$JOURNEYS" > "$DINKUS_E2E_PROOF/$DINKUS_E2E_RUN/console.log" 2>&1 || true
+          code=0
+          npx playwright test --grep "$JOURNEYS" > "$DINKUS_E2E_PROOF/$DINKUS_E2E_RUN/console.log" 2>&1 || code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
 
       - name: Save the proof to R2
         if: always() && steps.run.outcome != 'skipped'
@@ -117,6 +125,7 @@ jobs:
       - name: Report pass or fail
         if: always() && steps.run.outcome != 'skipped'
         env:
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          # Empty when the run step was cut off, which the report counts as a failure.
+          PLAYWRIGHT_CODE: ${{ steps.run.outputs.code }}
         run: |
-          node scripts/run-summary.mjs "$DINKUS_E2E_PROOF/$DINKUS_E2E_RUN" "R2 bucket $R2_BUCKET, folder $PROOF_PREFIX/" | tee -a "$GITHUB_STEP_SUMMARY"
+          node scripts/run-summary.mjs "$DINKUS_E2E_PROOF/$DINKUS_E2E_RUN" "$PLAYWRIGHT_CODE" "the private R2 bucket, folder $PROOF_PREFIX/" | tee -a "$GITHUB_STEP_SUMMARY"

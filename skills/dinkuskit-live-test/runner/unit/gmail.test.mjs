@@ -65,7 +65,7 @@ test("the public summary shows each journey's pass or fail and nothing from its 
   }));
   const script = new URL("../scripts/run-summary.mjs", import.meta.url).pathname;
   let out = "", status = 0;
-  try { out = execFileSync(process.execPath, [script, folder, "R2"], { encoding: "utf8" }); } catch (error) { out = error.stdout; status = error.status; }
+  try { out = execFileSync(process.execPath, [script, folder, "0", "R2"], { encoding: "utf8" }); } catch (error) { out = error.stdout; status = error.status; }
   assert.equal(status, 1);
   assert.match(out, /Live journeys: FAIL/);
   assert.match(out, /\| Storefront \| PASS \|/);
@@ -76,5 +76,27 @@ test("the public summary shows each journey's pass or fail and nothing from its 
 test("a run that recorded nothing is a failure in the summary", () => {
   const folder = mkdtempSync(join(tmpdir(), "summary-"));
   const script = new URL("../scripts/run-summary.mjs", import.meta.url).pathname;
-  assert.throws(() => execFileSync(process.execPath, [script, folder], { encoding: "utf8" }), error => error.status === 1 && /no journey recorded a result/.test(error.stdout));
+  assert.throws(() => execFileSync(process.execPath, [script, folder, "0"], { encoding: "utf8" }), error => error.status === 1 && /no journey recorded a result/.test(error.stdout));
+});
+
+test("a run cut off part way fails even when every journey it recorded passed", () => {
+  const folder = mkdtempSync(join(tmpdir(), "summary-"));
+  writeFileSync(join(folder, "report.json"), JSON.stringify({ verdict: "PASS", journeys: [{ name: "Storefront", verdict: "PASS" }] }));
+  const script = new URL("../scripts/run-summary.mjs", import.meta.url).pathname;
+  for (const [code, says] of [["", /was cut off/], ["1", /exited 1/]]) {
+    assert.throws(() => execFileSync(process.execPath, [script, folder, code], { encoding: "utf8" }),
+      error => error.status === 1 && /Live journeys: FAIL/.test(error.stdout) && says.test(error.stdout) && /\| Storefront \| PASS \|/.test(error.stdout));
+  }
+  assert.match(execFileSync(process.execPath, [script, folder, "0"], { encoding: "utf8" }), /Live journeys: PASS/);
+});
+
+test("one message that can't be read is skipped; only a poll with none readable fails", async () => {
+  const fetcher = bad => async url => {
+    if (url.includes("/messages?")) return json({ messages: [{ id: "a" }, { id: "b" }] });
+    const id = url.split("/messages/")[1].split("?")[0];
+    if (bad.includes(id)) return json({}, 503);
+    return json({ payload: { mimeType: "text/plain", body: { data: encode(`code 48291${id === "a" ? 3 : 4}`) } } });
+  };
+  assert.deepEqual(await searchMail("at", "q", { fetcher: fetcher(["a"]) }), ["\ncode 482914"]);
+  await assert.rejects(searchMail("at", "q", { fetcher: fetcher(["a", "b"]) }), /503/);
 });

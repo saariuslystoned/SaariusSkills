@@ -29,7 +29,12 @@ export async function searchMail(token, query, { max = 3, fetcher = fetch } = {}
   };
   const list = await get(`/messages?${new URLSearchParams({ q: query, maxResults: String(max) })}`);
   const texts = [];
-  for (const { id } of list.messages ?? []) texts.push(messageText(await get(`/messages/${encodeURIComponent(id)}?format=full`)));
+  let lastError;
+  // As gogcli's script does, a message that can't be read is skipped, so the others still count.
+  for (const { id } of list.messages ?? []) {
+    try { texts.push(messageText(await get(`/messages/${encodeURIComponent(id)}?format=full`))); } catch (error) { lastError = error; }
+  }
+  if (lastError && !texts.length) throw lastError;
   return texts;
 }
 

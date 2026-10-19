@@ -179,9 +179,10 @@ The machine's settings come from `~/.dinkus-e2e/env`; see
 The repository's **Live journeys** workflow (`.github/workflows/live-journeys.yml`) runs
 the same journeys on a GitHub runner against the beta test store, beta.sm0ky.dev, with
 no Mac. Press **Run workflow** on its Actions page; `@running` runs all seven. That store
-belongs to the workflow alone, and the workflow runs one at a time, so a second press waits.
+belongs to the workflow alone. Runs go one at a time: a press while a run is going waits its
+turn, and a further press replaces the waiting one.
 
-Chrome runs with a window on a virtual screen. Sign-in emails are read with
+Chrome runs headless, so the runner fails at once wherever it would wait for a person. Sign-in emails are read with
 `scripts/gmail-mail.mjs`, through the Gmail API with a read-only key, in place of gogcli.
 The job log is public, so it shows only each journey's pass or fail; the steps,
 screenshots, console output and any video go to a private R2 bucket under

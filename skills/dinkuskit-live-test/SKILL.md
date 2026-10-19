@@ -104,9 +104,9 @@ authorization the test needs.
    `DINKUS_E2E_ENV_FILE=<that store's settings file> npm test`. On a store whose
    Commerce can't rename and archive a product, Manage products stops at its first
    step; on one older than 0.3.0-beta.4, Full catalog adds nothing. The beta store,
-   beta.sm0ky.dev, runs only from the repository's **Live journeys** workflow
-   (Actions, Run workflow), never from a Mac; see the runner README's
-   "Run on GitHub".
+   beta.sm0ky.dev, belongs to the repository's **Live journeys** workflow
+   (Actions, Run workflow); once that has passed there, no Mac runs journeys on
+   it. See the runner README's "Run on GitHub".
 3. Hand back the verdict with the plugin versions it covered, so the owner knows
    which release passed.
 

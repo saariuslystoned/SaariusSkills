@@ -57,7 +57,9 @@ if (!response.ok || !tokens.refresh_token) throw new Error(`Google gave no refre
 if (String(tokens.scope ?? "").split(" ").some(scope => scope !== GMAIL_READONLY)) throw new Error(`Google granted more than read-only access (${tokens.scope}). Nothing was saved.`);
 
 // The key must belong to the test inbox, never another account the browser happened to be signed in to.
-const profile = await (await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", { headers: { authorization: `Bearer ${tokens.access_token}` } })).json();
+const profileResponse = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", { headers: { authorization: `Bearer ${tokens.access_token}` } });
+if (!profileResponse.ok) throw new Error(`Gmail answered ${profileResponse.status}; turn on the Gmail API in the OAuth client's Google Cloud project. Nothing was saved.`);
+const profile = await profileResponse.json();
 if (String(profile.emailAddress).toLowerCase() !== inbox.toLowerCase()) throw new Error(`Signed in as ${profile.emailAddress}, not ${inbox}. Nothing was saved.`);
 
 const secrets = {
