@@ -1,4 +1,4 @@
-import { appendFileSync, readFileSync, unlinkSync } from "node:fs";
+import { appendFileSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { config } from "./env.mjs";
 import { wasReplayed } from "./request-policy.mjs";
@@ -25,14 +25,17 @@ const MINUTE = 60_000;
 // and every worker starts from the log's last minute.
 const log = config.store ? join(dirname(config.runDir), `.store-requests-${new URL(config.store).host.replace(/[^a-z0-9.-]/gi, "-")}.log`) : "";
 
-/** When the logged store requests of the last minute were sent, oldest first. */
+/** When the logged store requests of the last minute were sent, oldest first. The log keeps only those. */
 function logged() {
   let lines = [];
-  try { lines = readFileSync(log, "utf8").split("\n"); } catch { return []; }
+  try { lines = readFileSync(log, "utf8").split("\n").filter(Boolean); } catch { return []; }
   const since = Date.now() - MINUTE;
   const times = lines.map(Number).filter(time => time > since).sort((a, b) => a - b);
-  // Nothing in the log counts any more, so it starts over.
-  if (!times.length) try { unlinkSync(log); } catch {}
+  // Older requests no longer count, so the log drops them, and with none left it starts over.
+  try {
+    if (!times.length) unlinkSync(log);
+    else if (times.length < lines.length) writeFileSync(log, times.map(time => `${time}\n`).join(""));
+  } catch {}
   return times;
 }
 
@@ -42,7 +45,11 @@ const sent = log ? logged().map(at => ({ at })) : [];
 const watched = new WeakSet();
 
 const isStore = url => {
-  try { return new URL(url).origin === config.store; } catch { return false; }
+  try {
+    const { protocol, origin } = new URL(url);
+    // A blob: address carries the page's origin but never leaves the browser.
+    return (protocol === "https:" || protocol === "http:") && origin === config.store;
+  } catch { return false; }
 };
 // Scripts only a local development server sends (a deployed store bundles them under /_astro/).
 const DEV_SERVER = /^\/(?:@|node_modules\/|src\/)/;

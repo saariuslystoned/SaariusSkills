@@ -58,12 +58,15 @@ test("requests that reach the store count from when they're sent, and a step wai
   done(send("https://store.example/"), { failed: true });
   // A photo still on its way counts already.
   send("https://store.example/_emdash/api/media/file/cap.jpg");
-  // Other sites, and a local development server's own scripts, never count.
+  // Other sites, an address that never leaves the browser, and a local development server's own scripts
+  // never count.
   done(send("https://dinkuskit.com/account"));
+  done(send("blob:https://store.example/cap-preview"));
   done(send("https://store.example/@vite/client"));
   done(send("https://store.example/src/pages/index.astro"));
   done(send("https://store.example/node_modules/.vite/deps/react.js"));
   countStoreRequest("https://checkout.stripe.com/pay");
+  countStoreRequest("blob:https://store.example/cap-preview");
   countStoreRequest("https://store.example/products/cap");
   // Four count: the file's first load, the failed page, the photo on its way and the probe.
   await paceStore(STORE_BUDGET - 4);

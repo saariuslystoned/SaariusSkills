@@ -14,7 +14,8 @@ import { journey, step } from "../support/steps.mjs";
 import { photo, photoProblem, quick, readCard, text } from "../support/storefront-page.mjs";
 import { dollars, money } from "../support/storefront-text.mjs";
 
-const firstLine = error => String(error?.message ?? error).split("\n")[0];
+// An error's first line without its full stop, since findings are joined into one sentence.
+const firstLine = error => String(error?.message ?? error).split("\n")[0].replace(/\.$/, "");
 // Before this release Commerce read every product to draw each product screen, so with more than a
 // handful of products the owner couldn't save one; adding the catalog there would break the store admin.
 const COMMERCE_FOR_CATALOGS = "0.3.0-beta.4";
@@ -131,8 +132,8 @@ async function productPageProblems(shopper, product) {
 
 /**
  * Gives one catalog product what the store lacks for it, as an owner would: adds it to Commerce when
- * it isn't there (or restores it when archived), saves its price and weight, chooses its photo when it
- * has none of its own, and gives it a published page in its category when it has none. Returns what it did.
+ * it isn't there (or restores it when archived), saves its price and weight, chooses its photo when
+ * Commerce shows none, and gives it a published page in its category when it has none. Returns what it did.
  */
 async function completeProduct(page, content, product, { inCommerce, card, shelved }) {
   const did = [];
@@ -156,7 +157,9 @@ async function completeProduct(page, content, product, { inCommerce, card, shelv
   const id = await shownProductId(page);
   await setPrice(page, (product.cents / 100).toFixed(2));
   await setWeight(page, product.ounces);
-  if (!inCommerce || card?.image !== "photo" || await page.getByText("No image", { exact: true }).count()) {
+  // Commerce says so in the image's place when the product has none, or when the Media library has lost
+  // it. A photo Commerce already shows stays, since choosing it again can't change what the store shows.
+  if (!inCommerce || await page.getByText(/^(No image|Image .+ is unavailable\.)$/).count()) {
     await choosePhoto(page, product.photo);
     did.push("photo");
   }
@@ -205,7 +208,8 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
       // A run just before this one may have left little of the store's allowance.
       await paceStore(PRODUCT_ROOM);
       listed = await listedProducts(page);
-      commerce = pluginVersion(await notePlugins(page), new URL(config.productsAdmin).pathname.split("/")[4]);
+      // Commerce Products' address carries Commerce's id: /_emdash/admin/plugins/<id>/products.
+      commerce = pluginVersion(await notePlugins(page), new URL(config.productsAdmin).pathname.match(/\/plugins\/([^/]+)/)?.[1]);
       canAdd = versionAtLeast(commerce, COMMERCE_FOR_CATALOGS);
       note("products in Commerce", total(listed.names));
       const have = products.filter(product => listed.names.has(product.name)).length;
@@ -245,7 +249,7 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
         shop = await readShop(shopper, names, { mayBeEmpty: true });
         for (const [title, path] of categoryPaths) shelves.set(title, await readCategory(shopper, path, names));
       } catch (error) {
-        throw new Error(`Nothing was added, because the test couldn't read what the store shows: ${firstLine(error)}`);
+        throw new Error(`Nothing was added, because the test couldn't read what the store shows: ${firstLine(error)}.`);
       }
       const shelved = product => shelves.get(product.category).has(product.name);
       const lacking = products.filter(product => {
@@ -254,15 +258,24 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
       });
       if (!lacking.length) return `nothing: Commerce and the store already show all ${products.length} catalog products`;
       if (!canAdd) throw tooOld(commerce, plural(lacking.length, "product"));
+      // Commerce Products lists archived products too, so a name it lists twice may be an archived copy;
+      // the test can't tell which is the catalog's and leaves both alone.
+      const twins = lacking.filter(product => listed.names.get(product.name) > 1);
+      const problems = twins.map(product => `"${product.name}": Commerce Products lists ${listed.names.get(product.name)} products by that name, so the test can't tell which to complete; rename the extra one`);
+      const todo = lacking.filter(product => !twins.includes(product));
+      // Only a product the Shop list doesn't show with a photo may need one uploaded.
+      const needsPhoto = product => !listed.names.has(product.name) || shop.found.get(product.name)?.[0]?.image !== "photo";
       // Adding takes about a minute a product, so a big catalog's first run gets that time on top of the usual limit.
-      test.info().setTimeout(test.info().timeout + lacking.length * 2 * 60_000);
+      test.info().setTimeout(test.info().timeout + todo.length * 2 * 60_000);
       const added = [];
       const completed = [];
-      const problems = [];
-      for (let start = 0; start < lacking.length; start += UPLOAD_BATCH) {
-        const batch = lacking.slice(start, start + UPLOAD_BATCH);
-        await paceStore(UPLOADS_ROOM);
-        await uploadPhotos(content, batch.map(product => ({ fileName: product.photo, label: product.name })));
+      for (let start = 0; start < todo.length; start += UPLOAD_BATCH) {
+        const batch = todo.slice(start, start + UPLOAD_BATCH);
+        const photos = batch.filter(needsPhoto);
+        if (photos.length) {
+          await paceStore(UPLOADS_ROOM);
+          await uploadPhotos(content, photos.map(product => ({ fileName: product.photo, label: product.name })));
+        }
         for (const product of batch) {
           await paceStore(PRODUCT_ROOM);
           // One product's trouble is recorded and the rest still get added.
@@ -310,6 +323,8 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
     }, soft);
 
     await step(shopper, "Every catalog product's page opens with its name, price and Add to cart", async () => {
+      // The Shop list's links are the pages to open, so without them there's one reason, not one per product.
+      if (!shopFound.size) throw new Error("The Shop list couldn't be read or showed none of the catalog's products (see its step), so there was no product page to open.");
       const problems = [];
       for (const product of products) {
         const href = shopFound.get(product.name)?.[0]?.href;
@@ -320,7 +335,7 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
         // A link to another site is followed there, where the request filter or the store check stops it.
         const target = destination(href);
         const failed = await openShopperPage(shopper, target).then(() => "", error => {
-          const line = firstLine(error).replace(/\.$/, "");
+          const line = firstLine(error);
           return line.startsWith(target) ? line : `${target} didn't open (${line})`;
         });
         if (failed) problems.push(failed);

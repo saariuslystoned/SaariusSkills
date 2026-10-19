@@ -23,6 +23,8 @@ test("a new worker counts the store requests sent in the last minute before it s
   // Sixty requests 30 seconds ago still count; forty two minutes ago no longer do.
   writeFileSync(log, lines(40, now - 120_000) + lines(60, now - 30_000));
   const { STORE_BUDGET, countStoreRequest, paceStore } = await import("../support/pace.mjs");
+  // The log keeps only those, so back-to-back runs don't grow it.
+  assert.equal(readFileSync(log, "utf8"), lines(60, now - 30_000));
   await paceStore(STORE_BUDGET - 60);
   let ready = false;
   const waiting = paceStore(STORE_BUDGET - 59).then(() => { ready = true; });
@@ -34,7 +36,7 @@ test("a new worker counts the store requests sent in the last minute before it s
   assert.equal(ready, true);
   // Its own requests go in the log for the worker after it.
   countStoreRequest("https://store.example/products/cap");
-  assert.equal(readFileSync(log, "utf8").trim().split("\n").at(-1), String(now + 30_500));
+  assert.equal(readFileSync(log, "utf8"), lines(60, now - 30_000) + lines(1, now + 30_500));
 });
 
 test("a log with nothing from the last minute starts over", async t => {
