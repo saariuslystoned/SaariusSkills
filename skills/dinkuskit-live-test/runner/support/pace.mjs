@@ -1,4 +1,5 @@
 import { config } from "./env.mjs";
+import { wasReplayed } from "./request-policy.mjs";
 
 // The store allows each visitor (each IP address) 120 requests a minute, and every page, photo and
 // admin call counts against it. Every browser the run opens counts its store requests here, whichever
@@ -12,6 +13,8 @@ export const PHOTO_ROOM = 10;
 // An upload opens the Media library, which shows a page of 35 photos, and choosing the new photo opens
 // Commerce's image picker with twelve more.
 export const MEDIA_ROOM = 70;
+// Each further page of Commerce's image picker shows twelve more photos.
+export const PICKER_PAGE_ROOM = 15;
 
 const MINUTE = 60_000;
 const sent = [];
@@ -23,21 +26,20 @@ const isStore = url => {
 // Scripts only a local development server sends (a deployed store bundles them under /_astro/).
 const DEV_SERVER = /^\/(?:@|node_modules\/|src\/)/;
 
-/** Counts `context`'s requests to the store. */
-export function watchStoreRequests(context) {
+/**
+ * Counts `context`'s requests that reach the store. Each counts once it's done, when the run knows
+ * whether it went to the store or was answered from the browser's own copy of an immutable store file
+ * (see request-policy.mjs); one that fails on the way may still have reached the store.
+ */
+export function watchStoreRequests(context, { replayed = wasReplayed } = {}) {
   if (watched.has(context)) return;
   watched.add(context);
-  // The run answers repeat loads of a file the store sent as immutable from the browser's own copy (see
-  // request-policy.mjs), so only its first load reaches the store.
-  const kept = new Set();
-  context.on("response", response => {
-    if (isStore(response.url()) && /\bimmutable\b/i.test(response.headers()["cache-control"] ?? "")) kept.add(response.url());
-  });
-  context.on("request", request => {
+  const done = request => {
     const url = request.url();
-    if (!isStore(url) || kept.has(url) || DEV_SERVER.test(new URL(url).pathname)) return;
-    sent.push(Date.now());
-  });
+    if (isStore(url) && !replayed(request) && !DEV_SERVER.test(new URL(url).pathname)) sent.push(Date.now());
+  };
+  context.on("requestfinished", done);
+  context.on("requestfailed", done);
 }
 
 /** Counts a request the run sends to `url` outside a browser, such as a link probe. */

@@ -2,7 +2,8 @@ import { get, newPage, test, expect, shopperPage, closeShopper } from "../suppor
 import { catalogPlan } from "../support/catalog.mjs";
 import { config } from "../support/env.mjs";
 import {
-  addCategory, addProductPage, choosePhoto, listedProducts, openProduct, publish, publishedLink, setPrice, setWeight, shownProductId, uploadPhotos,
+  addCategory, addProductPage, choosePhoto, finishProductPage, listedProducts, openProduct, productPageEntry, publish, publishedLink, setPrice, setWeight,
+  shownProductId, uploadPhotos,
 } from "../support/products-admin.mjs";
 import { PAGE_ROOM, PHOTO_ROOM, STORE_BUDGET, paceStore } from "../support/pace.mjs";
 import { note } from "../support/proof.mjs";
@@ -17,6 +18,7 @@ const firstLine = error => String(error?.message ?? error).split("\n")[0];
 // Before this release Commerce read every product to draw each product screen, so with more than a
 // handful of products the owner couldn't save one; adding the catalog there would break the store admin.
 const COMMERCE_FOR_CATALOGS = "0.3.0-beta.4";
+const tooOld = (commerce, lacks) => new Error(`The catalog lacks ${lacks}, but this store runs Commerce ${commerce ?? "of a version the test couldn't read"}, which reads every product to draw each product screen, so with the catalog in place the owner couldn't save a product. It needs Commerce ${COMMERCE_FOR_CATALOGS} or later; nothing was added.`);
 // Commerce's image picker lists twelve photos a page, so uploading that many at a time keeps each new photo on its first page.
 const UPLOAD_BATCH = 12;
 // The most store requests the owner's work sends, measured on a local store: the Media library shows
@@ -48,15 +50,18 @@ async function catalogCards(cards, names) {
   return found;
 }
 
-/** The homepage's Shop list: how many products it lists, and its cards for the catalog's products. */
-async function readShop(shopper, names) {
+/**
+ * The homepage's Shop list: how many products it lists, and its cards for the catalog's products. An
+ * empty list proves nothing about the catalog when it says why it's empty, unless `mayBeEmpty` and it
+ * only says the store lists no products yet.
+ */
+async function readShop(shopper, names, { mayBeEmpty = false } = {}) {
   await openShopperPage(shopper, "/");
   const catalog = shopper.locator("[data-commerce-catalog]");
   if (!await catalog.count()) throw new Error("The homepage has no Shop list.");
   const cards = catalog.locator("[data-commerce-product]");
   const count = await cards.count();
-  // An empty list proves nothing about the catalog when it says why it's empty.
-  const said = count ? "" : await text(catalog.locator('[role="alert"], [data-commerce-empty]'));
+  const said = count ? "" : await text(catalog.locator(mayBeEmpty ? '[role="alert"]' : '[role="alert"], [data-commerce-empty]'));
   if (said) throw new Error(`The Shop list says "${said}".`);
   return { count, found: await catalogCards(cards, names) };
 }
@@ -97,7 +102,7 @@ function listProblems(found, products, where) {
  * it isn't there (or restores it when archived), saves its price and weight, chooses its photo when it
  * has none of its own, and gives it a published page in its category when it has none. Returns what it did.
  */
-async function completeProduct(page, content, product, { inCommerce, card }) {
+async function completeProduct(page, content, product, { inCommerce, card, shelved }) {
   const did = [];
   if (inCommerce) {
     await openProduct(page, product.name);
@@ -123,10 +128,18 @@ async function completeProduct(page, content, product, { inCommerce, card }) {
     await choosePhoto(page, product.photo);
     did.push("photo");
   }
-  if (!card?.href) {
+  if (!card?.href || !shelved) {
+    // A page an earlier run saved and never published is finished, not added again. A published page
+    // the store doesn't show belongs to the owner to fix, so the test reports it and leaves it alone.
+    const entry = await productPageEntry(content, product.name);
+    if (entry?.published) {
+      throw new Error(`its published page ${card?.href ? "isn't on its category page" : "isn't linked from the Shop list"}; check that page's Commerce product and category`);
+    }
     if (!id) throw new Error("Commerce's product page shows no Product ID to link its page to");
-    await addProductPage(content, { title: product.name, style: product.style, productId: id, category: product.category }, { lost: [] });
-    did.push("page");
+    const details = { style: product.style, productId: id, category: product.category };
+    if (entry) await finishProductPage(content, entry.editor, details);
+    else await addProductPage(content, { title: product.name, ...details }, { lost: [] });
+    did.push(entry ? "page published" : "page");
   }
   return did;
 }
@@ -146,7 +159,9 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
   const shopper = await shopperPage();
   // Commerce Products as the first step read it, the store addresses of the categories, and the Shop list's catalog cards.
   let listed = { names: new Map(), pages: 0 };
-  let plugins = null;
+  // The store's Commerce, and whether it's late enough for the test to add to the catalog.
+  let commerce = null;
+  let canAdd = false;
   const categoryPaths = new Map();
   let shopFound = new Map();
   const soft = { soft: true };
@@ -154,7 +169,8 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
     // Nothing after this can run without Commerce Products, so this step stops the journey.
     await step(page, "Commerce Products opens and lists every product", async () => {
       listed = await listedProducts(page);
-      plugins = await notePlugins(page);
+      commerce = pluginVersion(await notePlugins(page), new URL(config.productsAdmin).pathname.split("/")[4]);
+      canAdd = versionAtLeast(commerce, COMMERCE_FOR_CATALOGS);
       note("products in Commerce", total(listed.names));
       const have = products.filter(product => listed.names.has(product.name)).length;
       return `${plural(total(listed.names), "product")} on ${plural(listed.pages, "page")}; ${have} of the catalog's ${products.length} among them`;
@@ -167,6 +183,7 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
         await paceStore(PAGE_ROOM);
         let view = await publishedLink(content, title, "categories");
         if (!view) {
+          if (!canAdd) throw tooOld(commerce, `the category "${title}"`);
           // A category an earlier run saved but never published is published, not added again.
           const edit = content.getByRole("link", { name: `Edit ${title}`, exact: true });
           if (await edit.count()) {
@@ -184,20 +201,25 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
 
     await step(page, "The owner adds what the catalog lacks", async () => {
       // A product is whole once Commerce has it, the Shop list shows it at its price with its photo and
-      // a link to its page, and its category page lists it. A list that won't open counts as showing none.
-      const shop = await readShop(shopper, names).catch(() => ({ found: new Map() }));
+      // a link to its page, and its category page lists it. Only what the store shows decides what to
+      // add, so a list that won't open stops the step before anything is added.
+      let shop;
       const shelves = new Map();
-      for (const [title, path] of categoryPaths) shelves.set(title, await readCategory(shopper, path, names).catch(() => new Map()));
+      try {
+        shop = await readShop(shopper, names, { mayBeEmpty: true });
+        for (const [title, path] of categoryPaths) shelves.set(title, await readCategory(shopper, path, names));
+      } catch (error) {
+        throw new Error(`Nothing was added, because the test couldn't read what the store shows: ${firstLine(error)}`);
+      }
+      const shelved = product => shelves.get(product.category).has(product.name);
       const lacking = products.filter(product => {
         const card = shop.found.get(product.name)?.[0];
-        return !listed.names.has(product.name) || !card || money(card.price) !== product.cents || card.image !== "photo" || !card.href
-          || !shelves.get(product.category)?.has(product.name);
+        return !listed.names.has(product.name) || !card || money(card.price) !== product.cents || card.image !== "photo" || !card.href || !shelved(product);
       });
       if (!lacking.length) return `nothing: Commerce and the store already show all ${products.length} catalog products`;
-      const commerce = pluginVersion(plugins, new URL(config.productsAdmin).pathname.split("/")[4]);
-      if (!versionAtLeast(commerce, COMMERCE_FOR_CATALOGS)) {
-        throw new Error(`The catalog lacks ${plural(lacking.length, "product")}, but this store runs Commerce ${commerce ?? "of a version the test couldn't read"}, which reads every product to draw each product screen, so with the catalog in place the owner couldn't save a product. It needs Commerce ${COMMERCE_FOR_CATALOGS} or later; nothing was added.`);
-      }
+      if (!canAdd) throw tooOld(commerce, plural(lacking.length, "product"));
+      // Adding takes about a minute a product, so a big catalog's first run gets that time on top of the usual limit.
+      test.info().setTimeout(test.info().timeout + lacking.length * 2 * 60_000);
       const added = [];
       const completed = [];
       const problems = [];
@@ -208,7 +230,8 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
         for (const product of batch) {
           await paceStore(PRODUCT_ROOM);
           // One product's trouble is recorded and the rest still get added.
-          const did = await completeProduct(page, content, product, { inCommerce: listed.names.has(product.name), card: shop.found.get(product.name)?.[0] })
+          const state = { inCommerce: listed.names.has(product.name), card: shop.found.get(product.name)?.[0], shelved: shelved(product) };
+          const did = await completeProduct(page, content, product, state)
             .catch(error => { problems.push(`"${product.name}": ${firstLine(error)}`); });
           if (did?.includes("added")) added.push(product.name);
           else if (did) completed.push(`${product.name} (${did.join(", ") || "price and weight"})`);

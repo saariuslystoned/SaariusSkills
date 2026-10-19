@@ -38,33 +38,35 @@ test("requests that don't fit wait until enough of the oldest are a minute old",
 test("only requests that reach the store count, and a step waits for room", { timeout: 10_000 }, async t => {
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 5_000_000 });
   const context = new EventEmitter();
-  watchStoreRequests(context);
-  watchStoreRequests(context);
-  const request = url => context.emit("request", { url: () => url });
-  const response = (url, cacheControl) => context.emit("response", { url: () => url, headers: () => ({ "cache-control": cacheControl }) });
-  // A file the store sends as immutable reaches it only the first time; the run replays it after that.
-  request("https://store.example/_astro/page.js");
-  response("https://store.example/_astro/page.js", "public, max-age=31536000, immutable");
-  request("https://store.example/_astro/page.js");
-  // A page that may change reaches the store every time.
-  request("https://store.example/");
-  response("https://store.example/", "no-cache");
-  request("https://store.example/");
+  const replays = new WeakSet();
+  watchStoreRequests(context, { replayed: request => replays.has(request) });
+  // A browser is watched once, however often it's handed over.
+  watchStoreRequests(context, { replayed: () => false });
+  const done = (url, { replay = false, failed = false } = {}) => {
+    const request = { url: () => url };
+    if (replay) replays.add(request);
+    context.emit(failed ? "requestfailed" : "requestfinished", request);
+  };
+  // A file answered from the browser's own copy never reaches the store; its first load does.
+  done("https://store.example/_astro/page.js");
+  done("https://store.example/_astro/page.js", { replay: true });
+  // A request that fails on the way may still have reached the store.
+  done("https://store.example/", { failed: true });
   // Other sites, and a local development server's own scripts, never count.
-  request("https://dinkuskit.com/account");
-  request("https://store.example/@vite/client");
-  request("https://store.example/src/pages/index.astro");
-  request("https://store.example/node_modules/.vite/deps/react.js");
+  done("https://dinkuskit.com/account");
+  done("https://store.example/@vite/client");
+  done("https://store.example/src/pages/index.astro");
+  done("https://store.example/node_modules/.vite/deps/react.js");
   countStoreRequest("https://checkout.stripe.com/pay");
   countStoreRequest("https://store.example/products/cap");
-  // Four count, once each though the browser is watched twice: the file once, the page twice and the probe.
-  await paceStore(STORE_BUDGET - 4);
-  let done = false;
-  const waiting = paceStore(STORE_BUDGET - 3).then(() => { done = true; });
+  // Three count: the file's first load, the failed page and the probe.
+  await paceStore(STORE_BUDGET - 3);
+  let ready = false;
+  const waiting = paceStore(STORE_BUDGET - 2).then(() => { ready = true; });
   t.mock.timers.tick(59_000);
   await Promise.resolve();
-  assert.equal(done, false);
+  assert.equal(ready, false);
   t.mock.timers.tick(1_500);
   await waiting;
-  assert.equal(done, true);
+  assert.equal(ready, true);
 });

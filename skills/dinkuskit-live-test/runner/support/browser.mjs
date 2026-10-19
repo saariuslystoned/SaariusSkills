@@ -94,6 +94,13 @@ async function accessAt(path) {
 
 /** A link/photo/PDF probe with the same origin and redirect policy. */
 export const get = (page, url, options) => {
-  countStoreRequest(url);
-  return filteredGet(page.context().request, url, config, options);
+  const client = page.context().request;
+  // Each redirect hop is a request of its own, and every one that reaches the store counts.
+  const counted = {
+    get(hop, hopOptions) {
+      countStoreRequest(hop);
+      return client.get(hop, hopOptions);
+    },
+  };
+  return filteredGet(counted, url, config, options);
 };

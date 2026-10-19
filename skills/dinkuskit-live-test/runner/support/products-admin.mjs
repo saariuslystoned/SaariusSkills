@@ -1,6 +1,6 @@
 import { newPage, expect } from "./browser.mjs";
 import { config } from "./env.mjs";
-import { MEDIA_ROOM, paceStore } from "./pace.mjs";
+import { MEDIA_ROOM, PICKER_PAGE_ROOM, paceStore } from "./pace.mjs";
 import { confirmed, openAdmin } from "./store-admin.mjs";
 import { quick, text } from "./storefront-page.mjs";
 
@@ -166,6 +166,7 @@ export async function choosePhoto(page, fileName) {
     const next = page.getByRole("button", { name: "Next", exact: true });
     if (!await next.count()) throw new Error(`Commerce's image picker doesn't offer ${fileName}.`);
     const before = await shown();
+    await paceStore(PICKER_PAGE_ROOM);
     await next.click();
     await expect.poll(shown, { timeout: 30_000 }).not.toEqual(before);
   }
@@ -237,20 +238,42 @@ export async function addProductPage(content, { title, style, productId, categor
   await openAdmin(content, `${config.store}/_emdash/admin/content/products/new`);
   const editor = "The new product page editor";
   await (await field(content, "Product title", editor)).fill(title);
-  await (await field(content, "Illustration style (TEE, HOODIE, CAP, or BEANIE)", editor)).fill(style);
-  await (await field(content, "Commerce product (optional)", editor)).fill(productId);
+  await fillProductPage(content, { style, productId }, editor);
   made.pagePath = `/products/${await slugOf(content)}`;
   made.page = await saveNew(content, "products") ?? "";
   if (!made.page) {
     made.lost.push(`product page "${title}"`);
     throw new Error(`Saving the product page "${title}" never opened its editor, and EmDash's answer didn't say where it is.`);
   }
-  await content.getByRole("button", { name: "Add reference" }).click();
-  const picker = content.getByRole("dialog", { name: "Add references" });
-  await picker.getByPlaceholder("Search content...").fill(category);
-  await picker.locator("label").filter({ hasText: category }).first().click({ timeout: 15_000 });
-  await picker.getByRole("button", { name: "Add selected" }).click();
-  await content.getByRole("button", { name: `Remove ${category}` }).waitFor({ timeout: 15_000 });
+  await fileAndPublish(content, category);
+}
+
+/**
+ * Finishes the saved but unpublished product page whose editor is at `editor`: it gets the Commerce
+ * product `productId`, the style `style` and the category `category`, and is published.
+ */
+export async function finishProductPage(content, editor, { style, productId, category }) {
+  await openAdmin(content, editor);
+  await fillProductPage(content, { style, productId }, "The product page editor");
+  await fileAndPublish(content, category, { mayBeFiled: true });
+}
+
+async function fillProductPage(content, { style, productId }, editor) {
+  await (await field(content, "Illustration style (TEE, HOODIE, CAP, or BEANIE)", editor)).fill(style);
+  await (await field(content, "Commerce product (optional)", editor)).fill(productId);
+}
+
+/** Puts the open product page in `category` unless it already is, saves it and publishes it. */
+async function fileAndPublish(content, category, { mayBeFiled = false } = {}) {
+  const filed = content.getByRole("button", { name: `Remove ${category}` });
+  if (!mayBeFiled || !await filed.waitFor({ timeout: 5_000 }).then(() => true, () => false)) {
+    await content.getByRole("button", { name: "Add reference" }).click();
+    const picker = content.getByRole("dialog", { name: "Add references" });
+    await picker.getByPlaceholder("Search content...").fill(category);
+    await picker.locator("label").filter({ hasText: category }).first().click({ timeout: 15_000 });
+    await picker.getByRole("button", { name: "Add selected" }).click();
+    await filed.waitFor({ timeout: 15_000 });
+  }
   const save = content.getByRole("button", { name: "Save", exact: true });
   if (await save.isEnabled()) {
     await save.click();
@@ -272,6 +295,17 @@ export async function publishedLink(page, title, collection = "products") {
   if (!await row.getByRole("cell", { name: "Published", exact: true }).count()) return null;
   const href = await view.getAttribute("href");
   return href === null ? null : new URL(href, config.store).href;
+}
+
+/**
+ * EmDash's product page titled `title`: its editor's address and whether it's published; null when
+ * EmDash's list of product pages has none.
+ */
+export async function productPageEntry(page, title) {
+  const view = await publishedLink(page, title);
+  const edit = page.getByRole("link", { name: `Edit ${title}`, exact: true }).first();
+  if (!await edit.count()) return null;
+  return { editor: new URL(await edit.getAttribute("href"), config.store).href, published: view !== null };
 }
 
 /** Moves an EmDash entry to the Trash, so the store stops showing it. */
