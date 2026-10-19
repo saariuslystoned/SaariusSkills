@@ -151,10 +151,14 @@ async function completeProduct(page, content, product, { inCommerce, uploaded, c
     await addProduct(page, product);
     did.push("added");
   }
-  // Every drawing of the product screen has the Images section's button, so the screen is read once that's there.
-  if (!await page.getByRole("button", { name: /^(Choose|Change) image$/ }).waitFor({ timeout: 30_000 }).then(() => true, () => false)) {
-    throw new Error("Commerce's product page has no Images section");
-  }
+  // Every drawing of the product screen has the Images section's button, so the screen is read once that's
+  // there: before its fields are read, and again after a save draws it anew.
+  const drawn = async () => {
+    if (!await page.getByRole("button", { name: /^(Choose|Change) image$/ }).waitFor({ timeout: 30_000 }).then(() => true, () => false)) {
+      throw new Error("Commerce's product page has no Images section");
+    }
+  };
+  await drawn();
   const id = await shownProductId(page);
   // Commerce shows the price and weight it stored, so only one that differs is saved, and reported.
   const price = (product.cents / 100).toFixed(2);
@@ -166,11 +170,12 @@ async function completeProduct(page, content, product, { inCommerce, uploaded, c
     await setWeight(page, product.ounces);
     did.push("weight");
   }
+  if (did.includes("price") || did.includes("weight")) await drawn();
   // Commerce says so in the image's place when the product has none, or when the Media library has lost
   // it. A photo Commerce already shows stays, since choosing it again can't change what the store shows.
   if (!inCommerce || await page.getByText(/^(No image|Image .+ is unavailable\.)$/).count()) {
-    // A new product's photo came with its batch, unless that upload failed; then, like a product Commerce
-    // already had, it gets its photo uploaded only now. The Media library keeps one copy of a photo it has.
+    // A new product's photo came with its batch, unless it didn't go up; then, like a product Commerce
+    // already had, it gets its photo uploaded only now.
     if (!uploaded) await uploadPhotos(content, [{ fileName: product.photo, label: product.name }]);
     await choosePhoto(page, product.photo);
     did.push("photo");
@@ -288,17 +293,20 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
         const batch = todo.slice(start, start + UPLOAD_BATCH);
         // New products' photos go up together; a product Commerce has gets one only if its screen shows none.
         const photos = batch.filter(product => !listed.names.has(product.name));
-        // When they don't all go up, it's recorded, and each of those products uploads its own photo instead.
-        const uploaded = !photos.length || await uploadPhotos(content, photos.map(product => ({ fileName: product.photo, label: product.name })), UPLOADS_ROOM)
-          .then(() => true, error => {
-            problems.push(`uploading the photos of ${short(photos.map(product => product.name)).join(", ")} together failed (${firstLine(error)}); each is uploaded with its product instead`);
-            return false;
+        // A photo that doesn't go up is recorded, and its product uploads it again on its own.
+        const missed = new Set();
+        if (photos.length) {
+          await uploadPhotos(content, photos.map(product => ({ fileName: product.photo, label: product.name })), UPLOADS_ROOM).catch(error => {
+            // An upload that failed before the library listed its files may have taken none of them.
+            for (const name of error.missed ?? photos.map(product => product.photo)) missed.add(name);
+            problems.push(`uploading the photos of ${short(photos.map(product => product.name)).join(", ")} failed (${firstLine(error)}); each photo that didn't go up is uploaded again with its product`);
           });
+        }
         for (const product of batch) {
           await paceStore(PRODUCT_ROOM);
           // One product's trouble is recorded, with what was done for it first, and the rest still get added.
           const inCommerce = listed.names.has(product.name);
-          const state = { inCommerce, uploaded: !inCommerce && uploaded, card: shop.found.get(product.name)?.[0], shelved: shelved(product) };
+          const state = { inCommerce, uploaded: !inCommerce && !missed.has(product.photo), card: shop.found.get(product.name)?.[0], shelved: shelved(product) };
           const did = [];
           const failed = await completeProduct(page, content, product, state, did).then(() => null, error => error);
           if (failed) problems.push(`"${product.name}"${did.length ? ` (${did.join(", ")})` : ""}: ${firstLine(failed)}`);

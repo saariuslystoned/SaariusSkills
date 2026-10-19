@@ -157,11 +157,21 @@ export async function uploadPhotos(page, photos, room = MEDIA_ROOM) {
   const dialog = page.getByRole("dialog", { name: "Upload to Library" });
   const [chooser] = await Promise.all([page.waitForEvent("filechooser"), dialog.getByRole("button", { name: "Browse files", exact: true }).click()]);
   await chooser.setFiles(files);
+  // Each file's row ends on Complete (a photo the library already has included) or "Upload failed"; one
+  // still going after a minute didn't go up either. Every file is read, so the error names each one missed.
+  const missed = [];
   for (const { name } of files) {
     const upload = dialog.getByRole("listitem").filter({ hasText: name });
-    if (!await expect(upload).toContainText("Complete", { timeout: 60_000 }).then(() => true, () => false)) {
-      throw new Error(`The Media library didn't take the photo${files.length > 1 ? ` ${name}` : ""}: "${await text(upload) || "no upload listed"}".`);
-    }
+    await expect(upload).toContainText(/Complete|Upload failed/, { timeout: 60_000 }).catch(() => {});
+    const shown = await text(upload);
+    if (!/\bComplete\b/.test(shown)) missed.push({ name, shown: shown || `${name}: no upload listed` });
+  }
+  if (missed.length) {
+    const error = new Error(files.length === 1 ? `The Media library didn't take the photo: "${missed[0].shown}".`
+      : `The Media library didn't take ${missed.length} of the ${files.length} photos: ${missed.map(({ shown }) => `"${shown}"`).join(", ")}.`);
+    // The files that didn't go up, so a caller can upload just those again.
+    error.missed = missed.map(({ name }) => name);
+    throw error;
   }
   await dialog.getByRole("button", { name: "Done" }).click();
 }
@@ -301,24 +311,45 @@ async function fileAndPublish(content, category, { mayBeFiled = false } = {}) {
 /**
  * EmDash's `collection` entry titled `title`, as its list shows it once searched for: its editor's
  * address, and where its "View published" link goes when the list shows it as Published (else null).
- * Null when the list says it has no entry by that title; a list that doesn't answer fails instead, so a
- * slow list never gets the entry added twice.
+ * When the list shows more than one entry by that title, it's a published one if there is one. Null when
+ * the list has no entry by that title; a list that doesn't answer fails instead, so a slow list never gets
+ * the entry added twice.
  */
 async function listedEntry(page, title, collection) {
   await openAdmin(page, `${config.store}/_emdash/admin/content/${collection}`);
+  // The list asks EmDash for the entries that match the search, then draws them.
+  const searched = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return response.request().method() === "GET" && url.pathname === `/_emdash/api/content/${collection}` && [...url.searchParams.values()].includes(title);
+  }, { timeout: 30_000 });
+  searched.catch(() => {});
   await page.getByRole("searchbox", { name: `Search ${collection}` }).fill(title);
   const edit = page.getByRole("link", { name: `Edit ${title}`, exact: true });
-  // The list answers the search with the entry's row or says it has no results, so a missing entry isn't waited out.
+  const view = page.getByRole("link", { name: `View published ${title}`, exact: true });
+  // EmDash's answer to the search settles the list once it's drawn, and so does the list saying it has no
+  // results. An entry's row alone doesn't: until the answer comes, the list shows its latest entries, which
+  // may hold one of two entries by this title.
   const none = page.getByText(`No results for "${title}"`, { exact: true });
-  if (!await edit.first().or(none).first().waitFor({ timeout: 30_000 }).then(() => true, () => false)) {
-    throw new Error(`EmDash's list of ${collection} didn't answer the search for "${title}" within 30 seconds.`);
-  }
+  const answer = await Promise.race([
+    searched.then(response => response.ok() ? "answered" : `HTTP ${response.status()}`, () => "silent"),
+    none.waitFor({ timeout: 30_000 }).then(() => "none", () => "silent"),
+  ]);
+  // The list draws an answer as soon as it arrives.
+  if (answer === "answered") await page.waitForTimeout(1_000);
+  else if (answer.startsWith("HTTP")) throw new Error(`EmDash refused to search its ${collection} for "${title}" (${answer}).`);
+  // When neither comes, the rows the list shows by then still count; a list showing none didn't answer.
+  else if (answer === "silent" && !await edit.count()) throw new Error(`EmDash's list of ${collection} didn't answer the search for "${title}" within 30 seconds.`);
   if (!await edit.count()) return null;
-  // The list draws a row's View published link with the rest of the row, and only for a published entry,
-  // including one with changes saved since it was published (its status then says so too).
-  const view = page.getByRole("link", { name: `View published ${title}`, exact: true }).first();
-  const href = await view.count() ? await view.getAttribute("href") : null;
-  return { editor: new URL(await edit.first().getAttribute("href"), config.store).href, view: href === null ? null : new URL(href, config.store).href };
+  // An entry's Edit and View published links are read from its own row. The list draws View published
+  // with the rest of the row, and only for a published entry, including one with changes saved since it
+  // was published (its status then says so too).
+  const rows = page.getByRole("row").filter({ has: edit });
+  const published = rows.filter({ has: view }).first();
+  const row = await published.count() ? published : rows.first();
+  const link = row.getByRole("link", { name: `View published ${title}`, exact: true });
+  const href = await link.count() ? await link.getAttribute("href") : null;
+  const editor = await row.getByRole("link", { name: `Edit ${title}`, exact: true }).getAttribute("href");
+  return { editor: new URL(editor, config.store).href, view: href === null ? null : new URL(href, config.store).href };
 }
 
 /**
