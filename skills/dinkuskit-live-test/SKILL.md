@@ -53,11 +53,12 @@ authorization the test needs.
    profile. Nobody should click in that window while it runs; the label and its
    picture are in the proof folder.
    - `npm test` runs every `@running` journey: Buy and ship, Storefront, Cart,
-     Manage products, Full catalog, Mark as completed and Problems, in about 35
-     minutes. Buy and ship goes from a new Stripe TEST checkout to Completed. The
-     run places four TEST orders and leaves each one Completed. Full catalog runs
-     before Manage products, so Manage products works with the whole catalog in
-     place.
+     Full catalog, Manage products, Mark as completed and Problems, in about 35
+     minutes, plus about 40 the first time on a store that doesn't carry the
+     catalog yet. Buy and ship goes from a new Stripe TEST checkout to Completed.
+     The run places four TEST orders and leaves each one Completed. Full catalog
+     runs before Manage products, so Manage products works with the whole
+     catalog in place.
    - `npm run journey -- storefront` runs one journey, named by its file in
      `runner/tests`. Storefront only reads the pages a shopper sees and places
      no order. Cart fills and empties a new shopper's cart and never checks out.

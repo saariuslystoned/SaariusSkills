@@ -152,13 +152,11 @@ async function completeProduct(page, content, product, { inCommerce, uploaded, c
     did.push("added");
   }
   // Every drawing of the product screen has the Images section's button, so the screen is read once that's
-  // there: before its fields are read, and again after a save draws it anew.
-  const drawn = async () => {
-    if (!await page.getByRole("button", { name: /^(Choose|Change) image$/ }).waitFor({ timeout: 30_000 }).then(() => true, () => false)) {
-      throw new Error("Commerce's product page has no Images section");
-    }
-  };
-  await drawn();
+  // there. EmDash keeps the screen until Commerce answers a save, then draws the answer and its toast in one
+  // go, so what's read after a save comes from the new drawing.
+  if (!await page.getByRole("button", { name: /^(Choose|Change) image$/ }).waitFor({ timeout: 30_000 }).then(() => true, () => false)) {
+    throw new Error("Commerce's product page has no Images section");
+  }
   const id = await shownProductId(page);
   // Commerce shows the price and weight it stored, so only one that differs is saved, and reported.
   const price = (product.cents / 100).toFixed(2);
@@ -170,7 +168,6 @@ async function completeProduct(page, content, product, { inCommerce, uploaded, c
     await setWeight(page, product.ounces);
     did.push("weight");
   }
-  if (did.includes("price") || did.includes("weight")) await drawn();
   // Commerce says so in the image's place when the product has none, or when the Media library has lost
   // it. A photo Commerce already shows stays, since choosing it again can't change what the store shows.
   if (!inCommerce || await page.getByText(/^(No image|Image .+ is unavailable\.)$/).count()) {
