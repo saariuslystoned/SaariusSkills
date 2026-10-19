@@ -10,14 +10,16 @@ journeys plan:
 | [Storefront](tests/storefront.spec.mjs) | `@running` | A new shopper's first look: the homepage, the product list, a product page and its category page |
 | [Cart](tests/cart.spec.mjs) | `@running` | A new shopper adds a product to the cart, changes its quantity and removes it, with the cart total right each time |
 | [Manage products](tests/manage-products.spec.mjs) | `@next` | The owner adds a product, gives it a photo that stays after a reload and a published page in a new category that the store links to, changes its price and name, and archives and restores it, with the store following each change |
+| [Full catalog](tests/full-catalog.spec.mjs) | `@next` | The store carries a catalog as big as a real shop's (3 categories of 8 products unless set otherwise), each product with its own price, weight, photo and page: the owner adds what's missing, the Shop list, every category page and every product page show the whole catalog, and the owner can still save a product with all of it in place |
 | [Mark as completed](tests/mark-completed.spec.mjs) | `@running` | The owner marks a paid TEST order completed in Commerce Orders, typing a carrier and tracking number, and an agent completes another through Commerce's orders API, sending neither; both end Completed |
 | [Problems](tests/problems.spec.mjs) | `@running` | A shopper's checkout going wrong: Stripe turns down a declined card, a card without enough funds and a card that fails the bank's security check, each with a clear message and no order; the shopper leaves Stripe for the cart, finds the way back to the same checkout and pays once with the test card, and the owner completes that one order |
 
 `npm test` runs every `@running` journey. A new journey starts as `@next` and
 moves to `@running` once it has passed on the test store. Manage products stays
 `@next` until the test store runs a Commerce release that can rename and archive
-a product. Until then it runs on its own against the Commerce beta store, with
-that store's settings file in `DINKUS_E2E_ENV_FILE`.
+a product, and Full catalog until it runs one whose product screens cope with a
+full catalog (0.3.0-beta.4 or later). Until then both run on their own against
+the Commerce beta store, with that store's settings file in `DINKUS_E2E_ENV_FILE`.
 
 It runs in a visible Chrome window with its own saved profile
 (`~/.dinkus-e2e/profile`), so sign-ins carry over between runs. DinkusKit.com
@@ -68,6 +70,21 @@ the store says it stays fresh, as a shopper's browser would. A new shopper's bro
 starts with none. Without this, every page view fetches them all again, and a run
 can cross the store's limit of 120 requests a minute per visitor.
 
+That limit counts every request from one address, pages, photos and admin calls
+alike, from every browser the run opens. So the run counts its own store requests
+from the moment each is sent, and before a step that sends many (opening a store
+page with its photos, reading each product's photo or link, uploading a photo to
+the Media library, the owner's work on a product in Full catalog) it waits until
+they fit under 100 in the last minute. The count carries on when Playwright starts
+a new worker after a journey fails, and into a run started straight after another:
+each store request's time also goes, as it's sent, in that minute's log
+(`.store-requests-<store>-<minute>.log`) beside the run folders in
+`DINKUS_E2E_PROOF`, which takes it back if the browser answered it from its own
+copy. Each new worker counts the last minute's requests from those logs, and logs
+older than the last minute are removed as the run goes. On a store with a few
+products it never waits; with a large catalog it slows down rather than being
+turned away.
+
 Leave the window alone while it runs: the test drives it, and a click or a tab
 of yours can get in its way. To see the label, look in the proof folder for
 `label.pdf` and its picture; Buy and ship also shows the picture in the window.
@@ -79,7 +96,7 @@ for long: a step whose page stops answering fails within a minute or two.
 ```sh
 npm ci
 npm test                      # every @running journey; Buy and ship goes from checkout to Completed
-npm run journey -- storefront # one journey, by its file name (storefront, cart, manage-products, mark-completed, problems, buy-and-ship)
+npm run journey -- storefront # one journey, by its file name (storefront, cart, manage-products, full-catalog, mark-completed, problems, buy-and-ship)
 npm run finish                # Buy and ship from an existing order (DINKUS_E2E_ORDER=1001, or the only unfinished TEST order)
 npm run unit                  # the runner's own offline checks
 ```
@@ -108,6 +125,23 @@ after itself, but Commerce archives products rather than deleting them, so each
 run leaves one archived product named "Live test product <date and time>
 renamed" and its photo in the Media library. Its product page and category go
 to EmDash's Trash.
+
+Full catalog keeps a standing catalog on the store, so every journey runs
+against a store with as many products as a real shop: categories named "Catalog
+Tees", "Catalog Hoodies" and "Catalog Caps", each holding products named
+"Catalog Tee 01" and so on, every one with its own price, weight, photo and
+published page. `DINKUS_E2E_CATALOG` sets the size, as categories x products per
+category (`3x8` unless set, up to `4x50`). The first run on a store adds the
+whole catalog as an owner would, in Commerce Products, the Media library and
+EmDash's content editor, which takes about a minute a product; later runs find
+it there, add only what's missing, and spend about four minutes checking it. A
+bigger catalog gets more time before the journey times out: ten seconds for
+each product it checks, and two minutes for each it adds. The catalog stays on
+the store: Commerce archives products rather than deleting
+them, so taking it off each run would leave a pile of archived products behind.
+Before Commerce 0.3.0-beta.4, each product screen read the whole catalog, so a
+store with more than a handful of products couldn't save a product; on a store
+running an older Commerce the journey adds nothing and says so.
 
 Mark as completed places two Stripe TEST orders the way Buy and ship places
 one, paying each once with the test card, and leaves both Completed. The owner
@@ -160,7 +194,8 @@ the environment, which wins.
 | `DINKUS_E2E_SERVICE` | `GA` | The label service (Ground Advantage) |
 | `DINKUS_E2E_COMPLETE_WAIT_SECONDS` | `420` | How long to wait for Commerce's background check |
 | `DINKUS_E2E_ORDERS_ADMIN` | the Registry Commerce plugin's Orders page | Commerce Orders in the store admin |
-| `DINKUS_E2E_PRODUCTS_ADMIN` | the Products page beside `DINKUS_E2E_ORDERS_ADMIN` | Commerce Products in the store admin, for Manage products |
+| `DINKUS_E2E_PRODUCTS_ADMIN` | the Products page beside `DINKUS_E2E_ORDERS_ADMIN` | Commerce Products in the store admin, for Manage products and Full catalog |
+| `DINKUS_E2E_CATALOG` | `3x8` | For Full catalog, the standing catalog's size as categories x products per category, from `1x1` to `4x50` |
 | `DINKUS_E2E_ORDERS_TO_COMPLETE` | new orders | For Mark as completed, one or two different Processing TEST orders for the owner and then the agent to complete (`1003,1004`) instead of placing new ones. Anything else stops the journey before it places or completes an order |
 | `DINKUS_E2E_ADMIN_SIGNIN` | `skip` | `wait` lets a person sign in to the store admin |
 | `DINKUS_E2E_PROOF` | `~/.dinkus-e2e/proof` | Where each run's proof folder goes |
@@ -243,6 +278,24 @@ the end, even after a failed step.
 | Archiving the product takes it off the store | After the owner archives it, the Shop list and the category page stop listing it, and its page answers HTTP 404 saying the product is no longer available |
 | Restoring the product puts it back on the store | After the owner restores it, the Shop list, its page and its category page show it again with its new name and price. Skipped when it wasn't archived |
 | The test takes its product, page and category off the store | The test archives the product, under whatever name and state Commerce shows for it then, and moves its page and category to EmDash's Trash; within a minute the store lists none of them and their addresses stop answering HTTP 200. Runs whenever the journey added anything, or pressed Add product |
+
+### Full catalog
+
+Its first two steps stop the journey when they fail, since products need
+Commerce Products and their pages need a category; every later step is soft, so
+one run lists everything the store gets wrong with a full catalog. A big catalog
+means many photos and admin calls, so this journey paces itself the most (see the
+store's request limit under [Requests stay within the selected sites](#requests-stay-within-the-selected-sites)).
+
+| Step | What it proves |
+| --- | --- |
+| Commerce Products opens and lists every product | Commerce Products opens in the store admin and every page of its list turns, however many products the store has |
+| The catalog's categories are published | Each of the catalog's categories is a published category in EmDash, with a page on the store. The owner adds and publishes any that are missing, and publishes one an earlier run saved but didn't publish; two unpublished categories by one title stop the journey, since the test can't tell which to publish, and so does a list that doesn't answer the test's search, rather than having a category added twice. On a store running Commerce before 0.3.0-beta.4 a missing category stops the journey with nothing added |
+| The owner adds what the catalog lacks | Every catalog product Commerce doesn't have, or the store doesn't show whole, gets what it lacks as an owner gives it: added in Commerce Products (or restored, when archived) with its price and weight, its own photo uploaded to the Media library and chosen as its image when Commerce shows none, and a published page in its category. A price or weight Commerce already has right isn't saved again, and a product Commerce already has whole, which the store shows wrong anyway, is named as such and left to the next steps. New products' photos go up together before they're added; when they don't all go up, that's reported and each of those products gets its photo uploaded as it's added. A product Commerce already has gets its photo uploaded only when its screen shows no image. A product the test can't complete is reported with what was done for it first. A page an earlier run saved but didn't publish is finished and published rather than added again; a published page the store doesn't show is reported and left for the owner, unless the product was just restored, since the store hid it while it was archived (the later steps check it). So is a product whose name Commerce Products lists more than once, archived products included, since the test can't tell which one is the catalog's. It decides only from what the store shows, so when the Shop list or a category page won't open, or the Shop list shows no products without saying it has none, it adds nothing and fails. Each product it adds gives the journey two more minutes before it times out. Passes with nothing to do once the store has the whole catalog. On a store running Commerce before 0.3.0-beta.4 it adds nothing and fails, since there the owner couldn't save products with a full catalog in place |
+| The Shop list shows every catalog product with its own price and photo | The homepage's Shop list shows each catalog product once, at its own price, with its own photo, loaded (the store's placeholder, "No image", or one photo shown for two products fails), linked to its page |
+| Each category page lists its products with their own price and photo | Each category's page lists its own products the same way, each linked to the page its Shop card links to, and none of the other categories' |
+| Every catalog product's page opens with its name, price and Add to cart | The shopper opens every catalog product's page from its Shop link, one at a time and at the shopper's pace. Each answers HTTP 200, is headed with the product's name, shows its price, and has an Add to cart button wired to the cart that a shopper can press (the test never presses it). When the Shop list couldn't be read or showed none of the catalog's products, it fails with that one reason |
+| The owner saves a product's weight with the whole catalog in place | With every page of Commerce Products read again and the whole catalog listed, the owner opens "Catalog Tee 01" and saves its weight, and Commerce keeps it. On Commerce 0.3.0-beta.3 this failed once a store had more than about six products |
 
 ### Mark as completed
 

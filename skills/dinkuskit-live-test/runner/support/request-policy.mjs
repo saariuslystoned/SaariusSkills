@@ -42,6 +42,11 @@ export function requestPolicy({ store, accessOrigins = [], ship = "https://ship.
 
 const installed = new WeakMap();
 const guarded = new WeakMap();
+// Store requests answered from a browser's own copy, which never reach the store.
+const replayed = new WeakSet();
+
+/** Whether the run answered this browser request from its own copy of an immutable store file. */
+export const wasReplayed = request => replayed.has(request);
 
 /** Chromium pauses every hop, including redirects; install before navigating. */
 export function filterPage(page, settings) {
@@ -103,7 +108,6 @@ function guardContext(context, policy, settings) {
 function immutableCopies(context, policy) {
   const copies = new Map();
   const newest = new Map();
-  const replayed = new WeakSet();
   context.on("response", async response => {
     try {
       const url = response.url();
