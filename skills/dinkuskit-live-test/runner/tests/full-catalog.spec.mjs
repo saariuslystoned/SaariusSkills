@@ -191,7 +191,7 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
   // Media and Content work in a second tab, so Commerce keeps its product open in the first.
   const content = await newPage(page.context());
   const shopper = await shopperPage();
-  // Commerce Products as the first step read it, the store addresses of the categories, and the Shop list's catalog cards.
+  // Commerce Products as the first step read it, where each category's View published link goes, and the Shop list's catalog cards.
   let listed = { names: new Map(), pages: 0 };
   // The store's Commerce, and whether it's late enough for the test to add to the catalog.
   let commerce = null;
@@ -202,6 +202,8 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
   try {
     // Nothing after this can run without Commerce Products, so this step stops the journey.
     await step(page, "Commerce Products opens and lists every product", async () => {
+      // A run just before this one may have left little of the store's allowance.
+      await paceStore(PRODUCT_ROOM);
       listed = await listedProducts(page);
       commerce = pluginVersion(await notePlugins(page), new URL(config.productsAdmin).pathname.split("/")[4]);
       canAdd = versionAtLeast(commerce, COMMERCE_FOR_CATALOGS);
@@ -228,7 +230,7 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
           view = await publishedLink(content, title, "categories");
           if (!view) throw new Error(`After publishing "${title}", EmDash's list of categories doesn't show it as Published with a View published link.`);
         }
-        categoryPaths.set(title, new URL(view).pathname);
+        categoryPaths.set(title, destination(view));
       }
       return plan.map(({ title }) => `${title} at ${categoryPaths.get(title)}${added.includes(title) ? " (added)" : ""}`).join(", ");
     });
