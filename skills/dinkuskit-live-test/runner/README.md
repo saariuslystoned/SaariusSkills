@@ -9,17 +9,17 @@ journeys plan:
 | [Buy and ship](tests/buy-and-ship.spec.mjs) | `@running` | A Stripe TEST order on the store, the order in Commerce, a Pitney Bowes sandbox label in Ship, and Commerce marking the order Completed with the same tracking number |
 | [Storefront](tests/storefront.spec.mjs) | `@running` | A new shopper's first look: the homepage, the product list, a product page and its category page |
 | [Cart](tests/cart.spec.mjs) | `@running` | A new shopper adds a product to the cart, changes its quantity and removes it, with the cart total right each time |
-| [Manage products](tests/manage-products.spec.mjs) | `@next` | The owner adds a product, gives it a photo that stays after a reload and a published page in a new category that the store links to, changes its price and name, and archives and restores it, with the store following each change |
-| [Full catalog](tests/full-catalog.spec.mjs) | `@next` | The store carries a catalog as big as a real shop's (3 categories of 8 products unless set otherwise), each product with its own price, weight, photo and page: the owner adds what's missing, the Shop list, every category page and every product page show the whole catalog, and the owner can still save a product with all of it in place |
+| [Manage products](tests/manage-products.spec.mjs) | `@running` | The owner adds a product, gives it a photo that stays after a reload and a published page in a new category that the store links to, changes its price and name, and archives and restores it, with the store following each change |
+| [Full catalog](tests/full-catalog.spec.mjs) | `@running` | The store carries a catalog as big as a real shop's (3 categories of 8 products unless set otherwise), each product with its own price, weight, photo and page: the owner adds what's missing, the Shop list, every category page and every product page show the whole catalog, and the owner can still save a product with all of it in place |
 | [Mark as completed](tests/mark-completed.spec.mjs) | `@running` | The owner marks a paid TEST order completed in Commerce Orders, typing a carrier and tracking number, and an agent completes another through Commerce's orders API, sending neither; both end Completed |
 | [Problems](tests/problems.spec.mjs) | `@running` | A shopper's checkout going wrong: Stripe turns down a declined card, a card without enough funds and a card that fails the bank's security check, each with a clear message and no order; the shopper leaves Stripe for the cart, finds the way back to the same checkout and pays once with the test card, and the owner completes that one order |
 
 `npm test` runs every `@running` journey. A new journey starts as `@next` and
-moves to `@running` once it has passed on the test store. Manage products stays
-`@next` until the test store runs a Commerce release that can rename and archive
-a product, and Full catalog until it runs one whose product screens cope with a
-full catalog (0.3.0-beta.4 or later). Until then both run on their own against
-the Commerce beta store, with that store's settings file in `DINKUS_E2E_ENV_FILE`.
+moves to `@running` once it has passed on the test store. Manage products needs
+a Commerce release that can rename and archive a product, and Full catalog one
+whose product screens cope with a full catalog (0.3.0-beta.4 or later); on an
+older Commerce, Manage products stops before adding anything and Full catalog
+adds nothing, each saying why.
 
 It runs in a visible Chrome window with its own saved profile
 (`~/.dinkus-e2e/profile`), so sign-ins carry over between runs. DinkusKit.com

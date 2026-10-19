@@ -256,7 +256,7 @@ const withPhoto = state => state.hasPhoto ? " with its photo"
 // An owner's catalog work: add a product, give it a photo that stays after a reload and a page in a
 // new category that the store links to, change its price and name, archive and restore it, with the
 // store following each change. It tidies up after itself.
-test("Manage products", { tag: "@next" }, journey(async ({ page }) => {
+test("Manage products", { tag: "@running" }, journey(async ({ page }) => {
   expect(config.store, `Set DINKUS_E2E_STORE to the store's address (in ${config.settingsFile})`).not.toBe("");
   const run = runNames();
   // Commerce keeps the product open in the saved profile's page; Media and Content work in a second tab.

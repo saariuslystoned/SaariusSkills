@@ -201,7 +201,7 @@ async function completeProduct(page, content, product, { inCommerce, uploaded, c
 // with their own price, weight, photo and page. The test adds what the store lacks and leaves it there for
 // later runs, then checks that the Shop list, every category page and every product page show the whole
 // catalog, and that the owner can still save a product with all of it in place.
-test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
+test("Full catalog", { tag: "@running" }, journey(async ({ page }) => {
   expect(config.store, `Set DINKUS_E2E_STORE to the store's address (in ${config.settingsFile})`).not.toBe("");
   const plan = catalogPlan(config.catalog);
   const products = plan.flatMap(category => category.products);
