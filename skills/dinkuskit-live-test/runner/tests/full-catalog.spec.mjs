@@ -76,7 +76,15 @@ async function readCategory(shopper, path, names) {
   return catalogCards(shopper.locator("main").locator("[data-commerce-product], [data-merch-item]"), names);
 }
 
-const pathOf = href => new URL(href, config.store).pathname;
+/**
+ * Where a link takes a shopper: a store page by its path and query, any other site by its whole address.
+ * A #part only scrolls the page, so it's left out.
+ */
+function destination(href) {
+  const url = new URL(href, config.store);
+  url.hash = "";
+  return url.origin === config.store ? `${url.pathname}${url.search}` : url.href;
+}
 
 /**
  * What's wrong with how a list page shows `products`: one it doesn't list or lists twice, one at
@@ -97,7 +105,7 @@ function listProblems(found, products, where, pages = new Map()) {
     if (money(card.price) !== product.cents) problems.push(`${where} shows "${product.name}" at ${card.price ? `"${card.price}"` : "no price"} instead of ${dollars(product.cents)}`);
     if (card.image !== "photo") problems.push(`"${product.name}" on ${where} ${photoProblem[card.image]}`);
     if (!card.href) problems.push(`"${product.name}" on ${where} links to no product page`);
-    else if (pages.has(product.name) && pathOf(card.href) !== pages.get(product.name)) problems.push(`"${product.name}" on ${where} links to ${pathOf(card.href)} instead of ${pages.get(product.name)}`);
+    else if (pages.has(product.name) && destination(card.href) !== pages.get(product.name)) problems.push(`"${product.name}" on ${where} links to ${destination(card.href)} instead of ${pages.get(product.name)}`);
     if (card.src) bySrc.set(card.src, [...bySrc.get(card.src) ?? [], product.name]);
   }
   // Every product has a photo of its own, so two products showing one photo means one shows the wrong photo.
@@ -284,7 +292,7 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
       const problems = [];
       const shown = [];
       // Each product's card links to the page its Shop card does, which the next step opens.
-      const pages = new Map([...shopFound].filter(([, [card]]) => card.href).map(([name, [card]]) => [name, pathOf(card.href)]));
+      const pages = new Map([...shopFound].filter(([, [card]]) => card.href).map(([name, [card]]) => [name, destination(card.href)]));
       for (const category of plan) {
         const path = categoryPaths.get(category.title);
         const found = await readCategory(shopper, path, names).catch(error => { problems.push(firstLine(error)); });
@@ -307,13 +315,14 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
           problems.push(`the Shop list links "${product.name}" to no page`);
           continue;
         }
-        const path = pathOf(href);
-        const failed = await openShopperPage(shopper, path).then(() => "", error => {
+        // A link to another site is followed there, where the request filter or the store check stops it.
+        const target = destination(href);
+        const failed = await openShopperPage(shopper, target).then(() => "", error => {
           const line = firstLine(error).replace(/\.$/, "");
-          return line.startsWith(path) ? line : `${path} didn't open (${line})`;
+          return line.startsWith(target) ? line : `${target} didn't open (${line})`;
         });
         if (failed) problems.push(failed);
-        else problems.push(...(await productPageProblems(shopper, product)).map(problem => `${path} ${problem}`));
+        else problems.push(...(await productPageProblems(shopper, product)).map(problem => `${target} ${problem}`));
       }
       if (problems.length) throw new Error(`${problems.join("; ")}.`);
       return `all ${products.length} pages show the product's name and price and a working Add to cart button`;
