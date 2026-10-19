@@ -174,6 +174,27 @@ left open.
 The machine's settings come from `~/.dinkus-e2e/env`; see
 [setup](../references/setup.md).
 
+## Run on GitHub
+
+The repository's **Live journeys** workflow (`.github/workflows/live-journeys.yml`) runs
+the same journeys on a GitHub runner against the beta test store, beta.sm0ky.dev, with
+no Mac. Press **Run workflow** on its Actions page; `@running` runs all seven. That store
+belongs to the workflow alone. Runs go one at a time: a press while a run is going waits its
+turn, and a further press replaces the waiting one.
+
+Chrome runs headless, so the runner fails at once wherever it would wait for a person. Sign-in emails are read with
+`scripts/gmail-mail.mjs`, through the Gmail API with a read-only key, in place of gogcli.
+The job log is public, so it shows only each journey's pass or fail; the steps,
+screenshots, console output and any video go to a private R2 bucket under
+`runs/github-<run id>-<attempt>/`.
+
+It needs these repository secrets:
+
+| Secret | What it is |
+| --- | --- |
+| `DINKUS_E2E_GMAIL_CLIENT_ID`, `DINKUS_E2E_GMAIL_CLIENT_SECRET`, `DINKUS_E2E_GMAIL_REFRESH_TOKEN`, `DINKUS_E2E_OWNER_EMAIL` | The test inbox's read-only key. `node scripts/gmail-authorize.mjs <client_secret.json> <inbox>` makes it once, from a Google OAuth client of type "Desktop app", and saves all four with `gh secret set` without printing them |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | A private R2 bucket for the proof, and an R2 API token that can only read and write that bucket |
+
 ## Settings
 
 Set these in `~/.dinkus-e2e/env` (or the file `DINKUS_E2E_ENV_FILE` names), or in
@@ -186,7 +207,8 @@ the environment, which wins.
 | `DINKUS_E2E_OWNER_EMAIL` | required | The owner's DinkusKit.com address; the test asks for sign-in emails to it |
 | `DINKUS_E2E_MAIL_ACCOUNT` | none | The test inbox; picks the bundled read-only `scripts/gog-mail.sh` |
 | `DINKUS_E2E_GOG_CLIENT` | gogcli's default | A named gogcli OAuth client for that inbox |
-| `DINKUS_E2E_MAIL_CMD` | the gogcli script | Any command that prints the bodies of the messages matching `$DINKUS_MAIL_QUERY`, newest first |
+| `DINKUS_E2E_MAIL_CMD` | the gogcli script | Any command that prints the bodies of the messages matching `$DINKUS_MAIL_QUERY`, newest first, such as `node scripts/gmail-mail.mjs` with the Gmail key from "Run on GitHub" |
+| `DINKUS_E2E_GMAIL_CLIENT_ID`, `DINKUS_E2E_GMAIL_CLIENT_SECRET`, `DINKUS_E2E_GMAIL_REFRESH_TOKEN` | none | The test inbox's read-only Gmail key, for `scripts/gmail-mail.mjs` |
 | `DINKUS_E2E_ACCESS_MAIL_QUERY` | Cloudflare's senders, last hour, naming the store's address | The Gmail search for the Access code email; set it when your Access emails don't name the store's address |
 | `DINKUS_E2E_ACCESS_ORIGINS` | none | Comma-separated exact HTTPS Cloudflare Access origins for this store (for example `https://your-team.cloudflareaccess.com`). Other Access tenants are blocked. |
 | `DINKUS_E2E_SHOPPER_EMAIL` | the owner's address | The checkout contact |
