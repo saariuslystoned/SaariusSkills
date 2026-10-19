@@ -28,30 +28,45 @@ const logs = config.store ? dirname(config.runDir) : "";
 const logPrefix = config.store ? `.store-requests-${new URL(config.store).host.replace(/[^a-z0-9.-]/gi, "-")}-` : "";
 const minuteOf = time => Math.floor(time / MINUTE);
 
+/**
+ * This store's logs that can still hold a request of the last 60 seconds: this minute's and the one
+ * before. Older minutes' logs are removed.
+ */
+function recentLogs(now = Date.now()) {
+  let names = [];
+  try { names = readdirSync(logs); } catch { return []; }
+  const recent = [];
+  for (const name of names) {
+    const minute = name.startsWith(logPrefix) && name.endsWith(".log") ? Number(name.slice(logPrefix.length, -4)) : NaN;
+    if (!Number.isInteger(minute)) continue;
+    if (minute >= minuteOf(now) - 1) recent.push(join(logs, name));
+    else try { unlinkSync(join(logs, name)); } catch {}
+  }
+  return recent;
+}
+
+let loggedMinute = 0;
 /** Adds `line` to the log of the minute in which the request it's about was sent, at `at`. */
 const logLine = (at, line) => {
-  if (logs) try { appendFileSync(join(logs, `${logPrefix}${minuteOf(at)}.log`), `${line}\n`); } catch {}
+  if (!logs) return;
+  try { appendFileSync(join(logs, `${logPrefix}${minuteOf(at)}.log`), `${line}\n`); } catch {}
+  // A new minute leaves the logs before the last one with nothing that counts.
+  if (minuteOf(at) > loggedMinute) {
+    loggedMinute = minuteOf(at);
+    recentLogs();
+  }
 };
 
 /**
  * When the logged store requests of the last minute were sent, oldest first. A line "-<time>" takes back
- * one request sent then, which the browser answered from its own copy. Older minutes' logs are removed.
+ * one request sent then, which the browser answered from its own copy.
  */
 function logged() {
   const now = Date.now();
-  let names = [];
-  try { names = readdirSync(logs); } catch { return []; }
   const counts = new Map();
-  for (const name of names) {
-    const minute = name.startsWith(logPrefix) && name.endsWith(".log") ? Number(name.slice(logPrefix.length, -4)) : NaN;
-    if (!Number.isInteger(minute)) continue;
-    // Only this minute's log and the one before can hold a request of the last 60 seconds.
-    if (minute < minuteOf(now) - 1) {
-      try { unlinkSync(join(logs, name)); } catch {}
-      continue;
-    }
+  for (const log of recentLogs(now)) {
     let lines = [];
-    try { lines = readFileSync(join(logs, name), "utf8").split("\n").filter(Boolean); } catch {}
+    try { lines = readFileSync(log, "utf8").split("\n").filter(Boolean); } catch {}
     for (const line of lines) {
       const time = Math.abs(Number(line));
       if (time > now - MINUTE) counts.set(time, (counts.get(time) ?? 0) + (line.startsWith("-") ? -1 : 1));

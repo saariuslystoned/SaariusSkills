@@ -132,9 +132,9 @@ async function productPageProblems(shopper, product) {
 
 /**
  * Gives one catalog product what the store lacks for it, as an owner would: adds it to Commerce when
- * it isn't there (or restores it when archived), saves its price and weight, chooses its photo when
- * Commerce shows none (uploading it first unless its batch did), and gives it a published page in its
- * category when it has none. Returns what it did.
+ * it isn't there (or restores it when archived), saves its price and weight where they differ, chooses
+ * its photo when Commerce shows none (uploading it first unless its batch did), and gives it a published
+ * page in its category when it has none. Returns what it did, which is nothing when Commerce had it all.
  */
 async function completeProduct(page, content, product, { inCommerce, card, shelved }) {
   const did = [];
@@ -156,8 +156,16 @@ async function completeProduct(page, content, product, { inCommerce, card, shelv
     did.push("added");
   }
   const id = await shownProductId(page);
-  await setPrice(page, (product.cents / 100).toFixed(2));
-  await setWeight(page, product.ounces);
+  // Commerce shows the price and weight it stored, so only one that differs is saved, and reported.
+  const price = (product.cents / 100).toFixed(2);
+  if (await page.getByRole("textbox", { name: "Regular", exact: true }).inputValue() !== price) {
+    await setPrice(page, price);
+    did.push("price");
+  }
+  if (await page.getByRole("textbox", { name: "Weight (oz)", exact: true }).inputValue() !== String(product.ounces)) {
+    await setWeight(page, product.ounces);
+    did.push("weight");
+  }
   // Every drawing of the product screen has the Images section's button, so it's read once that's there.
   if (!await page.getByRole("button", { name: /^(Choose|Change) image$/ }).waitFor({ timeout: 30_000 }).then(() => true, () => false)) {
     throw new Error("Commerce's product page has no Images section");
@@ -235,7 +243,9 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
           if (!canAdd) throw tooOld(commerce, `the category "${title}"`);
           // A category an earlier run saved but never published is published, not added again.
           const edit = content.getByRole("link", { name: `Edit ${title}`, exact: true });
-          if (await edit.count()) {
+          const saved = await edit.count();
+          if (saved > 1) throw new Error(`EmDash lists ${saved} categories titled "${title}" and none of them is published, so the test can't tell which to publish; remove the extra one.`);
+          if (saved) {
             await openAdmin(content, new URL(await edit.getAttribute("href"), config.store).href);
             await publish(content, "categories");
           } else await addCategory(content, title, { lost: [] });
@@ -276,14 +286,13 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
       test.info().setTimeout(test.info().timeout + todo.length * 2 * 60_000);
       const added = [];
       const completed = [];
+      // Products Commerce already had whole, which the store shows wrong anyway.
+      const whole = [];
       for (let start = 0; start < todo.length; start += UPLOAD_BATCH) {
         const batch = todo.slice(start, start + UPLOAD_BATCH);
         // New products' photos go up together; a product Commerce has gets one only if its screen shows none.
         const photos = batch.filter(product => !listed.names.has(product.name));
-        if (photos.length) {
-          await paceStore(UPLOADS_ROOM);
-          await uploadPhotos(content, photos.map(product => ({ fileName: product.photo, label: product.name })));
-        }
+        if (photos.length) await uploadPhotos(content, photos.map(product => ({ fileName: product.photo, label: product.name })), UPLOADS_ROOM);
         for (const product of batch) {
           await paceStore(PRODUCT_ROOM);
           // One product's trouble is recorded and the rest still get added.
@@ -291,12 +300,14 @@ test("Full catalog", { tag: "@next" }, journey(async ({ page }) => {
           const did = await completeProduct(page, content, product, state)
             .catch(error => { problems.push(`"${product.name}": ${firstLine(error)}`); });
           if (did?.includes("added")) added.push(product.name);
-          else if (did) completed.push(`${product.name} (${did.join(", ") || "price and weight"})`);
+          else if (did?.length) completed.push(`${product.name} (${did.join(", ")})`);
+          else if (did) whole.push(product.name);
         }
       }
       const done = [
         ...added.length ? [`added ${added.length} (${short(added).join(", ")}), each with its price, weight, photo and a published page in its category`] : [],
         ...completed.length ? [`completed ${short(completed).join(", ")}`] : [],
+        ...whole.length ? [`found nothing to add in Commerce for ${short(whole).join(", ")}, so the next steps report what the store shows wrong`] : [],
       ];
       if (problems.length) throw new Error(`${[...done, ...problems].join("; ")}.`);
       return done.join("; ");

@@ -125,9 +125,10 @@ export async function uploadPhoto(page, fileName, label) {
 /**
  * Uploads several plain square photos to the Media library in one go, each with its own label drawn on
  * it. The browser draws them, so the test carries no image files. A label makes its photo its own: the
- * Media library keeps one copy of identical files, under the first one's name.
+ * Media library keeps one copy of identical files, under the first one's name. It first waits until
+ * `room` more store requests fit, which for a single photo is MEDIA_ROOM.
  */
-export async function uploadPhotos(page, photos) {
+export async function uploadPhotos(page, photos, room = MEDIA_ROOM) {
   const painter = await newPage(page.context());
   const files = [];
   for (const { fileName, label } of photos) {
@@ -135,7 +136,7 @@ export async function uploadPhotos(page, photos) {
     files.push({ name: fileName, mimeType: "image/png", buffer: await painter.locator("div").screenshot() });
   }
   await painter.close();
-  await paceStore(MEDIA_ROOM);
+  await paceStore(room);
   await openAdmin(page, `${config.store}/_emdash/admin/media`);
   await page.getByRole("button", { name: "Upload Files" }).first().click();
   const dialog = page.getByRole("dialog", { name: "Upload to Library" });

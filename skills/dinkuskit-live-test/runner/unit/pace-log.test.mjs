@@ -45,6 +45,10 @@ test("a new worker counts the store requests sent in the last minute before it s
   countStoreRequest("https://store.example/products/cap");
   assert.equal(readFileSync(log(83), "utf8"), lines(1, now + 30_500));
   assert.equal(readFileSync(log(82), "utf8"), lines(60, now - 30_000));
+  // Two minutes on, its next request leaves only that minute's log, since nothing older counts.
+  t.mock.timers.tick(120_000);
+  countStoreRequest("https://store.example/products/tee");
+  assert.deepEqual(logs(), [".store-requests-store.example-85.log"]);
 });
 
 test("the log takes back a request the browser answered from its own copy", { timeout: 10_000 }, async t => {
