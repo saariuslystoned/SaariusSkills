@@ -193,12 +193,17 @@ ask about: an update that asks for new permissions, opens routes to visitors who
 in (which also need an exception in the store's Access app) or changes its agent tools stops the
 run, naming the plugin and what it asked, for the owner to update by hand. It also stops when
 EmDash couldn't check the Registry for a plugin, since a pass has to name the betas it really
-tested. Untick "update_store" on **Run workflow** to test what the store already runs.
+tested. When a plugin's **Cut beta** presses Run workflow, it names the beta it just published
+(the `beta` input, such as `dinkus-payments-beta 0.2.9-beta.3`, shown in the run's name), and the
+update first waits up to 15 minutes for the Registry to offer it. Only `npm run update-store`
+runs it; every other run leaves it out. Untick "update_store" on **Run workflow** to test what the
+store already runs.
 
 Chrome runs headless, so the runner fails at once wherever it would wait for a person. Sign-in emails are read with
 `scripts/gmail-mail.mjs`, through the Gmail API with a read-only key, in place of gogcli.
-The job log is public, so it shows only each journey's pass or fail and the plugin versions
-the store ran ("Plugins tested"), so a release can check its own beta passed; the steps,
+The job log is public, so it shows only each journey's pass or fail, the plugin versions
+the store ran ("Plugins tested"), so a release can check its own beta passed, and why the
+store update stopped, if it did; the steps,
 screenshots, console output and any video go to a private R2 bucket under
 `runs/github-<run id>-<attempt>/`.
 

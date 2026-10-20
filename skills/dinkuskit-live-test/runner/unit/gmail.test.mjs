@@ -83,6 +83,21 @@ test("the public summary names the plugin versions the store ran, and says when 
   assert.match(execFileSync(process.execPath, [script, folder, "0"], { encoding: "utf8" }), /^Plugins tested: not recorded$/m);
 });
 
+test("when the store update stops, the summary says why and that no journey tested the plugins", () => {
+  const folder = mkdtempSync(join(tmpdir(), "summary-"));
+  const script = new URL("../scripts/run-summary.mjs", import.meta.url).pathname;
+  writeFileSync(join(folder, "report.json"), JSON.stringify({
+    verdict: "FAIL",
+    journeys: [{ name: "Update the store", verdict: "FAIL" }],
+    facts: { plugins: "dinkus-commerce-beta 0.3.1-beta.2", "update stopped": "dinkus-payments-beta stays on 0.2.9-beta.1, not 0.2.9-beta.2: it asks for new permissions (network:fetch)." },
+  }));
+  let out = "";
+  try { execFileSync(process.execPath, [script, folder, "1"], { encoding: "utf8" }); } catch (error) { out = error.stdout; }
+  assert.match(out, /^Update stopped: dinkus-payments-beta stays on 0\.2\.9-beta\.1, not 0\.2\.9-beta\.2: it asks for new permissions \(network:fetch\)\.$/m);
+  assert.match(out, /^Plugins on the store \(no journeys ran\): dinkus-commerce-beta 0\.3\.1-beta\.2$/m);
+  assert.doesNotMatch(out, /Plugins tested/);
+});
+
 test("a run that recorded nothing is a failure in the summary", () => {
   const folder = mkdtempSync(join(tmpdir(), "summary-"));
   const script = new URL("../scripts/run-summary.mjs", import.meta.url).pathname;

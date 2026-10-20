@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { planUpdates, refusal } from "../support/store-updates.mjs";
+import { namedBeta, notOffered, planUpdates, refusal } from "../support/store-updates.mjs";
 
 const list = items => ({ data: { items } });
 const commerce = { id: "r_commerce", source: "registry", registrySlug: "dinkus-commerce-beta", version: "0.3.0-beta.9" };
@@ -16,6 +16,27 @@ test("only DinkusKit beta listings from the Registry are planned; a release list
   assert.deepEqual(plan, [{ id: "r_commerce", name: "dinkus-commerce-beta", installed: "0.3.0-beta.9", latest: "0.3.0-beta.10", update: true }]);
 });
 
+test("a beta plugin the owner switched off is left off", () => {
+  const plan = planUpdates(list([{ ...commerce, enabled: false }, payments]), list([
+    { pluginId: "r_commerce", latest: "0.3.0-beta.10" }, { pluginId: "r_payments", latest: "0.2.9-beta.2" },
+  ]));
+  assert.deepEqual(plan.map(p => p.name), ["dinkus-payments-beta"]);
+});
+
+test("a release names its beta, and the run waits until the Registry offers it or a later one", () => {
+  assert.deepEqual(namedBeta(" dinkus-payments-beta 0.2.9-beta.3 "), { name: "dinkus-payments-beta", version: "0.2.9-beta.3" });
+  assert.deepEqual(namedBeta("dinkus-commerce-beta@0.3.1-beta.0"), { name: "dinkus-commerce-beta", version: "0.3.1-beta.0" });
+  assert.equal(namedBeta(""), null);
+  for (const bad of ["dinkus-payments 0.2.9", "dinkus-payments-beta latest", "someone-beta 1.0.0", "dinkus-payments-beta"]) assert.throws(() => namedBeta(bad), /doesn't name a DinkusKit beta/);
+  const beta = { name: "dinkus-payments-beta", version: "0.2.9-beta.3" };
+  const plan = latest => planUpdates(list([commerce, payments]), list([{ pluginId: "r_commerce", latest: "0.3.0-beta.9" }, { pluginId: "r_payments", latest }]));
+  assert.equal(notOffered(plan("0.2.9-beta.2"), beta), "the Registry offers dinkus-payments-beta 0.2.9-beta.2, not 0.2.9-beta.3 yet");
+  assert.equal(notOffered(plan("0.2.9-beta.3"), beta), null);
+  assert.equal(notOffered(plan("0.2.9-beta.10"), beta), null);
+  assert.equal(notOffered(plan("0.2.9-beta.1"), { ...beta, version: "0.2.9-beta.1" }), null);
+  assert.equal(notOffered(plan("0.2.9-beta.3"), { name: "dinkus-ship-beta", version: "0.1.0-beta.0" }), "the store doesn't run dinkus-ship-beta");
+});
+
 test("an update goes only forward in semver order, never back down to an older Registry version", () => {
   const plan = planUpdates(list([commerce, payments]), list([
     { pluginId: "r_commerce", latest: "0.3.0-beta.8", hasUpdate: true },
@@ -26,7 +47,7 @@ test("an update goes only forward in semver order, never back down to an older R
 
 test("a beta plugin the update check left out can't pass for up to date", () => {
   const plan = planUpdates(list([commerce, payments]), list([{ pluginId: "r_payments", latest: "0.2.9-beta.2" }]));
-  assert.match(plan[0].problem, /couldn't ask the Registry/);
+  assert.match(plan[0].problem, /left it out \(the Registry couldn't be reached, or its newest release was withdrawn\)/);
   assert.equal(plan[0].update, undefined);
   assert.equal(plan[1].update, true);
   assert.ok(planUpdates(list([commerce]), null)[0].problem);

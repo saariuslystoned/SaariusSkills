@@ -1,12 +1,16 @@
 name: Live journeys
+# A run a release started names its beta on the Actions page.
+run-name: Live journeys${{ inputs.beta && format(' for {0}', inputs.beta) || '' }}
 # Runs the DinkusKit live journeys (skills/dinkuskit-live-test/runner) against the beta test store,
 # beta.sm0ky.dev, on a GitHub runner. It never runs on pull requests or pushes: only from the
-# "Run workflow" button. This store belongs to this workflow alone; no Mac or other computer runs
-# journeys on it. Stripe TEST cards and Ship sandbox labels only. Before the journeys it updates the
-# store's DinkusKit beta plugins to the newest betas, and stops if an update asks for new permissions.
+# "Run workflow" button, which a plugin's Cut beta also presses once it has published a beta. This
+# store belongs to this workflow alone; no Mac or other computer runs journeys on it. Stripe TEST
+# cards and Ship sandbox labels only. Before the journeys it updates the store's DinkusKit beta
+# plugins to the newest betas, and stops if an update asks for new permissions.
 #
-# The job log is public, so it shows only each journey's pass or fail and the plugin versions tested.
-# Steps, screenshots, the console output and videos go to the private R2 bucket.
+# The job log is public, so it shows only each journey's pass or fail, the plugin versions tested and
+# why a store update stopped. Steps, screenshots, the console output and videos go to the private R2
+# bucket.
 
 on:
   workflow_dispatch:
@@ -19,6 +23,10 @@ on:
         description: First update the store's DinkusKit plugins to the newest betas (stops if one asks for new permissions)
         type: boolean
         default: true
+      beta:
+        description: The beta a release just published, as "dinkus-<plugin>-beta <version>" (Cut beta fills this in; the update waits for the Registry to offer it)
+        default: ""
+        required: false
       video:
         description: Record a video of every browser window
         type: boolean
@@ -100,6 +108,7 @@ jobs:
         env:
           JOURNEYS: ${{ inputs.journeys }}
           UPDATE_STORE: ${{ inputs.update_store }}
+          DINKUS_E2E_BETA: ${{ inputs.beta }}
           DINKUS_E2E_OWNER_EMAIL: ${{ secrets.DINKUS_E2E_OWNER_EMAIL }}
           DINKUS_E2E_GMAIL_CLIENT_ID: ${{ secrets.DINKUS_E2E_GMAIL_CLIENT_ID }}
           DINKUS_E2E_GMAIL_CLIENT_SECRET: ${{ secrets.DINKUS_E2E_GMAIL_CLIENT_SECRET }}
