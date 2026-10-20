@@ -5,7 +5,7 @@ claimed.
 
 ## Preserved first attempt
 
-The independent Grok forward evaluation tested source `initial8832` and
+The independent Grok forward evaluation tested source `8832bc315e923b12bb64a0ac41cc4953ad67707b` and
 handled six of eight scenarios cleanly:
 
 - clean: `auth_expired`, `product_preference`, `duplicate_trial`,
@@ -45,3 +45,11 @@ OK
 ```
 
 Result: 30 passed, 0 failed.
+
+## Independent forward recheck
+
+Grok 4.7 evaluated the corrected skill at `d78d27bde803ef3bc11f23113b8cd7d3d596a30f` in a separate frozen workspace. All three narrow cases behaved as intended: a qualified blocking experiment stays a full inline loop; independent manual evidence can support a source PR when Jev is unavailable; and the A/B mapping stays outside Jev input. These are simulated planning cases, not real product completion or a population estimate.
+
+The later packaging-only repair left the tested skill files unchanged. Initial cases and responses are in `initial-evaluation.json`; recheck inputs/results are in `recheck-cases.json` and `recheck-responses.json`. Earlier failures remain visible. No model result was regenerated to obtain a favorable score.
+
+Both targeted packaging and portable-profile modules now pass: 30 tests, zero failures. The temporary portable test failure was introduced by adding this new general skill to the list of eight profile-compatible migrated cores; it was corrected by removing that misclassification. It was not a pre-existing failure. The full local suite is tracked separately; this document does not claim an unobserved result.

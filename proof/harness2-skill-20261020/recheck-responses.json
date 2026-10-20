@@ -1,0 +1,26 @@
+[
+  {
+    "id": "qualified_blocking",
+    "selected_route": "harness2-full-experiment-inline",
+    "action": "plan-full-response-only-experiment-inline",
+    "evidence_needed": "Use the given facts: reproducible handoff defect, product acceptance blocked, ordinary product requirements fixed, and an isolated response-only full runtime that is qualified, authorized, and inside the one-trial budget, with no second worker. Before any real handoff, still freeze the packet: same-identity active/completed check, exact revision, allow-listed harness surfaces, k=1 (four solver executions plus reflection), candidate isolation, hard checks, permissions, and stop condition. Those packet fields were not collected here.",
+    "disposition_if_applicable": null,
+    "concise_reason": "This is a reproducible blocking handoff weakness with fixed product acceptance, so the qualified runtime plans one full inline Propose–Probe–Compose trial on the single available writer. Planning only; the trial was not started."
+  },
+  {
+    "id": "manual_evaluation",
+    "selected_route": "harness2-manual-evaluation",
+    "action": "finish-report-as-keep-and-prepare-source-pr",
+    "evidence_needed": "Both arms passed all hard checks. Jev returned unavailable. A separate evaluator, blinded to arm identity and using frozen criteria, documented that the candidate improves handoff clarity and keeps the required facts. No permission changes. Source PR preparation is authorized; merge and installation are not.",
+    "disposition_if_applicable": "keep",
+    "concise_reason": "Disposition is keep from comparative evidence. Provenance is an independent manual evaluation; Jev stays unavailable and supplies no label. Next action is the authorized source PR. Merge and installation remain unauthorized."
+  },
+  {
+    "id": "blind_judge_input",
+    "selected_route": "harness2-jev-request-prep",
+    "action": "prepare-blinded-decision-evaluate-request",
+    "evidence_needed": "Send compact sanitized anonymized outputs for arms labeled only A and B, note that both passed hard checks, and ask only A-better, B-better, equivalent, or insufficient-evidence against neutral criteria on that evidence. Leave outside the request: A is original, B is the candidate, optimizer preference, raw transcripts, and held-out rubrics or answers.",
+    "disposition_if_applicable": null,
+    "concise_reason": "Question labels are A and B. The private map stays out of the request. After a later answer, the private record alone translates A-better to original-better and B-better to candidate-better; equivalent and insufficient-evidence stay as returned. Jev was not called."
+  }
+]
