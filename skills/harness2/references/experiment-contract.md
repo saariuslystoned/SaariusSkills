@@ -11,8 +11,12 @@ public/hosted evidence should minimize private identifiers.
 
 ## Experiment
 
-- **Identity:** stable target, hypothesis, acceptance identity, and unique
-  active/completed-record check.
+- **Identity:** task, exact source, failure, hypothesis, and acceptance
+  identity, checked against active and completed records. Deduplicate the same
+  task/source/failure regardless of hypothesis wording; alternative hypotheses
+  are candidates inside that bounded experiment. Restart a completed failure
+  only with material new evidence or source and an explicitly admitted
+  remaining budget.
 - **Task:** one real task, exact repository and immutable source revision in
   the PRIVATE packet, product outcome, and exclusions.
 - **Editable surfaces:** explicitly allow-listed harness surfaces only

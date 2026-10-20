@@ -22,8 +22,9 @@ Route one bounded refinement experiment by default when all of these are true:
   plugin), not an ordinary product defect;
 - current authorization, task capacity, run budget, and one-writer ownership
   permit it; and
-- no active or completed experiment already has the same target, hypothesis,
-  and acceptance identity.
+- no active experiment already owns the same task, source, and failure,
+  regardless of hypothesis wording; completed matches satisfy the reopening
+  rule below.
 
 Recognize lost handoff facts, repeated avoidable questions, and repeat
 workflow repairs. Skip ordinary product bugs, unresolved user preferences,
@@ -31,8 +32,11 @@ provider outages, and real authority gates. Inline a fix only when the defect
 blocks the current task; otherwise continue product delivery while the
 experiment is independently bounded.
 
-Check existing active and completed records before dispatch. Do not create a
-scheduler, new queue, or always-on watcher. Do not dispatch if the runtime
+Check existing active and completed records before dispatch. Alternative
+hypotheses are candidates within the same bounded experiment, not automatic
+new experiments. Do not restart a completed failure without material new
+evidence or source and an explicitly admitted remaining budget. Do not create
+a scheduler, new queue, or always-on watcher. Do not dispatch if the runtime
 capability is absent, unqualified, unauthorized, at capacity, or lacks an
 owner; report `blocked` or `pending` with the reason and owner instead.
 

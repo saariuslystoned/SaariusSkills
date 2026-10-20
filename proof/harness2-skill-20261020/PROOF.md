@@ -53,3 +53,18 @@ Grok 4.7 evaluated the corrected skill at `d78d27bde803ef3bc11f23113b8cd7d3d596a
 The later packaging-only repair left the tested skill files unchanged. Initial cases and responses are in `initial-evaluation.json`; recheck inputs/results are in `recheck-cases.json` and `recheck-responses.json`. Earlier failures remain visible. No model result was regenerated to obtain a favorable score.
 
 Both targeted packaging and portable-profile modules now pass: 30 tests, zero failures. The temporary portable test failure was introduced by adding this new general skill to the list of eight profile-compatible migrated cores; it was corrected by removing that misclassification. It was not a pre-existing failure. The full local suite is tracked separately; this document does not claim an unobserved result.
+
+## Independent review correction
+
+The independent review of `18575495a1acc10112cff283e61a440c1aab7b8b`
+identified one accepted P2: including hypothesis wording in the deduplication
+key could automatically launch another experiment for an already-owned
+failure. The skill and packet now deduplicate the same task/source/failure
+regardless of hypothesis wording. Alternative hypotheses are candidates in
+the same bounded experiment. A completed failure requires material new
+evidence or source and an explicitly admitted remaining budget to restart.
+
+This is a narrow instruction correction. The 30 targeted packaging and
+portable-profile tests pass under Python 3.12.9, and `git diff --check` passes.
+No model-backed forward case was rerun; the prior forward-recheck results
+remain evidence for their recorded revision, not a claim about this edit.
