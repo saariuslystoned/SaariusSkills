@@ -132,8 +132,12 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
     }
   });
   orderName = order.name.replace(/^#/, "");
+  // Ship's own page for the order. Once the store's Ship plugin has called Ship, the order's plain
+  // address goes on to the store admin's Shipping page; ?view=full keeps Ship's page.
+  const shipPage = new URL(order.href, config.ship);
+  shipPage.searchParams.set("view", "full");
 
-  await page.goto(config.ship + order.href);
+  await page.goto(shipPage.href);
   const already = /This order is Completed in Commerce/.test(await page.locator("main").innerText());
   let label = await labelRow(page);
 
@@ -155,6 +159,8 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
     await page.getByRole("button", { name: "Make sandbox label" }).click();
     await page.waitForLoadState("domcontentloaded");
     if (await error.count()) throw new Error(`Ship refused the label: ${await error.innerText()}`);
+    // A bought label sends the browser to the order's plain address, which can go on to the store admin.
+    await page.goto(shipPage.href);
     label = await labelRow(page);
     if (!label) throw new Error("Ship shows no label after making one.");
     return `${label.service}, ${label.postage}`;
@@ -189,9 +195,8 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
   }
 
   // Ship's page says so once Commerce has marked the order Completed and told Ship.
-  const shipPage = config.ship + order.href;
   const completedOnShip = async () => {
-    await page.goto(shipPage);
+    await page.goto(shipPage.href);
     return (await page.locator("main").innerText()).match(/This order is Completed in Commerce(?: with tracking (\S+?))?\./);
   };
   let done = await completedOnShip();

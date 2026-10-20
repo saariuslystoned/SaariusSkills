@@ -282,7 +282,7 @@ Without a mail command, the test waits for a person to sign in in the window.
 | The thank-you page confirms the order and empties the cart | After Stripe sends the shopper back, the store's own page shows the confirmed order (pressing "Check status again" while it says pending, as a shopper would) and the header cart is empty. Recorded before the test asks Commerce itself, so the page gets no help |
 | Commerce Orders shows the paid TEST order | Commerce recorded the order as TEST, provider-paid and Processing. Orders lists its orders by order ID, 25 to a page, so the test finds this checkout's order by its order ID on whichever page it is, as Mark as completed does |
 | Ship has the order | Commerce sent the order to Ship |
-| Make the Pitney Bowes sandbox label | Ship quotes sandbox prices and buys a sandbox label |
+| Make the Pitney Bowes sandbox label | Ship quotes sandbox prices and buys a sandbox label. The test works on Ship's own page for the order (`?view=full`), since once the store's Ship plugin has called Ship, the order's plain address goes on to the store admin's Shipping page |
 | Label is a TEST SANDBOX label with a tracking number | The label is a sandbox label, not a practice one, and carries a tracking number |
 | Label PDF downloads and renders | Ship serves the provider's PDF, and its first page draws as a picture of the label, shown in the browser for the step's screenshot and the video |
 | Commerce's 5-minute check collects the label | Commerce's background check collects the label without anyone opening the store admin |
