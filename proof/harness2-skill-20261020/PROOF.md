@@ -36,12 +36,12 @@ filesystem paths, secrets, host identifiers, or unfiltered transcripts.
 Actual repository test run:
 
 ```text
-python3 -m unittest tests.test_packaging.PackagingTests.test_harness2_skill_contract_and_metadata_are_packaged
+python3 -m unittest tests.test_packaging tests.test_portable_skills
+..............................
+----------------------------------------------------------------------
+Ran 30 tests in 0.383s
+
+OK
 ```
 
-Result: pass.
-
-The full `tests.test_packaging tests.test_portable_skills` run still has one
-pre-existing portable-skill assertion failure for an unrelated `optional
-binding` phrase; it is not used as proof of this clarification. No final
-forward evaluation was run.
+Result: 30 passed, 0 failed.

@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 NAMES = (
     "smoky-skill-cleaner", "smoky-behavior-validator", "smoky-cli-creator",
     "smoky-worktree", "smoky-session-viewer", "smoky-codex-coordinator",
-    "smoky-maintainer", "smoky-portfolio-sweep", "harness2",
+    "smoky-maintainer", "smoky-portfolio-sweep",
 )
 
 

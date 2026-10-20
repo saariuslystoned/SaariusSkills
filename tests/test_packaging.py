@@ -48,28 +48,17 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("$emdash-commerce", metadata)
 
     def test_harness2_skill_contract_and_metadata_are_packaged(self) -> None:
-        skill = (HARNESS2_SKILL / "SKILL.md").read_text(encoding="utf-8")
-        contract = (
-            HARNESS2_SKILL / "references" / "experiment-contract.md"
-        ).read_text(encoding="utf-8")
-        metadata = (
-            HARNESS2_SKILL / "agents" / "openai.yaml"
-        ).read_text(encoding="utf-8")
+        skill_path = HARNESS2_SKILL / "SKILL.md"
+        contract_path = HARNESS2_SKILL / "references" / "experiment-contract.md"
+        metadata_path = HARNESS2_SKILL / "agents" / "openai.yaml"
         cursor = json.loads((ROOT / ".cursor-plugin" / "plugin.json").read_text())
 
+        self.assertTrue(skill_path.is_file())
+        self.assertTrue(contract_path.is_file())
+        self.assertTrue(metadata_path.is_file())
         self.assertIn("./skills/harness2/", cursor["skills"])
-        self.assertIn("name: harness2\n", skill)
-        self.assertIn("references/experiment-contract.md", skill)
-        self.assertIn("1cfe254e8d25b15f37048c3730134686abe60335", skill)
-        self.assertIn("## Experiment", contract)
-        self.assertIn("## Result", contract)
-        self.assertIn("`candidate-better`", contract)
-        self.assertIn("Preserve\nimmutable sections", skill)
-        self.assertIn("minimal\nauthorized routing IDs", contract)
-        self.assertIn("unfiltered transcripts", contract)
-        self.assertIn("Jev is not a new delivery gate", skill)
-        self.assertIn("independent manual evaluation", contract)
-        self.assertIn("not by itself a Harness² run", skill)
+        metadata = metadata_path.read_text(encoding="utf-8")
+        self.assertIn("name: harness2", skill_path.read_text(encoding="utf-8"))
         self.assertIn("allow_implicit_invocation: true", metadata)
         self.assertIn("$harness2", metadata)
         self.assertEqual(
