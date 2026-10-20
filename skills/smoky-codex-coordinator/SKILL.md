@@ -15,6 +15,15 @@ Record the owner, outcome, scope/exclusions, source identity, acceptance criteri
 
 Qualify the next ready item against current evidence and overlapping work. Delegate only when the task authorizes the available mechanism; keep exactly one writer per conflicting target. Separate implementation from independent proof/review when required. Empty capacity is acceptable when no useful approved work is ready.
 
+When the evidence shows a reproducible handoff loss, repeated avoidable
+question, or recurring workflow repair with measurable acceptance, use
+`harness2` as the refinement route: check active/completed experiment identity,
+capacity, authorization, and runtime qualification, then delegate one bounded
+experiment while product delivery continues. Read
+`../harness2/SKILL.md`; its blocked/pending route applies when the separate
+runtime integration is not qualified. Do not route ordinary product bugs,
+unresolved preferences, provider outages, or authority gates through Harness².
+
 ## Follow through
 
 Observe an assigned run to a terminal result without redispatching it. Before replacement or fallback, confirm termination or cancellation, inspect the current target and preserve partial artifacts. Timeout or missing output does not prove that a writer stopped. Transfer ownership explicitly.

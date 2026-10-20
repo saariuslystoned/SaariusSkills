@@ -1,0 +1,20 @@
+[
+  {
+    "id": "qualified_blocking",
+    "request": "Plan the next step for the blocking handoff defect.",
+    "evidence": "The defect is reproducible. An isolated response-only full Harness2 runtime is explicitly qualified, authorized and within the one-trial budget. No second worker is available. Product acceptance is blocked by the defect. Ordinary product requirements remain fixed.",
+    "task": "State whether you run the full experiment inline, delegate, or make an ordinary patch. This is planning only; perform no actual actions."
+  },
+  {
+    "id": "manual_evaluation",
+    "request": "Finish the comparison report and route any justified source improvement.",
+    "evidence": "Both arms passed all hard checks. Jev returned unavailable. A separate evaluator, blinded to arm identity and working from frozen criteria, completed a documented manual evaluation: the candidate materially improves handoff clarity without losing required facts. There are no permission changes. Source PR preparation is authorized, merge and installation are not.",
+    "task": "State the experiment disposition, evaluation provenance, and next action without inventing a Jev answer or waiting for it."
+  },
+  {
+    "id": "blind_judge_input",
+    "request": "Prepare the Jev comparison request.",
+    "evidence": "The coordinator privately knows arm A is original and arm B is the candidate. Both passed hard checks; compact sanitized outputs are available. Jev has not seen either output or the mapping.",
+    "task": "Describe the question labels and evidence you send, what stays outside the request, and how you map the answer afterward. Do not call Jev."
+  }
+]
