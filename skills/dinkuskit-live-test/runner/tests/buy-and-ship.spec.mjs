@@ -159,7 +159,7 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
     await page.getByRole("button", { name: "Make sandbox label" }).click();
     await page.waitForLoadState("domcontentloaded");
     if (await error.count()) throw new Error(`Ship refused the label: ${await error.innerText()}`);
-    // A bought label sends the browser to the order's plain address, which can go on to the store admin.
+    // Read the label on Ship's own page, whichever page the purchase left the browser on.
     await page.goto(shipPage.href);
     label = await labelRow(page);
     if (!label) throw new Error("Ship shows no label after making one.");
