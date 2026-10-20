@@ -1,62 +1,69 @@
 # pstack (Saarius Edition)
 
-Cherry-pick of Lauren Tan's pstack engineering skills, plus Saarius overlays.
+Selected engineering skills by [Lauren Tan](https://github.com/poteto) from
+[`cursor/plugins`](https://github.com/cursor/plugins/tree/main/pstack), plus
+the local Bobby Mode and engineering playbooks. The plugin keeps its existing
+`pstack-saarius` name and `pstack/skills/` discovery path.
 
-**Upstream:** [`cursor/plugins` `pstack/skills`](https://github.com/cursor/plugins/tree/main/pstack/skills)
-**Pinned at:** `fadd23794c0075468eb8964b0fd93e06e09486ad` (2026-09-25 sparse clone of `cursor/plugins` `main`)
+## Source ownership
 
-`backnotprop/pstack` is a third-party any-harness mirror, not this overlay's source.
+| Source | Contents | How to change it |
+| --- | --- | --- |
+| [`../vendor/pstack/`](../vendor/pstack/) | Verbatim upstream snapshot, MIT license and hash manifest | Run the upstream update command; never hand-edit |
+| [`custom/skills/`](custom/skills/) | Local `bobby-mode` and `pstack-playbooks` sources | Edit here, then regenerate the package |
+| [`skills/`](skills/) | Generated distribution of the ten upstream and two custom skills | Do not hand-edit; run the package command |
 
-## Skills Included
+The upstream pin is
+`a66a8931c2dd71f1ed6abf6a52b1898a9f389ae4` (2026-10-20), recorded with
+per-file hashes in [`UPSTREAM.json`](../vendor/pstack/UPSTREAM.json).
+The previous ten upstream skill trees matched the old
+`fadd23794c0075468eb8964b0fd93e06e09486ad` pin exactly. Bobby Mode's two files
+and `pstack-playbooks` are preserved from the local source without rewriting
+their contents. Future upstream refreshes cannot select either custom skill.
 
-Synced from Cursor (this pin):
+The ten upstream skills are `architect`, `automate-me`, `blast-radius`,
+`create-verification-skill`, `how`, `maintain-verification-skill`, `reflect`,
+`tdd`, `unslop` and `why`. Other upstream skills, agents, automations, assets,
+and plugin manifests are not imported or activated. Upstream references to
+the wider PStack suite remain upstream content; this selected package does
+not claim to supply that entire suite. Repository contracts still determine
+available tools, model routes, approval and privacy boundaries.
 
-| Skill | Description |
-| :--- | :--- |
-| **`unslop`** | Strips AI conversational filler, sycophancy, hedging, and defensive bloat; enforces surgical diffs. |
-| **`blast-radius`** | Analyzes downstream callers and dependencies before modifying interfaces. |
-| **`architect`** | Type and interface design contract before code generation. |
-| **`how`** | Traces runtime execution paths and control flow. |
-| **`why`** | Explores commit history and historical architectural rationale. |
-| **`tdd`** | Enforces red-green-refactor with verified test failure proof first. |
-| **`create-verification-skill`** | Generates a project-local verification skill that drives the real app. |
-| **`maintain-verification-skill`** | Upkeep loop when the app, harness, or feature map drifts. |
-| **`reflect`** | Post-task retrospective analyzer mining transcript friction. |
-| **`automate-me`** | Drafts or revises a personal `-mode` skill from operator evidence. |
+## Refresh and verify
 
-Saarius overlays (not in Cursor pstack):
+From the repository root:
 
-| Skill | Description |
-| :--- | :--- |
-| **`pstack-playbooks`** | Standard task runbooks (bug-fix, feature, refactor, hillclimb, forensics). |
-| **`bobby-mode`** | Active behavioral profile enforcing Voice-to-Text brevity and Swarm proof policy. |
+```sh
+# Read-only: upstream hashes, generated outputs, local sources and discovery.
+python3 scripts/sync-pstack-skills --check
 
-The rest of upstream pstack (`poteto-mode`, `principle-*`, `arena`, `swarm`, and others) is intentionally not vendored here.
+# Local customization only: regenerate from the existing verified vendor pin.
+python3 scripts/sync-pstack-skills --package
 
-## OpenClaw
+# Refresh the same ten skills from current upstream main.
+python3 scripts/sync-pstack-skills --update
 
-Do not copy these into Skill Workshop. Workshop is for skills this agent authors under `workshop-skills`. This stash is a sibling repo.
+# Pin a reviewed commit from a local clone; uncommitted files are ignored.
+python3 scripts/sync-pstack-skills --update --source /path/to/cursor-plugins --ref <commit>
 
-On the bobby Gateway, load the symlink farm so every agent on the profile sees them:
-
-```json5
-{
-  skills: {
-    load: {
-      extraDirs: ["~/Developer/repos/saariuslystoned/SaariusSkills/skills"],
-      allowSymlinkTargets: ["~/Developer/repos/saariuslystoned/SaariusSkills/pstack/skills"],
-      watch: true
-    }
-  }
-}
+python3 -m unittest discover -s tests -p 'test_sync_pstack_skills.py'
+python3 -m unittest discover -s tests -p 'test_packaging.py'
 ```
 
-Then `openclaw --profile bobby skills list` and `openclaw --profile bobby skills check`. Existing chats keep the old snapshot until `/new`.
+Review the upstream diff and generated outputs before committing. The script
+checks only its owned trees; it does not install plugins, rewrite the root
+skill symlinks, alter host configuration or change any unrelated skill.
+An upstream update refuses existing vendor/package drift. Move intended local
+edits to their custom source and run `--package` before refreshing upstream;
+unexpected handwritten package changes are never silently discarded.
 
-Cursor-only primitives in the synced skills (`.cursor/skills`, `AskQuestion`, `/add-plugin`) stay as upstream wrote them. DinkusKit still proves with repo `FEATURE_MAP.md` plus `bin/verify-*`.
+## Existing discovery
 
-## Installation on SmOmarchy / ChatGPT App
+Root `skills/<name>` symlinks continue to target `pstack/skills/<name>` for
+SaariusSkills discovery. The separate plugin at `pstack/.codex-plugin/plugin.json`
+continues to discover `./skills/`. Keep both paths intact. Installed copies
+are separate deployment instances; this source update does not refresh them.
 
-1. In ChatGPT / Codex desktop app on SmOmarchy:
-   - Point your plugin directory to `/path/to/SaariusSkills/pstack` (or install via `.codex-plugin/plugin.json`).
-2. Skills will be automatically registered and namespaced for your sessions.
+For an existing OpenClaw profile that explicitly loads this package, preserve
+its configured root and allowed symlink target. Do not copy these skills into
+Skill Workshop or change gateway configuration as part of an upstream refresh.
