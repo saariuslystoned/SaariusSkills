@@ -73,10 +73,17 @@ the experiment only; it does not block independent product delivery. Runtime
 source awaiting review or merge is not a readiness signal.
 
 Editable guardrails, scripts, skills, prompts, and plugins are experiment
-surfaces, not a place to replace immutable repository policy. They must not
-contain mandatory repository policies, safety or authority rules, acceptance
-criteria, or installed files. Keep those boundaries in the frozen packet and
-the repository's authoritative sources.
+surfaces, not a place to replace immutable repository policy. Preserve
+immutable sections and do not modify or override them. Keep mandatory
+repository policies, safety or authority rules, acceptance criteria, and
+installed-file boundaries in the frozen packet and the repository's
+authoritative sources.
+
+An inline Harness² experiment still requires a qualified runtime and the full
+bounded loop; an inline patch under a heading such as "inline harness fix" is
+not by itself a Harness² run. An ordinary authorized task repair may proceed
+separately when needed and must not be represented as Harness² evidence.
+Optional refinement work does not make that ordinary repair wait.
 
 ## Evaluate and record
 
@@ -88,7 +95,11 @@ preference, the original/candidate mapping, or raw transcripts. Ask only for
 criteria that compare the supplied evidence and do not reveal which label is
 the original. Keep the A/B mapping outside the judge input and translate the
 returned decision to `original-better` or `candidate-better` only in the
-record. Preserve unavailable provenance and label manual fallbacks as manual.
+record. Preserve unavailable provenance and label an independent manual
+fallback as manual. Jev is not a new delivery gate: when it is unavailable,
+the same fixed criteria may be applied by an explicitly labeled independent
+manual evaluation. Without comparative evidence, the result remains
+`inconclusive`.
 Jev cannot clear a hard failure or grant action authority. Honor service
 authorization, cost, and data bounds. JevSweeper is only for published review
 leftovers and is not this evaluator.

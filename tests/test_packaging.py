@@ -64,6 +64,12 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("## Experiment", contract)
         self.assertIn("## Result", contract)
         self.assertIn("`candidate-better`", contract)
+        self.assertIn("Preserve\nimmutable sections", skill)
+        self.assertIn("minimal\nauthorized routing IDs", contract)
+        self.assertIn("unfiltered transcripts", contract)
+        self.assertIn("Jev is not a new delivery gate", skill)
+        self.assertIn("independent manual evaluation", contract)
+        self.assertIn("not by itself a Harness² run", skill)
         self.assertIn("allow_implicit_invocation: true", metadata)
         self.assertIn("$harness2", metadata)
         self.assertEqual(
