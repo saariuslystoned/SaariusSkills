@@ -13,13 +13,18 @@ journeys plan:
 | [Full catalog](tests/full-catalog.spec.mjs) | `@running` | The store carries a catalog as big as a real shop's (3 categories of 8 products unless set otherwise), each product with its own price, weight, photo and page: the owner adds what's missing, the Shop list, every category page and every product page show the whole catalog, and the owner can still save a product with all of it in place |
 | [Mark as completed](tests/mark-completed.spec.mjs) | `@running` | The owner marks a paid TEST order completed in Commerce Orders, typing a carrier and tracking number, and an agent completes another through Commerce's orders API, sending neither; both end Completed |
 | [Problems](tests/problems.spec.mjs) | `@running` | A shopper's checkout going wrong: Stripe turns down a declined card, a card without enough funds and a card that fails the bank's security check, each with a clear message and no order; the shopper leaves Stripe for the cart, finds the way back to the same checkout and pays once with the test card, and the owner completes that one order |
+| [Buy a label in the store admin](tests/store-admin-label.spec.mjs) | `@next` | The owner ships a paid Stripe TEST order from the store admin's Shipping page, which the Ship plugin draws from hosted Ship: See prices, Buy label at the quoted price and Print label, then, once Commerce has completed the order, Print label again and Cancel label, with the order staying Completed |
 
 `npm test` runs every `@running` journey. A new journey starts as `@next` and
 moves to `@running` once it has passed on the test store. Manage products needs
 a Commerce release that can rename and archive a product, and Full catalog one
 whose product screens cope with a full catalog (0.3.0-beta.4 or later); on an
 older Commerce, Manage products stops before adding anything and Full catalog
-adds nothing, each saying why.
+adds nothing, each saying why. Buy a label in the store admin stays `@next` until
+the Ship plugin is live: hosted Ship and DinkusKit.com deployed with the plugin's
+admin access, and a dinkus-ship-beta release with ship#45 installed on the beta
+store with its Store ID and store key. It must pass there before the Ship
+plugin's first final release.
 
 It runs in a visible Chrome window with its own saved profile
 (`~/.dinkus-e2e/profile`), so sign-ins carry over between runs. DinkusKit.com
@@ -96,7 +101,7 @@ for long: a step whose page stops answering fails within a minute or two.
 ```sh
 npm ci
 npm test                      # every @running journey; Buy and ship goes from checkout to Completed
-npm run journey -- storefront # one journey, by its file name (storefront, cart, manage-products, full-catalog, mark-completed, problems, buy-and-ship)
+npm run journey -- storefront # one journey, by its file name (storefront, cart, manage-products, full-catalog, mark-completed, problems, buy-and-ship, store-admin-label)
 npm run finish                # Buy and ship from an existing order (DINKUS_E2E_ORDER=1001, or the only unfinished TEST order)
 npm run unit                  # the runner's own offline checks
 npm run update-store          # beta.sm0ky.dev only: update its DinkusKit beta plugins to the newest betas
@@ -172,6 +177,25 @@ instead. On a store whose cart offers no way back to an open checkout
 checkout's own Stripe page, as Buy and ship does with a checkout an earlier run
 left open.
 
+Buy a label in the store admin places one Stripe TEST order the way Buy and ship
+does, paying once with the test card, and buys one Pitney Bowes sandbox label
+for it on the store admin's Shipping page, which charges nothing. Commerce
+completes the order with the label's tracking number, and the journey cancels
+the label at the end, so the run leaves the order Completed and its label
+cancelled, listed under Earlier labels. When a step before Cancel label stops
+the journey, the label stays bought: it's a sandbox label, so nothing was
+charged, and Commerce still completes the order with it. It needs the Ship
+plugin installed and connected (the store's Store ID and store key in its
+settings) and TEST sandbox labels on in Ship's Settings. It finds the Shipping
+page in the admin's menu; when the menu has more than one, set
+`DINKUS_E2E_SHIPPING_ADMIN`. While it is `@next`, it runs on the beta store when
+its name is typed in the journeys box of **Run workflow** (see "Run on GitHub").
+Print label's link shows the label to anyone who has it, for five minutes, so
+the test reads it with its own fetch and writes it in no note or error. For the
+same reason this journey keeps no Playwright trace, and it leaves a blank page
+behind it, so Playwright's notes on a failure can't show the link either; its
+step screenshots and notes are its proof.
+
 The machine's settings come from `~/.dinkus-e2e/env`; see
 [setup](../references/setup.md).
 
@@ -237,6 +261,7 @@ the environment, which wins.
 | `DINKUS_E2E_COMPLETE_WAIT_SECONDS` | `420` | How long to wait for Commerce's background check |
 | `DINKUS_E2E_ORDERS_ADMIN` | the Registry Commerce plugin's Orders page | Commerce Orders in the store admin |
 | `DINKUS_E2E_PRODUCTS_ADMIN` | the Products page beside `DINKUS_E2E_ORDERS_ADMIN` | Commerce Products in the store admin, for Manage products and Full catalog |
+| `DINKUS_E2E_SHIPPING_ADMIN` | the admin menu's Shipping page | The Ship plugin's Shipping page in the store admin, for Buy a label in the store admin |
 | `DINKUS_E2E_CATALOG` | `3x8` | For Full catalog, the standing catalog's size as categories x products per category, from `1x1` to `4x50` |
 | `DINKUS_E2E_ORDERS_TO_COMPLETE` | new orders | For Mark as completed, one or two different Processing TEST orders for the owner and then the agent to complete (`1003,1004`) instead of placing new ones. Anything else stops the journey before it places or completes an order |
 | `DINKUS_E2E_ADMIN_SIGNIN` | `skip` | `wait` lets a person sign in to the store admin |
@@ -382,6 +407,31 @@ If Stripe takes a payment from a card it should turn down, that card's step
 fails, the other cards and both cart steps are skipped, and "Commerce records the
 payment Stripe took" checks that order in place of paying again.
 
+### Buy a label in the store admin
+
+The steps that open the Shipping page, place and list the order, see prices,
+buy the label, wait for Commerce to complete the order and cancel the label stop
+the journey when they fail, since what follows needs them; the other steps are
+soft. The Ship plugin draws the Shipping page from hosted Ship's answer on every
+press, so the journey tests the plugin and hosted Ship together. Since it may wait
+up to `DINKUS_E2E_COMPLETE_WAIT_SECONDS` twice, it gets twice that on top of the
+30 minutes every journey has.
+
+| Step | What it proves |
+| --- | --- |
+| The Shipping page lists Ship's orders in the store admin | The store admin's menu has one Shipping page (or `DINKUS_E2E_SHIPPING_ADMIN`), and it opens on Ship's list of orders, the only page with a Refresh button, rather than on why it can't use Ship: no pass from DinkusKit.com, Ship out of reach, settings to fix, or a sign-in that isn't an Editor or Administrator. The proof notes the Ship plugin and its version. When it doesn't, the journey stops here |
+| A shopper places a Stripe TEST order | As in Buy and ship, a shopper pays for a physical product with the test card and Commerce records the payment |
+| Commerce Orders lists the order as Processing | Commerce Orders lists the order, TEST and Processing; opening it also sends Ship the paid orders it doesn't have yet |
+| The Shipping page lists the order with no label | The Shipping list shows "#N (TEST)" with "No label" (opening the Shipping page again every 15 seconds, for up to `DINKUS_E2E_COMPLETE_WAIT_SECONDS`), and Open shows the order's page |
+| The order's page offers a free sandbox label for the package's weight | The order's page says it's a TEST order, shows Ship to, Items, the items' weight and "No label", offers a free Pitney Bowes sandbox label as the label kind, and fills in the weight as the items' weight plus the chosen box's empty weight. When Ship's Settings turn TEST sandbox labels off, Ship offers a practice label and this step fails |
+| See prices quotes USPS services for the package | The browser accepts the filled-in weight, See prices fills the Service list with Ship's prices, and one is for the service `DINKUS_E2E_SERVICE` names (Ground Advantage unless set). Before ship#45 the browser took only weights ending in .1 (1.1, 2.1 and so on), so with a weight such as 4 oz See prices did nothing |
+| Buy label buys the sandbox label at the quoted price | Buy label says "Label bought, $X.XX sandbox. Tracking ..." at the quoted price, and the order's page shows the label's service, its tracking number marked "test, not trackable", its postage as "sandbox price, nothing charged" and Status "Label bought" |
+| Print label opens the label's PDF from Ship | Print label opens Ship's print link in a new tab, and the link answers with the label's PDF, waiting up to two minutes while Ship fetches it from Pitney Bowes. Its first page draws as a picture of the label, shown in the browser for the step's screenshot |
+| Opening Commerce Orders collects the label and completes the order | Commerce Orders shows the order Completed with carrier USPS and the label's tracking number, opened every 30 seconds for up to `DINKUS_E2E_COMPLETE_WAIT_SECONDS` |
+| Print label still opens the same PDF once the order is Completed | With the order Completed, the Shipping list still shows "Label bought", the order's page still shows the label, and Print label opens the same PDF as before (the same SHA-256). Before ship#45 the Shipping page lost the label once Commerce completed the order, so it couldn't be printed or cancelled |
+| Cancel label voids the sandbox label and the order stays Completed | Cancel label first asks, saying the sandbox label is voided with Pitney Bowes and the order stays as it is in Commerce. After the confirm the page says exactly "Label cancelled.", promising no refund for postage nobody paid, shows no live label and Status "Label cancelled", says the order is Completed in Commerce, and lists the label under Earlier labels as cancelled |
+| Shipping lists the order as Label cancelled and Commerce keeps it Completed | The Shipping list shows "Label cancelled", and Commerce Orders still shows the order Completed with the label's carrier and tracking number |
+
 ## Proof
 
 A journey's verdict is PASS only when every step passed or was skipped for a
@@ -395,7 +445,9 @@ Each run writes `~/.dinkus-e2e/proof/<run>/`: `PROOF.md` and `report.json` (each
 journey's verdict, the result and detail of every step, the order, tracking
 number and PDF hash, and the plugins and versions the store ran, read from its
 admin), a screenshot per step, `label.pdf` and its rendered first-page picture
-`label.pdf.png`. With `DINKUS_E2E_VIDEO=1` it also keeps a `.webm` video of each
+`label.pdf.png`. Buy a label in the store admin saves its label as
+`store-admin-label.pdf` with its picture, and the copy it printed once the order
+was Completed as `store-admin-label-completed.pdf`. With `DINKUS_E2E_VIDEO=1` it also keeps a `.webm` video of each
 browser window under `video/`. The saved profile's window stays open for the
 whole run, so for one video per journey, run the journeys one at a time
 (`npm run journey -- cart`). The test hides the code it types

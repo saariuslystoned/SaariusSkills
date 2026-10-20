@@ -225,9 +225,12 @@ class PackagingTests(unittest.TestCase):
         for name in ("package.json", "package-lock.json", "playwright.config.mjs"):
             self.assertTrue((runner / name).is_file(), name)
         for name in ("buy-and-ship.spec.mjs", "storefront.spec.mjs", "cart.spec.mjs", "manage-products.spec.mjs",
-                     "mark-completed.spec.mjs", "problems.spec.mjs"):
+                     "full-catalog.spec.mjs", "mark-completed.spec.mjs", "problems.spec.mjs", "store-admin-label.spec.mjs"):
             self.assertTrue((runner / "tests" / name).is_file(), name)
+        for name in ("shipping-admin.mjs", "shipping-text.mjs"):
+            self.assertTrue((runner / "support" / name).is_file(), name)
         self.assertIn("Never pay twice", skill)
+        self.assertIn("Never record Ship's print link", skill)
         self.assertIn("4242 4242 4242 4242", skill)
         # The test inbox is read, never written, and no machine's inbox or store is built in.
         self.assertIn("gog --readonly --gmail-no-send", mail)
