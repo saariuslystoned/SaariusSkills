@@ -4,7 +4,7 @@ Status: LOCAL_REVIEW_READY. Publication waits for coordinator privacy review.
 
 ## Changes
 
-Eight stable skill IDs now have portable behavior, local references and optional repository bindings: skill audit, observable behavior validation, CLI design, isolated worktrees, private session viewing, Codex coordination, portfolio maintenance and selected-batch sweeps. No fleet, account, business-priority or fixed-model configuration is required by these public cores. Binding notes and source inspection evidence are stored outside this repository and are not part of this commit.
+Eight stable skill IDs now have portable behavior, local references and optional repository bindings: skill audit, observable behavior validation, CLI design, isolated worktrees, private session viewing, Codex coordination, portfolio maintenance and selected-batch sweeps. No fleet, account, business-priority or fixed-model configuration is required by these public cores. Each core defers to a configured profile-specific installed variant or optional binding before execution, without inventing or searching for one. Separate installed variants are not treated as merged policy. Binding notes and source inspection evidence are stored outside this repository and are not part of this commit.
 
 The main Codex and Claude plugin manifests are version 0.7.0; Cursor explicitly lists all eight skills. A separate opt-in marketplace entry resolves the existing PStack plugin at its unchanged source path and version. PStack/custom sources and EmDash/vendor files are unchanged.
 

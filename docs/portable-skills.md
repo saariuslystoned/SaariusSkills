@@ -19,6 +19,9 @@ choices, capacity, model preferences and review policy. Read that binding only
 when the task uses the repository; its existence grants no new permission.
 Keep operational facts in the owning repository, not in another copy of the
 public skill. Installation does not create or update any binding.
+Treat separately listed installed variants as separate packages, not merged
+policies. Read the configured profile-specific variant before the unbound core;
+skip a repeated load when that profile is already active.
 
 The two Python helpers use the standard library. Audit defaults are read-only;
 the session viewer reads a named input and writes only its requested local

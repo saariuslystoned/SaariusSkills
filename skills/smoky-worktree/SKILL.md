@@ -5,7 +5,7 @@ description: Prepare or verify an isolated Git worktree from a fresh trusted bas
 
 # Worktree Setup
 
-Read the current request and trusted repository instructions first. If they name an optional binding for this skill, read it for local targets, tools and policy. Without a binding, use the portable workflow below. A binding does not grant authority to act.
+Read the current request and trusted repository instructions first. Before applying this core, check those instructions and available skill metadata for a configured operator or repository profile. If they identify a profile-specific installed variant of this skill or an optional binding, read it first unless already loaded. Do not use an unbound core to bypass that profile, invent a binding, or search unrelated files. With no configured profile, use the portable workflow below. A profile or binding does not grant authority to act.
 
 Read `references/worktree-policy.md` before choosing a base or creating a checkout. Identify the repository, current branch, dirty state and assigned source revision. Preserve existing operator checkouts and other tasks' work.
 

@@ -1,2 +1,3 @@
 {"time": "2026-10-20T18:54:42.310561+00:00", "event": "private source snapshot collected for eight assigned skills; excluded from public commit"}
 {"time": "2026-10-20T18:57:50.968552+00:00", "event": "portable core and sanitized proof ready for local commit; coordinator privacy review precedes publication"}
+{"time": "2026-10-20T19:00:32.477291+00:00", "event": "added portable configured-profile precedence after coordinator privacy review; installed selection proof remains separate"}

@@ -5,7 +5,7 @@ description: Design or review command trees, arguments, output formats, exit cod
 
 # CLI Design
 
-Read the current request and trusted repository instructions first. If they name an optional binding for this skill, read it for local targets, tools and policy. Without a binding, use the portable workflow below. A binding does not grant authority to act.
+Read the current request and trusted repository instructions first. Before applying this core, check those instructions and available skill metadata for a configured operator or repository profile. If they identify a profile-specific installed variant of this skill or an optional binding, read it first unless already loaded. Do not use an unbound core to bypass that profile, invent a binding, or search unrelated files. With no configured profile, use the portable workflow below. A profile or binding does not grant authority to act.
 
 Read `references/cli-contract.md`, then inspect the existing command parser and caller conventions. Preserve the repository's established interface where it already works.
 

@@ -5,7 +5,7 @@ description: Audit explicit skill directories for metadata, duplicate names, mis
 
 # Skill Auditor
 
-Read the current request and trusted repository instructions first. If they name an optional binding for this skill, read it for local targets, tools and policy. Without a binding, use the portable workflow below. A binding does not grant authority to act.
+Read the current request and trusted repository instructions first. Before applying this core, check those instructions and available skill metadata for a configured operator or repository profile. If they identify a profile-specific installed variant of this skill or an optional binding, read it first unless already loaded. Do not use an unbound core to bypass that profile, invent a binding, or search unrelated files. With no configured profile, use the portable workflow below. A profile or binding does not grant authority to act.
 
 Read `references/audit-policy.md` for the checks and their limits. Run the repository's existing validator when available, then run this helper against an explicit skill root:
 

@@ -7,7 +7,7 @@
       "references/audit-policy.md"
     ],
     "description_length": 188,
-    "body_words": 197
+    "body_words": 238
   },
   {
     "directory": "smoky-behavior-validator",
@@ -18,7 +18,7 @@
       "references/report-schema.md"
     ],
     "description_length": 162,
-    "body_words": 206
+    "body_words": 247
   },
   {
     "directory": "smoky-cli-creator",
@@ -28,7 +28,7 @@
       "references/cli-contract.md"
     ],
     "description_length": 162,
-    "body_words": 204
+    "body_words": 245
   },
   {
     "directory": "smoky-worktree",
@@ -38,7 +38,7 @@
       "references/worktree-policy.md"
     ],
     "description_length": 167,
-    "body_words": 206
+    "body_words": 247
   },
   {
     "directory": "smoky-session-viewer",
@@ -48,7 +48,7 @@
       "references/session-policy.md"
     ],
     "description_length": 179,
-    "body_words": 224
+    "body_words": 265
   },
   {
     "directory": "smoky-codex-coordinator",
@@ -56,7 +56,7 @@
     "issues": [],
     "references": [],
     "description_length": 196,
-    "body_words": 415
+    "body_words": 456
   },
   {
     "directory": "smoky-maintainer",
@@ -66,7 +66,7 @@
       "references/portfolio-loop.md"
     ],
     "description_length": 177,
-    "body_words": 255
+    "body_words": 296
   },
   {
     "directory": "smoky-portfolio-sweep",
@@ -76,6 +76,6 @@
       "references/sweep-protocol.md"
     ],
     "description_length": 169,
-    "body_words": 227
+    "body_words": 268
   }
 ]
