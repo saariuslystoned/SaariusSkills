@@ -197,6 +197,17 @@ for protocol frames. They never perform a network install during MCP
 initialization. Unset `SAARIUS_ACP_HOP_ARGV` is Local or Always-on. Set
 hop is Hop.
 
+## Send to cua
+
+Bobby's cua is the Codex app's Computer Use on his MacBook. The
+[`send-to-cua`](skills/send-to-cua/SKILL.md) skill writes a computer-use
+prompt the way the 20+ hand-copied prompts before it worked best (one target,
+STOP rules, numbered steps, a report table) and opens it in Codex for him:
+`scripts/send-to-cua.sh <prompt-file>` attaches Computer Use, opens
+`codex://new` with the prompt typed in, and asks the cua to save its report to
+`~/.cua/reports/` and the clipboard. Bobby presses Enter to start it. Cloud
+threads run the same script on his Mac through a Remote Control session.
+
 ## PhoneProof
 
 PhoneProof closes the gap between a green mobile build and the UI a human

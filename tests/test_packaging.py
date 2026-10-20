@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import unittest
 from pathlib import Path
 
@@ -14,6 +15,7 @@ GROK_SKILL = ROOT / "skills" / "grok-acp-delegation"
 MUSE_SKILL = ROOT / "skills" / "muse-acp-delegation"
 JEVSWEEPER_SKILL = ROOT / "skills" / "jevsweeper"
 DINKUSKIT_LIVE_TEST_SKILL = ROOT / "skills" / "dinkuskit-live-test"
+SEND_TO_CUA_SKILL = ROOT / "skills" / "send-to-cua"
 
 
 class PackagingTests(unittest.TestCase):
@@ -488,6 +490,32 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("headRefOid", coordinator)
         self.assertIn("needs-evidence", scenarios)
         self.assertNotIn("- `repair` if any leftover item is repair.", rubric)
+
+    def test_send_to_cua_is_packaged(self) -> None:
+        skill = (SEND_TO_CUA_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (SEND_TO_CUA_SKILL / "agents" / "openai.yaml").read_text(
+            encoding="utf-8"
+        )
+        pattern = (SEND_TO_CUA_SKILL / "references" / "prompt-pattern.md").read_text(
+            encoding="utf-8"
+        )
+        script_path = SEND_TO_CUA_SKILL / "scripts" / "send-to-cua.sh"
+        script = script_path.read_text(encoding="utf-8")
+        cursor = json.loads(
+            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertLessEqual(len(skill.splitlines()), 500)
+        self.assertIn("name: send-to-cua", skill)
+        self.assertIn("references/prompt-pattern.md", skill)
+        self.assertIn("start_rc_session", skill)
+        self.assertIn("$send-to-cua", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("STOP", pattern)
+        self.assertIn("plugin://computer-use@openai-bundled", script)
+        self.assertIn("codex://new?prompt=", script)
+        self.assertNotIn("shell=True", script)
+        self.assertTrue(os.access(script_path, os.X_OK))
+        self.assertIn("./skills/send-to-cua/", cursor["skills"])
 
 
 if __name__ == "__main__":

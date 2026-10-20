@@ -1,0 +1,6 @@
+interface:
+  display_name: "Send to CUA"
+  short_description: "Write a computer-use prompt and open it in Codex on the Mac"
+  default_prompt: "Use $send-to-cua to write the computer-use prompt for these steps and open it in Codex with Computer Use on my Mac."
+policy:
+  allow_implicit_invocation: true

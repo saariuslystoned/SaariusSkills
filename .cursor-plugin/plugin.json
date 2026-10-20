@@ -24,6 +24,7 @@
     "./skills/phone-proof/",
     "./skills/pstack-playbooks/",
     "./skills/reflect/",
+    "./skills/send-to-cua/",
     "./skills/tdd/",
     "./skills/unslop/",
     "./skills/upgrading-emdash/",
