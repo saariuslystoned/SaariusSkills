@@ -1,0 +1,8 @@
+Skill is valid!
+PASS: the only operational SmokySkills fallback is pinned to ad244204a2a6331b9b58f2aad2f36d4a2bfa57d9.
+PASS: pinned review skill and its native-queue reference exist at that exact local commit.
+PASS: no mutable-main operational fallback remains in JevSweeper SKILL.md.
+PASS: 18 local Markdown links resolve.
+PASS: git diff --check.
+PASS: original 157-test evidence is unchanged from ab1f07f368c258653ba6d9d95b71303fd8952378.
+PASS: only the reviewed skill entrypoint and assigned proof files changed.

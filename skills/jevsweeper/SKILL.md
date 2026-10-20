@@ -22,10 +22,11 @@ or queue `completed` state does not prove a published verdict or successful
 executor.
 
 For admission, publication, retries, waits, and dependency reconciliation,
-follow the exact target contract or the readable canonical
-[smoky-openclaw-autoreview contract](https://github.com/saari-co/SmokySkills/blob/main/skills/smoky-openclaw-autoreview/SKILL.md),
-including its conditional native-queue reference when applicable. An optional
-skill installation is not a prerequisite when that contract is supplied.
+follow the exact target contract or the
+[smoky-openclaw-autoreview contract pinned at ad244204](https://github.com/saari-co/SmokySkills/blob/ad244204a2a6331b9b58f2aad2f36d4a2bfa57d9/skills/smoky-openclaw-autoreview/SKILL.md),
+including its conditional native-queue reference when applicable. Refresh this
+pinned dependency only with a reviewed update. An optional skill installation
+is not a prerequisite when that contract is supplied.
 JevSweeper does not dispatch or retry reviews. Follow
 [grilltrack](../grilltrack/SKILL.md) for shop-owner Q1. Do not merge.
 

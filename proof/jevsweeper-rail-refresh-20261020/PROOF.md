@@ -23,12 +23,31 @@ queue behavior, live review success, or Jev inference quality.
 - YAML frontmatter also passed the existing Ruby stdlib parser and field
   checks; [log](frontmatter-validation.log).
 - Local Markdown links: 17 resolved; [log](local-links.log).
-- Full Python suite, including existing packaging checks:
+- Original implementation's full Python suite, including existing packaging checks:
   `python3 -m unittest discover -s tests -v` passed all 157 tests in 152.372
-  seconds in one run; [log](python-tests.log).
+  seconds in one run at `ab1f07f368c258653ba6d9d95b71303fd8952378`;
+  [preserved log](python-tests.log).
 - Diff whitespace and assigned-scope checks: passed;
   [log](scope-check.log). Packaging manifests, test implementation, and PStack
   files are unchanged.
+
+## Review repair: pin the operational dependency
+
+- Review: comprehensive OpenClaw request
+  `req-20261020T134758Z-215397226633` on
+  `ab1f07f368c258653ba6d9d95b71303fd8952378`.
+- Finding: P2 at `skills/jevsweeper/SKILL.md:23`; the operational fallback
+  followed mutable `main`, while the evaluated dependency was SmokySkills
+  `ad244204a2a6331b9b58f2aad2f36d4a2bfa57d9`.
+- Disposition: `required_fix`, accepted. Pin that fallback to the exact
+  reviewed revision and explicitly require a reviewed dependency refresh.
+  The target contract still takes precedence; no runbook was copied.
+- Validation: canonical quick skill validation, exact pinned source and native
+  reference existence, local Markdown links, whitespace, and scoped diff;
+  [repair log](review-repair-validation.log). The original 157-test log remains
+  unchanged; no full-suite rerun was needed for this Markdown-only repair.
+- Handoff: the dependency remains [SmokySkills PR #33](https://github.com/saari-co/SmokySkills/pull/33)
+  at the same exact head. No push, review trigger, or merge by this worker.
 
 ## Source review
 
