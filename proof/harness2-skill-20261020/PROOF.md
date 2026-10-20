@@ -1,7 +1,7 @@
 # Harness² skill clarification proof
 
-Status: bounded clarification pass complete; no final forward retest is
-claimed.
+Status: clarification and targeted forward recheck complete. This is skill
+routing evidence; it does not establish product-performance improvement.
 
 ## Preserved first attempt
 
@@ -12,9 +12,9 @@ handled six of eight scenarios cleanly:
   `vague_optimization`, `higher_judge_failed_check`, `judge_unavailable`;
 - clarification required: `handoff_repeat`, `blocked_protocol`.
 
-The first-attempt private cases, responses, and parent assessment remain
-preserved outside this repository. This public record contains no private
-filesystem paths, secrets, host identifiers, or unfiltered transcripts.
+Complete private execution records remain outside this repository. Curated
+case inputs and resulting decisions are included here for inspection, without
+private filesystem paths, secrets, host identifiers, or unfiltered transcripts.
 
 ## Clarifications applied
 
