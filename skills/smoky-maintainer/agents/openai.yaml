@@ -1,0 +1,4 @@
+interface:
+  display_name: "Portfolio Maintainer"
+  short_description: "Prepare repository priorities and owner decisions."
+  default_prompt: "Use $smoky-maintainer for the current bounded task, following repository instructions and any optional local binding."

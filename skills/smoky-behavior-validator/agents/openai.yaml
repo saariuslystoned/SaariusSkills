@@ -1,0 +1,4 @@
+interface:
+  display_name: "Behavior Validator"
+  short_description: "Verify behavior through observable evidence."
+  default_prompt: "Use $smoky-behavior-validator for the current bounded task, following repository instructions and any optional local binding."

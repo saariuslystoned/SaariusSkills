@@ -13,6 +13,14 @@ in the separate [`ai-shed`](https://github.com/saari-co/ai-shed) plugin; install
 both to delegate over ACP to Cursor, Antigravity, Grok, or Muse. This plugin
 must not also bundle those servers.
 
+## Portable maintenance and proof
+
+Eight stable skill IDs now cover skill audits, observable behavior proof, CLI
+design, worktree setup, private transcript viewing, Codex coordination, portfolio
+maintenance and bounded issue/PR sweeps. They work without a private repository
+or service. [Portable skill boundaries](docs/portable-skills.md) explain optional
+repo-owned bindings and the local-only Python helpers.
+
 ## EmDash sites and plugins
 
 [EmDash Sites](skills/emdash-sites/SKILL.md) adds implementation and verification

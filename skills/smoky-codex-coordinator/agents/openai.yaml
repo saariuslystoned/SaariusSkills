@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Coordinator"
+  short_description: "Coordinate bounded work with clear ownership."
+  default_prompt: "Use $smoky-codex-coordinator for the current bounded task, following repository instructions and any optional local binding."

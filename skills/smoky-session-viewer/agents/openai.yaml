@@ -1,0 +1,4 @@
+interface:
+  display_name: "Private Session Viewer"
+  short_description: "Render selected transcripts as private local HTML."
+  default_prompt: "Use $smoky-session-viewer for the current bounded task, following repository instructions and any optional local binding."
