@@ -280,7 +280,7 @@ Without a mail command, the test waits for a person to sign in in the window.
 | --- | --- |
 | Place a Stripe TEST order on the store | A shopper can add a physical product to the cart and pay on Stripe's hosted Checkout with the test card |
 | The thank-you page confirms the order and empties the cart | After Stripe sends the shopper back, the store's own page shows the confirmed order (pressing "Check status again" while it says pending, as a shopper would) and the header cart is empty. Recorded before the test asks Commerce itself, so the page gets no help |
-| Commerce Orders shows the paid TEST order | Commerce recorded the order as TEST, provider-paid and Processing. Orders lists its orders by order ID, 25 to a page, so the test finds this checkout's order by its order ID on whichever page it is, as Mark as completed does |
+| Commerce Orders shows the paid TEST order | Commerce recorded the order as TEST, provider-paid and Processing. Orders lists its orders by order ID, 25 to a page, so the test finds this checkout's order by its order ID on whichever page it is, as Mark as completed does. Skipped when Commerce's checkout status names no order; Ship's only unfinished TEST order then stands in |
 | Ship has the order | Commerce sent the order to Ship |
 | Make the Pitney Bowes sandbox label | Ship quotes sandbox prices and buys a sandbox label. The test works on Ship's own page for the order (`?view=full`), since once the store's Ship plugin has called Ship, the order's plain address goes on to the store admin's Shipping page |
 | Label is a TEST SANDBOX label with a tracking number | The label is a sandbox label, not a practice one, and carries a tracking number |
@@ -288,7 +288,7 @@ Without a mail command, the test waits for a person to sign in in the window.
 | Commerce's 5-minute check collects the label | Commerce's background check collects the label without anyone opening the store admin |
 | Opening Commerce Orders collects the label | Runs only when the check above didn't: an owner opening Commerce Orders collects it |
 | Commerce marks the order Completed with the same tracking | Ship shows Commerce completed the order with the label's tracking number |
-| Commerce Orders shows Completed in the store admin | The store admin agrees, with carrier and tracking |
+| Commerce Orders shows Completed in the store admin | The store admin agrees: the order's page shows it Completed with carrier USPS and the label's tracking number |
 
 ### Storefront
 

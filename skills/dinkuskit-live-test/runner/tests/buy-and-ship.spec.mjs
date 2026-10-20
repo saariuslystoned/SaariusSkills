@@ -8,7 +8,7 @@ import { note, record } from "../support/proof.mjs";
 import { journey, step } from "../support/steps.mjs";
 import { openShip, openStoreAdmin } from "../support/signin.mjs";
 import { placeTestOrder } from "../support/checkout.mjs";
-import { numberOf, openOrder } from "../support/orders-admin.mjs";
+import { completionProblems, numberOf, openOrder, orderShown, ordersListed } from "../support/orders-admin.mjs";
 import { thankYouShown } from "../support/checkout-text.mjs";
 import { describePlugins } from "../support/store-plugins.mjs";
 
@@ -58,12 +58,18 @@ function chooseOrder(rows, wanted) {
 }
 
 /**
- * Opens order #number in Commerce Orders and returns its page's text. Orders lists its orders by order
- * ID, 25 to a page, so a run's order can be on any page; openOrder pages to it.
+ * Ship's own page for an order. Once the store's Ship plugin has called Ship, the order's plain
+ * address goes on to the store admin's Shipping page; ?view=full keeps Ship's page.
  */
-async function orderText(page, number) {
-  await openOrder(page, number);
-  return page.locator("main").innerText();
+function shipOrderPage(href) {
+  const url = new URL(href, config.ship);
+  url.searchParams.set("view", "full");
+  return url.href;
+}
+
+/** Presses one of the buttons on Ship's order page and waits for the page Ship answers with. */
+async function press(page, name) {
+  await Promise.all([page.waitForEvent("load", { timeout: 90_000 }), page.getByRole("button", { name }).click()]);
 }
 
 /** The first label row on Ship's order page. */
@@ -100,14 +106,17 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
     await step(page, "The thank-you page confirms the order and empties the cart", async () => thankYouShown(placed.thankYou), { soft: true });
     if (!await openOrdersAdmin(page)) {
       record("Commerce Orders shows the paid TEST order", "SKIP", "the saved profile has no store admin sign-in yet; Commerce's background check sends the order to Ship");
+    } else if (!placed.orderId) {
+      record("Commerce Orders shows the paid TEST order", "SKIP", "Commerce's checkout status named no order to look for; Ship's only unfinished TEST order stands in");
     } else await step(page, "Commerce Orders shows the paid TEST order", async () => {
-      // Orders numbers orders as they are paid; this checkout's is among the newest Processing ones.
-      const number = placed.number ?? await numberOf(page, placed.orderId, "Processing");
-      const text = await orderText(page, number);
+      // Orders numbers orders as they are paid and lists them by order ID, 25 to a page. numberOf finds
+      // this checkout's among the newest Processing ones on any page and leaves its page open.
+      const number = await numberOf(page, placed.orderId, "Processing");
+      const shown = await orderShown(page);
       orderName = String(number);
-      if (placed.orderId) expect(text, `order #${number} should be this checkout's order`).toContain(placed.orderId);
-      expect(text).toMatch(/Status:\s*Processing/);
-      expect(text).toMatch(/Payment:\s*Provider-paid/);
+      expect(shown.test, `order #${number} should be a TEST order`).toBe(true);
+      expect(shown.status).toBe("Processing");
+      expect(await page.locator("main").innerText()).toMatch(/Payment:\s*Provider-paid/);
       return `#${orderName} is TEST, provider-paid and Processing; opening Orders also sends it to Ship`;
     });
   } else {
@@ -123,7 +132,7 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
       try {
         const chosen = chooseOrder(await shipOrders(page), orderName);
         note("order", chosen.name);
-        note("ship order page", config.ship + chosen.href);
+        note("ship order page", shipOrderPage(chosen.href));
         return chosen;
       } catch (error) {
         if (Date.now() >= deadline) throw error;
@@ -132,12 +141,9 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
     }
   });
   orderName = order.name.replace(/^#/, "");
-  // Ship's own page for the order. Once the store's Ship plugin has called Ship, the order's plain
-  // address goes on to the store admin's Shipping page; ?view=full keeps Ship's page.
-  const shipPage = new URL(order.href, config.ship);
-  shipPage.searchParams.set("view", "full");
+  const shipPage = shipOrderPage(order.href);
 
-  await page.goto(shipPage.href);
+  await page.goto(shipPage);
   const already = /This order is Completed in Commerce/.test(await page.locator("main").innerText());
   let label = await labelRow(page);
 
@@ -149,18 +155,17 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
       if (missing.test(text)) throw new Error(`Ship Settings is missing something: ${text.match(missing)[0]}.`);
     }
     await page.locator("#service").selectOption(config.service);
-    await page.getByRole("button", { name: "See prices" }).click();
-    await page.waitForLoadState("domcontentloaded");
+    await press(page, "See prices");
     const prices = await page.locator("#service option").allInnerTexts();
     note("sandbox prices", prices.join("; "));
     const error = page.locator("main p.error");
     if (await error.count()) throw new Error(`Prices: ${await error.innerText()}`);
     await page.locator("#service").selectOption(config.service);
-    await page.getByRole("button", { name: "Make sandbox label" }).click();
-    await page.waitForLoadState("domcontentloaded");
+    // Ship has answered once its page loads, so the purchase is over before the test moves on.
+    await press(page, "Make sandbox label");
     if (await error.count()) throw new Error(`Ship refused the label: ${await error.innerText()}`);
     // Read the label on Ship's own page, whichever page the purchase left the browser on.
-    await page.goto(shipPage.href);
+    await page.goto(shipPage);
     label = await labelRow(page);
     if (!label) throw new Error("Ship shows no label after making one.");
     return `${label.service}, ${label.postage}`;
@@ -196,7 +201,7 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
 
   // Ship's page says so once Commerce has marked the order Completed and told Ship.
   const completedOnShip = async () => {
-    await page.goto(shipPage.href);
+    await page.goto(shipPage);
     return (await page.locator("main").innerText()).match(/This order is Completed in Commerce(?: with tracking (\S+?))?\./);
   };
   let done = await completedOnShip();
@@ -222,7 +227,7 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
         throw new Error("The store admin needs a sign-in the test can't make: its Access app offers no one-time PIN and the saved profile has no sign-in.");
       }
       // Loading the Orders list is what asks Ship for new labels.
-      await expect(page.getByText(/#\d+ \(TEST\)/).first()).toBeVisible({ timeout: 60_000 });
+      await ordersListed(page);
       const deadline = Date.now() + 120_000;
       while (!(done = await completedOnShip()) && Date.now() < deadline) await page.waitForTimeout(15_000);
       if (!done) throw new Error("Ship still shows the order not Completed two minutes after Commerce Orders opened.");
@@ -242,10 +247,11 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
   if (!await openOrdersAdmin(page)) {
     record("Commerce Orders shows Completed in the store admin", "SKIP", "the saved profile has no store admin sign-in yet; Ship's page already shows Commerce completed the order");
   } else await step(page, "Commerce Orders shows Completed in the store admin", async () => {
-    const text = await orderText(page, orderName);
-    expect(text).toMatch(/Status:\s*Completed/);
-    const tracking = text.match(/Tracking number:\s*(\S+)/)?.[1];
-    if (label?.tracking) expect(tracking).toBe(label.tracking);
-    return `#${orderName} Completed in Commerce, carrier ${text.match(/Carrier:\s*(.+)/)?.[1]?.trim() ?? "not shown"}, tracking ${tracking ?? "not shown"}`;
+    const shown = await openOrder(page, orderName);
+    expect(shown.status).toBe("Completed");
+    // Commerce completes an order from Ship's label with the label's carrier and tracking number.
+    const problems = label ? completionProblems(shown, { carrier: "USPS", tracking: label.tracking }) : [];
+    if (problems.length) throw new Error(`#${orderName} is Completed, but ${problems.join(" and ")}.`);
+    return `#${orderName} Completed in Commerce, carrier ${shown.carrier ?? "not shown"}, tracking ${shown.tracking ?? "not shown"}`;
   });
 }));
