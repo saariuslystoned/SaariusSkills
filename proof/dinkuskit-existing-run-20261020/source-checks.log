@@ -1,0 +1,6 @@
+PASS: frontmatter, introductory contract, existing local-run steps, and all Rules remain byte-identical.
+PASS: runner, roster, workflow, metadata, and support references are unchanged.
+PASS: changes stay within the assigned skill entrypoint and proof directory; no mirror or other-file change is needed.
+PASS: 10 local links and their supplied anchors resolve.
+PASS: proof contains no private local paths.
+PASS: git diff --check.

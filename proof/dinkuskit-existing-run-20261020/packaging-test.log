@@ -1,0 +1,6 @@
+test_dinkuskit_live_test_is_packaged_and_reads_mail_only (tests.test_packaging.PackagingTests.test_dinkuskit_live_test_is_packaged_and_reads_mail_only) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+OK
