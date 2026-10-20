@@ -68,3 +68,25 @@ This is a narrow instruction correction. The 30 targeted packaging and
 portable-profile tests pass under Python 3.12.9, and `git diff --check` passes.
 No model-backed forward case was rerun; the prior forward-recheck results
 remain evidence for their recorded revision, not a claim about this edit.
+
+## Executor limits and manual-evaluation clarification
+
+Comprehensive review of `e18ab6d879268d1d6a5c4ddea598e93ef21678be`
+identified two accepted instruction gaps. The skill and packet now explicitly
+reject upstream unrestricted executor defaults on ordinary/private workspaces
+and require demonstrated effective filesystem/sandbox and egress limits with
+isolated task copies and inaccessible held-out material. AI Shed response-only
+event rejection is explicitly not isolation proof; unproven qualification
+blocks the experiment while independent product work continues.
+
+Source fidelity: pinned upstream `1cfe254e8d25b15f37048c3730134686abe60335`
+README, Web access section, states unrestricted network access and disabled
+Codex sandboxing; `harness2/substrate/codex.py` includes the approval/sandbox
+and hook-trust bypass flags. This clarification changes no runtime capability
+or readiness claim.
+
+Independent manual fallback now explicitly uses the same blinded, neutral A/B
+evidence and fixed criteria, excludes arm identity and optimizer preference,
+and maps the answer only in the record. All existing dedupe, budget, authority,
+and hard-check rules remain intact. The 30 targeted packaging/portable tests
+and diff check pass under Python 3.12.9. No new model experiment was run.

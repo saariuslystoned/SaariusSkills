@@ -28,8 +28,12 @@ public/hosted evidence should minimize private identifiers.
 - **Budget:** sequential `k=1`; four solver executions total
   (reference plus three improvement stages), then reflection; state time,
   model, tool, cost, and retry limits.
-- **Isolation:** candidate workspace and artifacts are separate from the
-  original; one writer owns each conflicting target.
+- **Isolation:** demonstrate effective filesystem/sandbox and egress limits;
+  isolate task copies and candidate artifacts from ordinary/private workspaces
+  and make held-out material inaccessible to solver and optimizer. Do not use
+  upstream's unrestricted executor defaults on those workspaces. Response-only
+  event rejection is not isolation proof. If unproven, block qualification and
+  continue independent product work. One writer owns each conflicting target.
 - **Checks:** hard repository checks, product acceptance criteria, tests,
   proof/review gates, permissions, and stop condition.
 - **Evaluation boundary:** the optimizer and solver cannot access held-out
@@ -59,6 +63,8 @@ Record these independently:
 Jev input choices are only `A-better`, `B-better`, `equivalent`, or
 `insufficient-evidence`; the PRIVATE record may map the first two to
 `original-better` or `candidate-better`. An unavailable Jev result is not a
-judgment; the same fixed criteria may instead be applied by an explicitly
-labeled independent manual evaluation. Jev cannot override a hard failure or
+judgment; an explicitly labeled independent manual evaluator must receive the
+same blinded, neutral A/B evidence and fixed criteria, without the
+original/candidate mapping or optimizer preference. Map its answer only in the
+PRIVATE record. Jev cannot override a hard failure or
 authorize an action. A result does not prove transfer to another task.

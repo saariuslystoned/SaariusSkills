@@ -76,6 +76,15 @@ pending route and do not emulate the run in chat. Runtime unavailability blocks
 the experiment only; it does not block independent product delivery. Runtime
 source awaiting review or merge is not a readiness signal.
 
+Do not use upstream's unrestricted executor defaults on ordinary or private
+workspaces: its Codex executor bypasses approvals and sandboxing, and network
+access is unrestricted. Admit execution only after demonstrating effective
+filesystem/sandbox and egress limits, with isolated task copies and held-out
+material inaccessible to the solver and optimizer. Response-only event
+rejection by the AI Shed adapter is not proof of that isolation. If these
+limits cannot be demonstrated, report qualification blocked and continue
+independent product work.
+
 Editable guardrails, scripts, skills, prompts, and plugins are experiment
 surfaces, not a place to replace immutable repository policy. Preserve
 immutable sections and do not modify or override them. Keep mandatory
@@ -101,8 +110,10 @@ the original. Keep the A/B mapping outside the judge input and translate the
 returned decision to `original-better` or `candidate-better` only in the
 record. Preserve unavailable provenance and label an independent manual
 fallback as manual. Jev is not a new delivery gate: when it is unavailable,
-the same fixed criteria may be applied by an explicitly labeled independent
-manual evaluation. Without comparative evidence, the result remains
+an explicitly labeled independent manual evaluator receives the same blinded,
+neutral A/B evidence and fixed criteria, without the original/candidate mapping
+or optimizer preference. Map its answer only in the record. Without comparative
+evidence, the result remains
 `inconclusive`.
 Jev cannot clear a hard failure or grant action authority. Honor service
 authorization, cost, and data bounds. JevSweeper is only for published review
