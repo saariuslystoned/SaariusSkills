@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
-import { get } from "./browser.mjs";
 import { config } from "./env.mjs";
+import { PAGE_ROOM, paceStore } from "./pace.mjs";
 import { shippingPages } from "./shipping-text.mjs";
 import { openAdmin } from "./store-admin.mjs";
 
@@ -83,8 +83,12 @@ export async function afterPress(page, wanted) {
   return (await wanted.first().innerText()).trim();
 }
 
-/** Opens the Shipping page's list of orders, failing with what the page says when it can't use Ship. */
+/**
+ * Opens the Shipping page's list of orders, failing with what the page says when it can't use Ship. The
+ * plugin reads Ship's orders as the page opens, and only that list carries a Refresh button.
+ */
 export async function openShipping(page, url) {
+  await paceStore(PAGE_ROOM);
   await openAdmin(page, url);
   await afterPress(page, page.locator("main").getByRole("button", { name: "Refresh", exact: true }));
 }
@@ -199,7 +203,8 @@ const NOT_READY = 503;
 /**
  * Presses Print label, which opens Ship's 5-minute print link in a new tab, then reads the same link and
  * checks it answers with the label's PDF, saved to `file`. The link opens the label without a sign-in, so
- * no note or error carries it; a failed journey's trace can, and it opens only the PDF saved here.
+ * no note or error carries it, and the test reads it with its own fetch: a Playwright request would
+ * write it in Playwright's call log, which a failure prints.
  */
 export async function printLabel(page, file) {
   const link = page.locator("main").getByRole("link", { name: "Print label", exact: true });
@@ -211,20 +216,23 @@ export async function printLabel(page, file) {
   const tab = await opened;
   if (!tab) throw new Error("Print label opened no new tab.");
   await tab.close().catch(() => {});
-  const read = () => get(page, href).catch(error => {
-    throw new Error(`Ship's print link didn't answer (${error.message.split("\n")[0].replaceAll(href, "the print link")}).`);
+  const userAgent = await page.evaluate(() => navigator.userAgent);
+  // Only Ship's own answer counts, so a redirect anywhere is refused rather than followed.
+  const read = () => fetch(href, { headers: { "user-agent": userAgent }, redirect: "manual", signal: AbortSignal.timeout(60_000) }).catch(error => {
+    throw new Error(`Ship's print link didn't answer (${error.cause?.code ?? error.name}).`);
   });
   let response = await read();
   // Ship fetches a new label's PDF from Pitney Bowes after the sale; the link lasts long enough to wait.
-  for (const deadline = Date.now() + 120_000; response.status() === NOT_READY && Date.now() < deadline;) {
+  for (const deadline = Date.now() + 120_000; response.status === NOT_READY && Date.now() < deadline;) {
+    await response.body?.cancel();
     await page.waitForTimeout(15_000);
     response = await read();
   }
-  const type = response.headers()["content-type"] ?? "";
-  if (response.status() === NOT_READY) throw new Error("Ship's print link still says the label's PDF isn't ready two minutes after Print label.");
-  if (response.status() !== 200) throw new Error(`Ship's print link answered HTTP ${response.status()}, not the label's PDF.`);
+  const type = response.headers.get("content-type") ?? "";
+  if (response.status === NOT_READY) throw new Error("Ship's print link still says the label's PDF isn't ready two minutes after Print label.");
+  if (response.status !== 200) throw new Error(`Ship's print link answered HTTP ${response.status}, not the label's PDF.`);
   if (!/^application\/pdf\b/.test(type)) throw new Error(`Ship's print link answered ${type || "with no content type"}, not a PDF.`);
-  const body = await response.body();
+  const body = Buffer.from(await response.arrayBuffer());
   if (body.subarray(0, 5).toString() !== "%PDF-") throw new Error("Ship's print link answered something that isn't a PDF.");
   writeFileSync(file, body);
   return { bytes: body.length, sha256: createHash("sha256").update(body).digest("hex") };

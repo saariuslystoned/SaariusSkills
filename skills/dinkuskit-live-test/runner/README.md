@@ -181,15 +181,19 @@ does, paying once with the test card, and buys one Pitney Bowes sandbox label
 for it on the store admin's Shipping page, which charges nothing. Commerce
 completes the order with the label's tracking number, and the journey cancels
 the label at the end, so the run leaves the order Completed and its label
-cancelled, listed under Earlier labels. It needs the Ship plugin installed and
-connected (the store's Store ID and store key in its settings) and TEST sandbox
-labels on in Ship's Settings. It finds the Shipping page in the admin's menu;
-when the menu has more than one, set `DINKUS_E2E_SHIPPING_ADMIN`. While it is
-`@next`, it runs on the beta store when its name is typed in the journeys box of
-**Run workflow** (see "Run on GitHub"). Print label's link shows the label to
-anyone who has it, for five minutes, so the test never writes it in a note or an
-error. A failed journey's Playwright trace can still hold it, but it opens only
-the label PDF the proof keeps anyway.
+cancelled, listed under Earlier labels. When a step before Cancel label stops
+the journey, the label stays bought: it's a sandbox label, so nothing was
+charged, and Commerce still completes the order with it. It needs the Ship
+plugin installed and connected (the store's Store ID and store key in its
+settings) and TEST sandbox labels on in Ship's Settings. It finds the Shipping
+page in the admin's menu; when the menu has more than one, set
+`DINKUS_E2E_SHIPPING_ADMIN`. While it is `@next`, it runs on the beta store when
+its name is typed in the journeys box of **Run workflow** (see "Run on GitHub").
+Print label's link shows the label to anyone who has it, for five minutes, so
+the test reads it with its own fetch and writes it in no note or error. For the
+same reason this journey keeps no Playwright trace, and it leaves a blank page
+behind it, so Playwright's notes on a failure can't show the link either; its
+step screenshots and notes are its proof.
 
 The machine's settings come from `~/.dinkus-e2e/env`; see
 [setup](../references/setup.md).
@@ -389,14 +393,16 @@ The steps that open the Shipping page, place and list the order, see prices,
 buy the label, wait for Commerce to complete the order and cancel the label stop
 the journey when they fail, since what follows needs them; the other steps are
 soft. The Ship plugin draws the Shipping page from hosted Ship's answer on every
-press, so the journey tests the plugin and hosted Ship together.
+press, so the journey tests the plugin and hosted Ship together. Since it may wait
+up to `DINKUS_E2E_COMPLETE_WAIT_SECONDS` twice, it gets twice that on top of the
+30 minutes every journey has.
 
 | Step | What it proves |
 | --- | --- |
-| The Shipping page lists Ship's orders in the store admin | The store admin's menu has one Shipping page (or `DINKUS_E2E_SHIPPING_ADMIN`), and after Refresh it lists Ship's orders rather than why it can't use Ship: no pass from DinkusKit.com, Ship out of reach, settings to fix, or a sign-in that isn't an Editor or Administrator. The proof notes the Ship plugin and its version. When it doesn't, the journey stops here |
+| The Shipping page lists Ship's orders in the store admin | The store admin's menu has one Shipping page (or `DINKUS_E2E_SHIPPING_ADMIN`), and it opens on Ship's list of orders, the only page with a Refresh button, rather than on why it can't use Ship: no pass from DinkusKit.com, Ship out of reach, settings to fix, or a sign-in that isn't an Editor or Administrator. The proof notes the Ship plugin and its version. When it doesn't, the journey stops here |
 | A shopper places a Stripe TEST order | As in Buy and ship, a shopper pays for a physical product with the test card and Commerce records the payment |
 | Commerce Orders lists the order as Processing | Commerce Orders lists the order, TEST and Processing; opening it also sends Ship the paid orders it doesn't have yet |
-| The Shipping page lists the order with no label | The Shipping list shows "#N (TEST)" with "No label" (pressing Refresh every 15 seconds, for up to `DINKUS_E2E_COMPLETE_WAIT_SECONDS`), and Open shows the order's page |
+| The Shipping page lists the order with no label | The Shipping list shows "#N (TEST)" with "No label" (opening the Shipping page again every 15 seconds, for up to `DINKUS_E2E_COMPLETE_WAIT_SECONDS`), and Open shows the order's page |
 | The order's page offers a free sandbox label for the package's weight | The order's page says it's a TEST order, shows Ship to, Items, the items' weight and "No label", offers a free Pitney Bowes sandbox label as the label kind, and fills in the weight as the items' weight plus the chosen box's empty weight. When Ship's Settings turn TEST sandbox labels off, Ship offers a practice label and this step fails |
 | See prices quotes USPS services for the package | The browser accepts the filled-in weight, See prices fills the Service list with Ship's prices, and one is for the service `DINKUS_E2E_SERVICE` names (Ground Advantage unless set). Before ship#45 the browser took only weights ending in .1 (1.1, 2.1 and so on), so with a weight such as 4 oz See prices did nothing |
 | Buy label buys the sandbox label at the quoted price | Buy label says "Label bought, $X.XX sandbox. Tracking ..." at the quoted price, and the order's page shows the label's service, its tracking number marked "test, not trackable", its postage as "sandbox price, nothing charged" and Status "Label bought" |

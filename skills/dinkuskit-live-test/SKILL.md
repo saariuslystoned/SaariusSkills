@@ -192,12 +192,16 @@ authorization the test needs.
   showed.
 - Buy a label in the store admin buys only a sandbox label, for the one TEST
   order it places, and cancels it at the end. It stops when the Shipping page
-  says why it can't use Ship (report what the page says), when the order or the
-  label can't be bought, when Commerce doesn't complete the order, or when the
-  cancel fails. Its other steps are soft: report a wrong weight, a print link
-  that doesn't answer with the label's PDF, or a Completed order whose label the
-  Shipping page lost. Never record Ship's print link: it shows the label to
-  anyone who has it.
+  says why it can't use Ship (report what the page says), when the order can't
+  be placed, when Commerce Orders doesn't list it as Processing, when the
+  Shipping page doesn't list it with "No label", when See prices quotes no price
+  for the service, when the label can't be bought, when Commerce doesn't
+  complete the order, or when the cancel fails. A stop before the cancel leaves
+  the sandbox label bought, which charged nothing, and Commerce still completes
+  the order with it; say so. Its other steps are soft: report a wrong weight, a
+  print link that doesn't answer with the label's PDF, or a Completed order whose
+  label the Shipping page lost. Never record Ship's print link: it shows the
+  label to anyone who has it.
 - Problems stops when the owner can't open Commerce Orders, when Stripe
   Checkout won't open, when Stripe shows a captcha, or when the payment fails.
   Its other steps are soft:

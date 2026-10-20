@@ -2,7 +2,7 @@ import { test, expect } from "../support/browser.mjs";
 import { placeTestOrder } from "../support/checkout.mjs";
 import { config } from "../support/env.mjs";
 import { note, record } from "../support/proof.mjs";
-import { numberOf, openOrder, orderShown, ordersListed, testOrders } from "../support/orders-admin.mjs";
+import { completionProblems, numberOf, openOrder, orderShown, ordersListed, testOrders } from "../support/orders-admin.mjs";
 import { confirmed, notePlugins, openAdmin } from "../support/store-admin.mjs";
 import { journey, step } from "../support/steps.mjs";
 
@@ -24,15 +24,6 @@ async function orderToComplete(page, name, given, who) {
     return `Commerce recorded the payment for ${placed.orderId}`;
   });
   return { orderId: placed.orderId };
-}
-
-/** Where an open Completed order differs from the carrier and tracking number it should show. */
-function completionProblems(shown, { carrier, tracking }) {
-  const problems = [];
-  if (shown.status !== "Completed") problems.push(`it shows ${shown.status ?? "no status"}, not Completed`);
-  if (shown.carrier !== carrier) problems.push(`its carrier reads "${shown.carrier ?? "nothing"}", not "${carrier}"`);
-  if (shown.tracking !== tracking) problems.push(`its tracking number reads "${shown.tracking ?? "nothing"}", not "${tracking}"`);
-  return problems;
 }
 
 /** Commerce's orders API, beside Commerce Orders: where agents and the CLI read and complete orders. */

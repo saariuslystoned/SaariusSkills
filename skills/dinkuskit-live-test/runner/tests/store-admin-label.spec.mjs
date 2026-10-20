@@ -3,7 +3,8 @@ import { test, expect } from "../support/browser.mjs";
 import { placeTestOrder } from "../support/checkout.mjs";
 import { config } from "../support/env.mjs";
 import { renderLabelPdf, showLabelPicture } from "../support/label-pdf.mjs";
-import { numberOf, openOrder } from "../support/orders-admin.mjs";
+import { completionProblems, numberOf, openOrder } from "../support/orders-admin.mjs";
+import { PAGE_ROOM, paceStore } from "../support/pace.mjs";
 import { note } from "../support/proof.mjs";
 import { afterPress, chosen, choose, openEarlierLabels, openRow, openShipping, openShippingOrder, optionsOf, orderFields, printLabel, refusalShown,
   rowStatus, SANDBOX_KIND, SERVICES, shippingAdmin, shippingRow, weightField } from "../support/shipping-admin.mjs";
@@ -17,14 +18,16 @@ import { journey, step } from "../support/steps.mjs";
 const SANDBOX_CANCEL = "The sandbox label is voided with Pitney Bowes. The order stays as it is in Commerce.";
 const COMPLETED_NOTE = /^This order is Completed in Commerce, so Ship makes no label for it\./;
 
-/** Where an order Commerce Orders shows differs from Completed with the label's carrier and tracking number. */
-function completionProblems(shown, tracking) {
-  const problems = [];
-  if (shown.status !== "Completed") problems.push(`it shows ${shown.status ?? "no status"}, not Completed`);
-  if (shown.carrier !== "USPS") problems.push(`its carrier reads "${shown.carrier ?? "nothing"}", not "USPS"`);
-  if (shown.tracking !== tracking) problems.push(`its tracking number reads "${shown.tracking ?? "nothing"}", not the label's ${tracking}`);
-  return problems;
-}
+// Ship's print link opens the label for five minutes with no sign-in, and Playwright's trace records
+// every page, link and request the run makes, so this journey keeps no trace. Its step screenshots and
+// notes are its proof.
+test.use({ trace: "off" });
+
+// On a failure Playwright also writes down the open page, links included (error-context.md), after the
+// test's own screenshot. A blank page by then leaves no print link to write down.
+test.afterEach(async ({ page }) => {
+  await page.goto("about:blank").catch(() => {});
+});
 
 // An owner ships a paid TEST order from the store admin's Shipping page, which the Ship plugin draws
 // from hosted Ship: see prices, buy a Pitney Bowes sandbox label, print it from Ship's 5-minute link,
@@ -35,6 +38,9 @@ test("Buy a label in the store admin", { tag: "@next" }, journey(async ({ page }
   const service = SERVICES[config.service];
   expect(service, `DINKUS_E2E_SERVICE reads "${config.service}"; set it to GA, PM or EM (in ${config.settingsFile})`).toBeTruthy();
   const soft = { soft: true };
+  // It waits up to DINKUS_E2E_COMPLETE_WAIT_SECONDS twice, for Ship to list the order and for Commerce to
+  // complete it, so its own deadlines always pass before Playwright's would stop it mid-step.
+  test.info().setTimeout(test.info().timeout + 2 * config.completeWaitMs);
   let shipping;
 
   // Without the Shipping page there is nothing to test, so this step stops the journey.
@@ -149,13 +155,15 @@ test("Buy a label in the store admin", { tag: "@next" }, journey(async ({ page }
   await step(page, "Opening Commerce Orders collects the label and completes the order", async () => {
     // Commerce asks Ship for new labels each time Commerce Orders opens, and every 5 minutes.
     const deadline = Date.now() + config.completeWaitMs;
+    await paceStore(PAGE_ROOM);
     let shown = await openOrder(page, number);
     while (shown.status !== "Completed" && Date.now() < deadline) {
       await page.waitForTimeout(30_000);
+      await paceStore(PAGE_ROOM);
       shown = await openOrder(page, number);
     }
     if (shown.status !== "Completed") throw new Error(`#${number} still shows ${shown.status ?? "no status"} in Commerce Orders ${config.completeWaitMs / 1000}s after the label was bought.`);
-    const problems = completionProblems(shown, bought.tracking);
+    const problems = completionProblems(shown, { carrier: "USPS", tracking: bought.tracking });
     if (problems.length) throw new Error(`Commerce completed #${number}, but ${problems.join(" and ")}.`);
     return `#${number} Completed with carrier ${shown.carrier} and tracking ${shown.tracking}`;
   });
@@ -211,7 +219,8 @@ test("Buy a label in the store admin", { tag: "@next" }, journey(async ({ page }
     const row = await shippingRow(page, shipping, number);
     const status = row && await rowStatus(row);
     if (status !== "Label cancelled") throw new Error(`Shipping lists #${number} as "${status ?? "missing"}", not "Label cancelled".`);
-    const problems = completionProblems(await openOrder(page, number), bought.tracking);
+    await paceStore(PAGE_ROOM);
+    const problems = completionProblems(await openOrder(page, number), { carrier: "USPS", tracking: bought.tracking });
     if (problems.length) throw new Error(`After the cancel, Commerce Orders' #${number} ${problems.join(" and ")}.`);
     return `Shipping lists "Label cancelled"; Commerce Orders still shows #${number} Completed with tracking ${bought.tracking}`;
   }, soft);

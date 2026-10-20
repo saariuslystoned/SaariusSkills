@@ -50,6 +50,15 @@ export async function orderShown(page) {
   return { label, test: / \(TEST\)$/.test(label ?? ""), orderId: field("Order ID"), status: field("Status"), carrier: field("Carrier"), tracking: field("Tracking number") };
 }
 
+/** Where an open Completed order differs from the carrier and tracking number it should show. */
+export function completionProblems(shown, { carrier, tracking }) {
+  const problems = [];
+  if (shown.status !== "Completed") problems.push(`it shows ${shown.status ?? "no status"}, not Completed`);
+  if (shown.carrier !== carrier) problems.push(`its carrier reads "${shown.carrier ?? "nothing"}", not "${carrier}"`);
+  if (shown.tracking !== tracking) problems.push(`its tracking number reads "${shown.tracking ?? "nothing"}", not "${tracking}"`);
+  return problems;
+}
+
 /** Opens order #number in Commerce Orders, paging to it, and returns what its page shows. */
 export async function openOrder(page, number) {
   await openAdmin(page, config.ordersAdmin);
