@@ -34,9 +34,8 @@ Each journey has a stage. `@running` journeys run on every `npm test` and must a
 pass on the beta store before a final release. A new journey starts as `@next` and
 moves to `@running` once it has passed on the test store. The
 [runner README](runner/README.md) lists the journeys and their stages. Buy a
-label in the store admin, the Ship plugin's journey, is `@next` until the plugin
-is live on the beta store, and must pass there before the plugin's first final
-release.
+label in the store admin, the Ship plugin's journey, became `@running` after it
+first passed on the beta store (20 Oct).
 
 The test runs unattended. DinkusKit.com and the Cloudflare Access login in front
 of the store admin (or of the whole test store) both sign in with emailed links or

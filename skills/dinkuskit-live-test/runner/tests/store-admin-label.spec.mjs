@@ -33,7 +33,7 @@ test.afterEach(async ({ page }) => {
 // from hosted Ship: see prices, buy a Pitney Bowes sandbox label, print it from Ship's 5-minute link,
 // let Commerce complete the order, print it again, then cancel the label. It gates the Ship plugin's
 // first final release.
-test("Buy a label in the store admin", { tag: "@next" }, journey(async ({ page }) => {
+test("Buy a label in the store admin", { tag: "@running" }, journey(async ({ page }) => {
   expect(config.store, `Set DINKUS_E2E_STORE to the store's address (in ${config.settingsFile})`).not.toBe("");
   const service = SERVICES[config.service];
   expect(service, `DINKUS_E2E_SERVICE reads "${config.service}"; set it to GA, PM or EM (in ${config.settingsFile})`).toBeTruthy();
