@@ -1,11 +1,16 @@
 name: Live journeys
+# A run a release started names its beta on the Actions page.
+run-name: Live journeys${{ inputs.beta && format(' for {0}', inputs.beta) || '' }}
 # Runs the DinkusKit live journeys (skills/dinkuskit-live-test/runner) against the beta test store,
 # beta.sm0ky.dev, on a GitHub runner. It never runs on pull requests or pushes: only from the
-# "Run workflow" button. This store belongs to this workflow alone; no Mac or other computer runs
-# journeys on it. Stripe TEST cards and Ship sandbox labels only.
+# "Run workflow" button, which a plugin's Cut beta also presses once it has published a beta. This
+# store belongs to this workflow alone; no Mac or other computer runs journeys on it. Stripe TEST
+# cards and Ship sandbox labels only. Before the journeys it updates the store's DinkusKit beta
+# plugins to the newest betas, and stops if an update asks for new permissions.
 #
-# The job log is public, so it shows only each journey's pass or fail. Steps, screenshots, the
-# console output and videos go to the private R2 bucket.
+# The job log is public, so it shows only each journey's pass or fail, the plugin versions tested and
+# why a store update stopped. Steps, screenshots, the console output and videos go to the private R2
+# bucket.
 
 on:
   workflow_dispatch:
@@ -14,6 +19,14 @@ on:
         description: Which journeys (a Playwright --grep; @running is all seven)
         default: "@running"
         required: true
+      update_store:
+        description: First update the store's DinkusKit plugins to the newest betas (stops if one asks for new permissions)
+        type: boolean
+        default: true
+      beta:
+        description: The beta a release just published, as "dinkus-<plugin>-beta <version>" (Cut beta fills this in; the update waits for the Registry to offer it)
+        default: ""
+        required: false
       video:
         description: Record a video of every browser window
         type: boolean
@@ -33,7 +46,7 @@ jobs:
     name: Journeys on beta.sm0ky.dev
     if: github.repository == 'saariuslystoned/SaariusSkills'
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 130
     env:
       DINKUS_E2E_STORE: https://beta.sm0ky.dev
       DINKUS_E2E_SITE_ID: 858232f9-bc07-44f6-b3de-259a8055a9dd
@@ -62,7 +75,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: "22.13.0"
+          node-version: "24.22.0"
 
       - name: Install the runner and the label PDF renderer
         run: |
@@ -94,18 +107,29 @@ jobs:
         # The inbox key reaches only this step, never the install above.
         env:
           JOURNEYS: ${{ inputs.journeys }}
+          UPDATE_STORE: ${{ inputs.update_store }}
+          DINKUS_E2E_BETA: ${{ inputs.beta }}
           DINKUS_E2E_OWNER_EMAIL: ${{ secrets.DINKUS_E2E_OWNER_EMAIL }}
           DINKUS_E2E_GMAIL_CLIENT_ID: ${{ secrets.DINKUS_E2E_GMAIL_CLIENT_ID }}
           DINKUS_E2E_GMAIL_CLIENT_SECRET: ${{ secrets.DINKUS_E2E_GMAIL_CLIENT_SECRET }}
           DINKUS_E2E_GMAIL_REFRESH_TOKEN: ${{ secrets.DINKUS_E2E_GMAIL_REFRESH_TOKEN }}
-        # Everything the run prints goes to the private proof, never to this public log. Its exit
-        # code goes to the report step, which fails the job unless it is 0 and every journey passed.
-        # The step's own limit leaves time to save the proof when a run hangs.
-        timeout-minutes: 100
+        # First the store's beta plugins move to the newest betas, and the journeys run only once that
+        # has passed; both sign in with the same profile, so the journeys reuse its sign-in. Everything
+        # the run prints goes to the private proof, never to this public log. Its exit code goes to the
+        # report step, which fails the job unless it is 0 and every journey passed. The step's own
+        # limit leaves time to save the proof when a run hangs.
+        timeout-minutes: 110
         run: |
           mkdir -p "$DINKUS_E2E_PROOF/$DINKUS_E2E_RUN"
+          log="$DINKUS_E2E_PROOF/$DINKUS_E2E_RUN/console.log"
+          : > "$log"
           code=0
-          npx playwright test --grep "$JOURNEYS" > "$DINKUS_E2E_PROOF/$DINKUS_E2E_RUN/console.log" 2>&1 || code=$?
+          if [ "$UPDATE_STORE" = "true" ]; then
+            npm run update-store >> "$log" 2>&1 || code=$?
+          fi
+          if [ "$code" = 0 ]; then
+            npx playwright test --grep "$JOURNEYS" >> "$log" 2>&1 || code=$?
+          fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
 
       - name: Save the proof to R2

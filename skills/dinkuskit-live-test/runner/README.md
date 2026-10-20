@@ -104,6 +104,7 @@ npm test                      # every @running journey; Buy and ship goes from c
 npm run journey -- storefront # one journey, by its file name (storefront, cart, manage-products, full-catalog, mark-completed, problems, buy-and-ship, store-admin-label)
 npm run finish                # Buy and ship from an existing order (DINKUS_E2E_ORDER=1001, or the only unfinished TEST order)
 npm run unit                  # the runner's own offline checks
+npm run update-store          # beta.sm0ky.dev only: update its DinkusKit beta plugins to the newest betas
 ```
 
 Storefront opens its own clean browser, with no sign-ins, cookies or saved
@@ -206,9 +207,28 @@ no Mac. Press **Run workflow** on its Actions page; `@running` runs all seven. T
 belongs to the workflow alone. Runs go one at a time: a press while a run is going waits its
 turn, and a further press replaces the waiting one.
 
+Before the journeys, **Update the store** (`tests/update-store.spec.mjs`, `npm run update-store`)
+moves each DinkusKit beta plugin the store runs (dinkus-commerce-beta, dinkus-payments-beta and
+so on) to the newest beta the Registry has, one at a time and in place, as the Update button on
+the admin's Plugins page does; the journeys run only once it has passed. It refuses any store
+but beta.sm0ky.dev, leaves every other plugin alone, never moves a plugin back to an older
+version or between its beta and release listings, and agrees to nothing the Update button would
+ask about: an update that asks for new permissions, opens routes to visitors who aren't signed
+in (which also need an exception in the store's Access app) or changes its agent tools stops the
+run, naming the plugin and what it asked, for the owner to update by hand. It also stops when
+EmDash couldn't check the Registry for a plugin, since a pass has to name the betas it really
+tested. When a plugin's **Cut beta** presses Run workflow, it names the beta it just published
+(the `beta` input, such as `dinkus-payments-beta 0.2.9-beta.3`, shown in the run's name), and the
+update first waits up to 15 minutes for the Registry to offer it, then installs exactly that beta,
+even if a later one is out (and stops if the store already runs a later one). Only `npm run update-store`
+runs it; every other run leaves it out. Untick "update_store" on **Run workflow** to test what the
+store already runs.
+
 Chrome runs headless, so the runner fails at once wherever it would wait for a person. Sign-in emails are read with
 `scripts/gmail-mail.mjs`, through the Gmail API with a read-only key, in place of gogcli.
-The job log is public, so it shows only each journey's pass or fail; the steps,
+The job log is public, so it shows only each journey's pass or fail, the plugin versions
+the store ran ("Plugins tested"), so a release can check its own beta passed, and why the
+store update stopped, if it did; the steps,
 screenshots, console output and any video go to a private R2 bucket under
 `runs/github-<run id>-<attempt>/`.
 

@@ -48,7 +48,7 @@ jobs:
           python skills/grilltrack/scripts/validate_picker.py fixtures/frontend-picker/manifest.json
 
   node-skills:
-    name: Node 22.13 / ${{ matrix.os }}
+    name: Node 24.22 / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
@@ -67,7 +67,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: "22.13.0"
+          node-version: "24.22.0"
 
       - name: Run DinkusKit live test runner's offline checks
         run: node --test skills/dinkuskit-live-test/runner/unit/*.test.mjs

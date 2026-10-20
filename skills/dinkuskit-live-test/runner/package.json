@@ -6,6 +6,7 @@
   "scripts": {
     "test": "playwright test --grep @running",
     "journey": "playwright test",
+    "update-store": "DINKUS_E2E_UPDATE=1 playwright test --grep @update",
     "unit": "node --test unit/*.test.mjs",
     "finish": "DINKUS_E2E_MODE=finish playwright test tests/buy-and-ship.spec.mjs"
   },
