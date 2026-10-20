@@ -225,7 +225,7 @@ class PackagingTests(unittest.TestCase):
         for name in ("package.json", "package-lock.json", "playwright.config.mjs"):
             self.assertTrue((runner / name).is_file(), name)
         for name in ("buy-and-ship.spec.mjs", "storefront.spec.mjs", "cart.spec.mjs", "manage-products.spec.mjs",
-                     "mark-completed.spec.mjs", "problems.spec.mjs"):
+                     "mark-completed.spec.mjs", "problems.spec.mjs", "store-admin-label.spec.mjs"):
             self.assertTrue((runner / "tests" / name).is_file(), name)
         self.assertIn("Never pay twice", skill)
         self.assertIn("4242 4242 4242 4242", skill)

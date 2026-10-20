@@ -27,6 +27,22 @@ export function renderLabelPdf(file, { platform = process.platform, run = execFi
   return { image, width, height, sha256: createHash("sha256").update(bytes).digest("hex") };
 }
 
+/**
+ * Shows a picture from renderLabelPdf in the window, so the step's screenshot and the run's video carry
+ * the label itself. It goes on a blank page: setContent writes into the open page, and Ship's page
+ * allows no pictures at all (its Content-Security-Policy).
+ */
+export async function showLabelPicture(page, picture) {
+  const image = readFileSync(picture.image).toString("base64");
+  await page.goto("about:blank");
+  await page.setContent(`<body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#e8e8e8"><img alt="Shipping label" src="data:image/png;base64,${image}" style="max-height:96vh;background:#fff;box-shadow:0 2px 12px #0004"></body>`);
+  // A decode has no time limit of its own, so the check gives up after 10 s rather than hold the run.
+  const shown = await page.getByAltText("Shipping label").evaluate(img =>
+    Promise.race([img.decode().then(() => img.naturalWidth, () => 0), new Promise(done => setTimeout(done, 10_000, 0))]));
+  if (!shown) throw new Error("The browser could not draw the label picture.");
+  await page.waitForTimeout(2_000);
+}
+
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 // Channels and allowed bit depths for each PNG color type.
 const COLORS = { 0: [1, [1, 2, 4, 8, 16]], 2: [3, [8, 16]], 3: [1, [1, 2, 4, 8]], 4: [2, [8, 16]], 6: [4, [8, 16]] };

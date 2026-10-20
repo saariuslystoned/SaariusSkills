@@ -49,6 +49,8 @@ export const config = {
   ordersAdmin,
   // Commerce Products sits beside Commerce Orders, so a beta install's Orders setting covers both.
   productsAdmin: read("DINKUS_E2E_PRODUCTS_ADMIN", ordersAdmin.replace(/\/orders\/?$/, "/products")),
+  // The Ship plugin's Shipping page in the store admin; empty finds it in the admin's menu.
+  shippingAdmin: read("DINKUS_E2E_SHIPPING_ADMIN"),
   productPath: read("DINKUS_E2E_PRODUCT_PATH"),
   // Full catalog: categories x products per category of the standing catalog the test keeps on the store.
   catalog: read("DINKUS_E2E_CATALOG", "3x8"),

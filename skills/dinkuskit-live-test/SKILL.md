@@ -33,7 +33,10 @@ once with the test card, and the owner completes that one order.
 Each journey has a stage. `@running` journeys run on every `npm test` and must all
 pass on the beta store before a final release. A new journey starts as `@next` and
 moves to `@running` once it has passed on the test store. The
-[runner README](runner/README.md) lists the journeys and their stages.
+[runner README](runner/README.md) lists the journeys and their stages. Buy a
+label in the store admin, the Ship plugin's journey, is `@next` until the plugin
+is live on the beta store, and must pass there before the plugin's first final
+release.
 
 The test runs unattended. DinkusKit.com and the Cloudflare Access login in front
 of the store admin (or of the whole test store) both sign in with emailed links or
@@ -69,6 +72,10 @@ authorization the test needs.
      Mark as completed places two Stripe TEST orders and leaves both Completed.
      Problems tries three refused test cards and the way back from the cart in
      one Stripe TEST checkout, pays it once and leaves that order Completed.
+     Buy a label in the store admin (`store-admin-label`) places one Stripe TEST
+     order, buys and prints a Pitney Bowes sandbox label for it on the store
+     admin's Shipping page, and cancels the label once Commerce has completed the
+     order.
    - `npm run finish` finishes a Buy and ship order that already exists. Set
      `DINKUS_E2E_ORDER=1001` to pick one, or leave it unset to pick the only TEST
      order still waiting for a label.
@@ -183,6 +190,14 @@ authorization the test needs.
   steps are soft: report a refused completion with Commerce's answer, and an
   order that shows the wrong status, carrier or tracking number with what it
   showed.
+- Buy a label in the store admin buys only a sandbox label, for the one TEST
+  order it places, and cancels it at the end. It stops when the Shipping page
+  says why it can't use Ship (report what the page says), when the order or the
+  label can't be bought, when Commerce doesn't complete the order, or when the
+  cancel fails. Its other steps are soft: report a wrong weight, a print link
+  that doesn't answer with the label's PDF, or a Completed order whose label the
+  Shipping page lost. Never record Ship's print link: it shows the label to
+  anyone who has it.
 - Problems stops when the owner can't open Commerce Orders, when Stripe
   Checkout won't open, when Stripe shows a captcha, or when the payment fails.
   Its other steps are soft:

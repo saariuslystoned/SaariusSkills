@@ -1,6 +1,6 @@
-import { renderLabelPdf } from "../support/label-pdf.mjs";
+import { renderLabelPdf, showLabelPicture } from "../support/label-pdf.mjs";
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { get, test, expect } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
@@ -183,17 +183,7 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
       note("label pdf", `${body.length} bytes, sha256 ${sha}`);
       const picture = renderLabelPdf(file);
       note("label picture", `label.pdf.png, ${picture.width}×${picture.height}, sha256 ${picture.sha256}`);
-      // Show the label in the window, so this step's screenshot and the run's video carry the label itself.
-      const image = readFileSync(picture.image).toString("base64");
-      // setContent writes into the open page, and Ship's page allows no pictures at all (its
-      // Content-Security-Policy), so the label goes on a blank page.
-      await page.goto("about:blank");
-      await page.setContent(`<body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#e8e8e8"><img alt="Shipping label" src="data:image/png;base64,${image}" style="max-height:96vh;background:#fff;box-shadow:0 2px 12px #0004"></body>`);
-      // A decode has no time limit of its own, so the check gives up after 10 s rather than hold the run.
-      const shown = await page.getByAltText("Shipping label").evaluate(img =>
-        Promise.race([img.decode().then(() => img.naturalWidth, () => 0), new Promise(done => setTimeout(done, 10_000, 0))]));
-      if (!shown) throw new Error("The browser could not draw the label picture.");
-      await page.waitForTimeout(2_000);
+      await showLabelPicture(page, picture);
       return `${body.length} bytes, sha256 ${sha.slice(0, 16)}…, shown ${picture.width}×${picture.height}`;
     });
   }
