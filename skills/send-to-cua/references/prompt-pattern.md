@@ -25,6 +25,10 @@ at anything the prompt does not cover.
      shared login methods, other secrets.
    - "If a command fails, stop, show the error and hand back. Do not improvise
      a different command." Normal pushes only, never `--force`.
+   - Say what failure means for any search or check: `grep`, `find`, `test`
+     and `diff` exit 1 with no output when nothing matches, which is an
+     answer, not a failed command. Give the expected result instead ("prints
+     the folder path; if it prints nothing, STOP and report that").
 3. **Facts** the cua cannot guess: the Cloudflare account ID and which account
    holds which Worker, Worker and branch names, URLs, plugin ids, store site
    ids, the exact text a screen should show.
@@ -67,6 +71,10 @@ at anything the prompt does not cover.
   check `node --version`. Check `gh auth status` before `gh secret set`.
 - **Sign-in codes** for agent@smokyproduct.co come from the inbox through
   `gogcli`, read only.
+- **"No output, exit 1" is not a failure.** The Ship Worker deploy stalled
+  when the cua read an empty file search as a failed command and stopped
+  under "any command fails"; the checkout was there. Give each check its
+  expected output and say what an empty result means.
 - **One target at a time.** Don't act on a test store while a Live journeys
   run or the Mac runner's Chrome window is using it.
 - **Long prompts** are fine (the longest was about 8 KB); the cua follows
