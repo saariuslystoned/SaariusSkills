@@ -1,18 +1,23 @@
 # Harness² experiment contract
 
-Use this as the smallest handoff packet. Keep it sanitized and portable; do
-not include private repository names, absolute local paths, host topology,
-credentials, or raw transcripts.
+Use this as the smallest handoff packet. Separate the authorized PRIVATE
+execution packet from hosted evaluation and public proof. The PRIVATE packet
+may contain the exact repository, branch, immutable revision, and workspace
+routing needed for delegation. Minimize or redact those identifiers before
+hosted evaluation or public proof. Never include secret values, host topology,
+credentials, or raw transcripts in any packet.
 
 ## Experiment
 
 - **Identity:** stable target, hypothesis, acceptance identity, and unique
   active/completed-record check.
-- **Task:** one real task, exact repository and immutable source revision,
-  product outcome, and exclusions.
+- **Task:** one real task, exact repository and immutable source revision in
+  the PRIVATE packet, product outcome, and exclusions.
 - **Editable surfaces:** explicitly allow-listed harness surfaces only
   (system prompt, guardrails, memory, tool guidance, subagents, skills,
-  scripts, or plugins). No installed edits or unrelated product files.
+  scripts, or plugins). These surfaces cannot replace mandatory repository
+  policy, safety or authority rules, acceptance criteria, or installed files.
+  No unrelated product files.
 - **Budget:** sequential `k=1`; four solver executions total
   (reference plus three improvement stages), then reflection; state time,
   model, tool, cost, and retry limits.
@@ -23,6 +28,11 @@ credentials, or raw transcripts.
 - **Evaluation boundary:** the optimizer and solver cannot access held-out
   judge answers, rubrics, or labels. Do not confuse upstream's automatic
   adoption of its sole composed candidate with improvement proof.
+- **Jev input:** provide sanitized, anonymized A/B evidence only. Ask Jev to
+  choose `A-better`, `B-better`, `equivalent`, or `insufficient-evidence`
+  against neutral, evidence-based criteria. Keep the mapping of A/B to
+  original/candidate outside the judge input; translate the result only in the
+  PRIVATE record.
 
 ## Result
 
@@ -30,14 +40,16 @@ Record these independently:
 
 - `status`: `keep`, `reject`, `inconclusive`, or `blocked`;
 - `attempt`: first attempt or recovery attempt, with separate evidence;
-- `source`: exact repository/branch/SHA and experiment identity;
+- `source`: exact repository/branch/SHA and experiment identity in the PRIVATE
+  record; a minimized or redacted source reference for hosted/public artifacts;
 - `artifacts`: candidate, logs or summaries, hard-check results, and sanitized
   anonymized fixed-protocol A/B evidence;
 - `jev`: `decision_evaluate` result or `unavailable` provenance, with manual
   fallback explicitly labeled when used;
 - `ownership`: current writer, cleanup owner, and next action.
 
-Jev choices are only `original-better`, `candidate-better`, `equivalent`, or
-`insufficient-evidence`. An unavailable Jev result is not a judgment. Jev
-cannot override a hard failure or authorize an action. A result does not prove
-transfer to another task.
+Jev input choices are only `A-better`, `B-better`, `equivalent`, or
+`insufficient-evidence`; the PRIVATE record may map the first two to
+`original-better` or `candidate-better`. An unavailable Jev result is not a
+judgment. Jev cannot override a hard failure or authorize an action. A result
+does not prove transfer to another task.

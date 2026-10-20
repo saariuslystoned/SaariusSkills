@@ -61,25 +61,37 @@ probes, composes, adopts, and reflects; the latter evaluates an unchanged
 original and candidate under a fixed protocol and does not run recursive
 improvement.
 
-The runtime integration is being built separately by another owner. Do not
-invent a command, ready flag, or claim that integration exists or is proven.
-Qualify the advertised capability, permissions, exact source binding, cost and
-data limits, and candidate isolation at dispatch time. If qualification is
-not available, use the truthful blocked/pending route and do not emulate the
-run in chat. An optional binding can expose that capability, but it does not
-grant authority or make the runtime ready.
+An optional AI Shed `harness2-replay` integration and its documentation may
+expose this capability. Discover and qualify it at dispatch time; the currently
+described capability is one response-only frozen-task trial through explicit
+Codex CLI, not arbitrary product writes, other harnesses, or an installed
+runtime. Qualify permissions, exact source binding, cost and data limits, and
+candidate isolation. Do not invent a command, ready flag, or claim readiness.
+If the capability is unavailable or unqualified, use the truthful blocked or
+pending route and do not emulate the run in chat. Runtime unavailability blocks
+the experiment only; it does not block independent product delivery. Runtime
+source awaiting review or merge is not a readiness signal.
+
+Editable guardrails, scripts, skills, prompts, and plugins are experiment
+surfaces, not a place to replace immutable repository policy. They must not
+contain mandatory repository policies, safety or authority rules, acceptance
+criteria, or installed files. Keep those boundaries in the frozen packet and
+the repository's authoritative sources.
 
 ## Evaluate and record
 
 After hard checks pass, use the existing Jev underlying `decision_evaluate`
 capability separately when authorized and available. Give Jev compact,
 sanitized, anonymized A/B evidence with provenance; do not provide optimizer
-preference or raw transcripts. Allowed choices are:
-`original-better`, `candidate-better`, `equivalent`, and
-`insufficient-evidence`. Preserve unavailable provenance and label manual
-fallbacks as manual. Jev cannot clear a hard failure or grant action
-authority. Honor service authorization, cost, and data bounds. JevSweeper is
-only for published review leftovers and is not this evaluator.
+preference, the original/candidate mapping, or raw transcripts. Ask only for
+`A-better`, `B-better`, `equivalent`, or `insufficient-evidence`, using
+criteria that compare the supplied evidence and do not reveal which label is
+the original. Keep the A/B mapping outside the judge input and translate the
+returned decision to `original-better` or `candidate-better` only in the
+record. Preserve unavailable provenance and label manual fallbacks as manual.
+Jev cannot clear a hard failure or grant action authority. Honor service
+authorization, cost, and data bounds. JevSweeper is only for published review
+leftovers and is not this evaluator.
 
 Record the experiment as `keep`, `reject`, `inconclusive`, or `blocked`.
 Separate the first attempt from any recovery attempt. A successful transfer
