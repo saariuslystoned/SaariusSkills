@@ -2,10 +2,11 @@ name: Live journeys
 # Runs the DinkusKit live journeys (skills/dinkuskit-live-test/runner) against the beta test store,
 # beta.sm0ky.dev, on a GitHub runner. It never runs on pull requests or pushes: only from the
 # "Run workflow" button. This store belongs to this workflow alone; no Mac or other computer runs
-# journeys on it. Stripe TEST cards and Ship sandbox labels only.
+# journeys on it. Stripe TEST cards and Ship sandbox labels only. Before the journeys it updates the
+# store's DinkusKit beta plugins to the newest betas, and stops if an update asks for new permissions.
 #
-# The job log is public, so it shows only each journey's pass or fail. Steps, screenshots, the
-# console output and videos go to the private R2 bucket.
+# The job log is public, so it shows only each journey's pass or fail and the plugin versions tested.
+# Steps, screenshots, the console output and videos go to the private R2 bucket.
 
 on:
   workflow_dispatch:
@@ -14,6 +15,10 @@ on:
         description: Which journeys (a Playwright --grep; @running is all seven)
         default: "@running"
         required: true
+      update_store:
+        description: First update the store's DinkusKit plugins to the newest betas (stops if one asks for new permissions)
+        type: boolean
+        default: true
       video:
         description: Record a video of every browser window
         type: boolean
@@ -94,18 +99,28 @@ jobs:
         # The inbox key reaches only this step, never the install above.
         env:
           JOURNEYS: ${{ inputs.journeys }}
+          UPDATE_STORE: ${{ inputs.update_store }}
           DINKUS_E2E_OWNER_EMAIL: ${{ secrets.DINKUS_E2E_OWNER_EMAIL }}
           DINKUS_E2E_GMAIL_CLIENT_ID: ${{ secrets.DINKUS_E2E_GMAIL_CLIENT_ID }}
           DINKUS_E2E_GMAIL_CLIENT_SECRET: ${{ secrets.DINKUS_E2E_GMAIL_CLIENT_SECRET }}
           DINKUS_E2E_GMAIL_REFRESH_TOKEN: ${{ secrets.DINKUS_E2E_GMAIL_REFRESH_TOKEN }}
-        # Everything the run prints goes to the private proof, never to this public log. Its exit
-        # code goes to the report step, which fails the job unless it is 0 and every journey passed.
-        # The step's own limit leaves time to save the proof when a run hangs.
+        # First the store's beta plugins move to the newest betas, and the journeys run only once that
+        # has passed; both sign in with the same profile, so the journeys reuse its sign-in. Everything
+        # the run prints goes to the private proof, never to this public log. Its exit code goes to the
+        # report step, which fails the job unless it is 0 and every journey passed. The step's own
+        # limit leaves time to save the proof when a run hangs.
         timeout-minutes: 100
         run: |
           mkdir -p "$DINKUS_E2E_PROOF/$DINKUS_E2E_RUN"
+          log="$DINKUS_E2E_PROOF/$DINKUS_E2E_RUN/console.log"
+          : > "$log"
           code=0
-          npx playwright test --grep "$JOURNEYS" > "$DINKUS_E2E_PROOF/$DINKUS_E2E_RUN/console.log" 2>&1 || code=$?
+          if [ "$UPDATE_STORE" = "true" ]; then
+            npm run update-store >> "$log" 2>&1 || code=$?
+          fi
+          if [ "$code" = 0 ]; then
+            npx playwright test --grep "$JOURNEYS" >> "$log" 2>&1 || code=$?
+          fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
 
       - name: Save the proof to R2

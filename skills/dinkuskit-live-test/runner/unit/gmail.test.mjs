@@ -73,6 +73,16 @@ test("the public summary shows each journey's pass or fail and nothing from its 
   assert.doesNotMatch(out, /private detail|#1030|Add to cart/);
 });
 
+test("the public summary names the plugin versions the store ran, and says when none were recorded", () => {
+  const folder = mkdtempSync(join(tmpdir(), "summary-"));
+  const script = new URL("../scripts/run-summary.mjs", import.meta.url).pathname;
+  const report = { verdict: "PASS", journeys: [{ name: "Storefront", verdict: "PASS" }] };
+  writeFileSync(join(folder, "report.json"), JSON.stringify({ ...report, facts: { plugins: "dinkus-commerce-beta 0.3.1-beta.2, dinkus-payments-beta 0.2.9-beta.0" } }));
+  assert.match(execFileSync(process.execPath, [script, folder, "0"], { encoding: "utf8" }), /^Plugins tested: dinkus-commerce-beta 0\.3\.1-beta\.2, dinkus-payments-beta 0\.2\.9-beta\.0$/m);
+  writeFileSync(join(folder, "report.json"), JSON.stringify(report));
+  assert.match(execFileSync(process.execPath, [script, folder, "0"], { encoding: "utf8" }), /^Plugins tested: not recorded$/m);
+});
+
 test("a run that recorded nothing is a failure in the summary", () => {
   const folder = mkdtempSync(join(tmpdir(), "summary-"));
   const script = new URL("../scripts/run-summary.mjs", import.meta.url).pathname;

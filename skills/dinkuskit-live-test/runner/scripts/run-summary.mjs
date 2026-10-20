@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Prints the public part of a run's result: each journey and pass or fail, nothing else. The steps,
-// screenshots and console output stay in the private proof. The run fails unless Playwright exited
+// Prints the public part of a run's result: each journey and pass or fail, and the plugin versions the
+// store ran, so a release can check that its own beta passed. The steps, screenshots and console
+// output stay in the private proof. The run fails unless Playwright exited
 // 0 and every journey passed: a run cut off part way can leave a report of only passed journeys.
 //
 //   node scripts/run-summary.mjs <proof folder> <Playwright's exit code> [where the private proof went]
@@ -19,6 +20,7 @@ const lines = [
   ...journeys.map(({ name, verdict }) => `| ${name} | ${verdict} |`),
   ...(journeys.length ? [] : ["| Test run | FAIL: no journey recorded a result |"]),
   ...(finished ? [] : [`| Test run | FAIL: the run ${code ? `exited ${code}` : "was cut off"} |`]),
+  "", `Plugins tested: ${report?.facts?.plugins ?? "not recorded"}`,
   "", `Steps, screenshots and console output: ${proof}.`,
 ];
 console.log(lines.join("\n"));
