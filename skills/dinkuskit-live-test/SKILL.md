@@ -45,6 +45,29 @@ authorization the test needs.
 
 ## Run the test
 
+Before local setup, choose the store. **beta.sm0ky.dev belongs to the GitHub
+Live journeys workflow alone**; see the [runner's GitHub route](runner/README.md#run-on-github).
+For beta release proof, first inspect existing runs for the requested beta.
+Bind the repository/workflow, beta store, requested beta, runner commit, and
+run ID plus attempt. Check that the workflow and journey source applies to the
+current required `@running` roster and that the selection covers it; once the
+run completes, compare its recorded results with that roster.
+
+- Reuse a completed full pass only when every required journey actually passed,
+  **Plugins tested** includes the requested plugin version, and its applicable
+  `PROOF.md`, `report.json`, browser screenshots, and required label evidence
+  can be inspected. A green subset, wrong version, or missing evidence is not
+  a full-release pass; name the gap.
+- If a matching run is queued or running, retain its exact run ID/attempt and
+  follow it with a supported completion notification or bounded wait. Do not
+  dispatch a duplicate or run a repeated CI polling loop.
+- Start a new run through that existing workflow only when no applicable run
+  exists or the owner requests a fresh rerun, under the existing action gates.
+  Do not run journeys on the beta store locally.
+
+Existing proof establishes what that run observed, not what a mutable store
+still has deployed now. For other test stores, use the local steps below.
+
 1. Work in this skill's [runner](runner/) folder. Run `npm ci` the first time. If
    the skill folder is read-only, copy `runner/` to `~/.dinkus-e2e/runner` and work
    there.
@@ -102,6 +125,9 @@ authorization the test needs.
 
 ## For a new plugin release
 
+For beta.sm0ky.dev, use the existing-run route in [Run the test](#run-the-test).
+The local release steps below apply to other test stores.
+
 1. Make sure the test store runs the release. The proof lists the store's plugins
    and their versions under "plugins". If it shows the old version, update the
    plugin from the store admin's Plugins page, then run the test again.
@@ -109,10 +135,7 @@ authorization the test needs.
    release, with that store's settings file:
    `DINKUS_E2E_ENV_FILE=<that store's settings file> npm test`. On a store whose
    Commerce can't rename and archive a product, Manage products stops at its first
-   step; on one older than 0.3.0-beta.4, Full catalog adds nothing. The beta store,
-   beta.sm0ky.dev, belongs to the repository's **Live journeys** workflow
-   (Actions, Run workflow); once that has passed there, no Mac runs journeys on
-   it. See the runner README's "Run on GitHub".
+   step; on one older than 0.3.0-beta.4, Full catalog adds nothing.
 3. Hand back the verdict with the plugin versions it covered, so the owner knows
    which release passed.
 
