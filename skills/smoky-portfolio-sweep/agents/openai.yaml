@@ -1,0 +1,4 @@
+interface:
+  display_name: "Portfolio Sweep"
+  short_description: "Qualify and close selected issues and pull requests."
+  default_prompt: "Use $smoky-portfolio-sweep for the current bounded task, following repository instructions and any optional local binding."

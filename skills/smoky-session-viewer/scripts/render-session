@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+"""Render a local agent JSONL session into a private searchable HTML file."""
+
+from __future__ import annotations
+
+import argparse
+import html
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+
+SECRET_PATTERNS = [
+    re.compile(r"\b(sk-[A-Za-z0-9_-]{12,})"),
+    re.compile(r"\b(gh[pousr]_[A-Za-z0-9_]{12,})"),
+    re.compile(r"\b(xox[baprs]-[A-Za-z0-9-]{12,})"),
+    re.compile(r"\b(xapp-[A-Za-z0-9-]{12,})"),
+    re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{16,}"),
+    re.compile(r"(?i)(token|password|secret|api[_-]?key)(['\"\s:=]+)[^\s'\",]{8,}"),
+]
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Render JSONL session transcript as HTML.")
+    parser.add_argument("session", type=Path, help="Input JSONL session path.")
+    parser.add_argument("--out", type=Path, help="Output HTML path.")
+    parser.add_argument("--open", action="store_true", help="Open the rendered HTML.")
+    parser.add_argument("--no-redact", action="store_true", help="Disable best-effort token redaction.")
+    parser.add_argument("--overwrite", action="store_true", help="Replace an existing output file, never the source transcript.")
+    return parser.parse_args()
+
+
+def redact(text: str) -> str:
+    redacted = text
+    for pattern in SECRET_PATTERNS:
+        if pattern.pattern.lower().startswith("(?i)(bearer"):
+            redacted = pattern.sub(r"\1REDACTED", redacted)
+        elif "token|password|secret" in pattern.pattern:
+            redacted = pattern.sub(r"\1\2REDACTED", redacted)
+        else:
+            redacted = pattern.sub("REDACTED", redacted)
+    return redacted
+
+
+def compact_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, list):
+        parts = []
+        for item in value:
+            if isinstance(item, dict):
+                parts.append(compact_text(item.get("text") or item.get("content") or item))
+            else:
+                parts.append(compact_text(item))
+        return "\n".join(part for part in parts if part)
+    if isinstance(value, dict):
+        for key in ("text", "content", "message", "output", "arguments", "summary"):
+            if key in value:
+                found = compact_text(value[key])
+                if found:
+                    return found
+        return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False)
+    return str(value)
+
+
+def event_from_record(line_no: int, record: Any, should_redact: bool) -> dict[str, str]:
+    title = f"line {line_no}"
+    role = ""
+    timestamp = ""
+    text = ""
+
+    if isinstance(record, dict):
+        payload = record.get("payload") if isinstance(record.get("payload"), dict) else record
+        role = str(payload.get("role") or record.get("role") or "")
+        timestamp = str(record.get("timestamp") or payload.get("timestamp") or "")
+        kind = str(payload.get("type") or record.get("type") or "event")
+        name = str(payload.get("name") or payload.get("toolName") or "")
+        title = " ".join(part for part in (kind, role, name) if part) or title
+        text = compact_text(payload)
+    else:
+        text = compact_text(record)
+
+    if should_redact:
+        text = redact(text)
+    return {
+        "title": title,
+        "role": role,
+        "timestamp": timestamp,
+        "text": text,
+    }
+
+
+def read_events(path: Path, should_redact: bool) -> tuple[list[dict[str, str]], list[str]]:
+    events: list[dict[str, str]] = []
+    warnings: list[str] = []
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        for line_no, line in enumerate(handle, 1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                record = json.loads(stripped)
+            except json.JSONDecodeError as exc:
+                warnings.append(f"line {line_no}: {exc.msg}")
+                record = stripped
+            events.append(event_from_record(line_no, record, should_redact))
+    return events, warnings
+
+
+def build_html(source: Path, events: list[dict[str, str]], warnings: list[str]) -> str:
+    items = []
+    for index, event in enumerate(events, 1):
+        title = html.escape(event["title"])
+        role = html.escape(event["role"])
+        timestamp = html.escape(event["timestamp"])
+        text = html.escape(event["text"])
+        items.append(
+            f"<article class='event' data-search='{title} {role} {timestamp} {text}'>"
+            f"<header><strong>#{index} {title}</strong><span>{role}</span><time>{timestamp}</time></header>"
+            f"<pre>{text}</pre></article>"
+        )
+    warning_html = "".join(f"<li>{html.escape(w)}</li>" for w in warnings)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Private Session Viewer</title>
+<style>
+body {{ margin: 0; font: 14px/1.45 ui-sans-serif, system-ui, sans-serif; color: #1f2937; background: #f6f7f8; }}
+header.top {{ position: sticky; top: 0; z-index: 2; padding: 16px 20px; background: #ffffff; border-bottom: 1px solid #d8dde3; }}
+h1 {{ margin: 0 0 8px; font-size: 18px; }}
+.meta {{ color: #526070; font-size: 12px; word-break: break-all; }}
+#search {{ margin-top: 12px; width: min(760px, 100%); padding: 9px 11px; border: 1px solid #b8c0cc; border-radius: 7px; }}
+main {{ max-width: 1100px; margin: 0 auto; padding: 20px; }}
+.event {{ margin: 0 0 14px; padding: 14px; background: #ffffff; border: 1px solid #d8dde3; border-radius: 8px; }}
+.event header {{ display: flex; flex-wrap: wrap; gap: 10px; color: #526070; font-size: 12px; margin-bottom: 10px; }}
+.event header strong {{ color: #111827; font-size: 13px; }}
+pre {{ margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
+.warnings {{ margin-top: 10px; color: #7c2d12; }}
+.hidden {{ display: none; }}
+</style>
+</head>
+<body>
+<header class="top">
+<h1>Private Session Viewer</h1>
+<div class="meta">source: {html.escape(str(source))} | events: {len(events)} | private local artifact</div>
+<input id="search" type="search" placeholder="Search transcript">
+{"<ul class='warnings'>" + warning_html + "</ul>" if warnings else ""}
+</header>
+<main>{''.join(items)}</main>
+<script>
+const input = document.getElementById('search');
+const events = Array.from(document.querySelectorAll('.event'));
+input.addEventListener('input', () => {{
+  const q = input.value.trim().toLowerCase();
+  for (const event of events) {{
+    event.classList.toggle('hidden', q && !event.dataset.search.toLowerCase().includes(q));
+  }}
+}});
+</script>
+</body>
+</html>
+"""
+
+
+def open_file(path: Path) -> None:
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", str(path)])
+    elif sys.platform.startswith("win"):
+        subprocess.Popen(["cmd", "/c", "start", "", str(path)])
+    else:
+        subprocess.Popen(["xdg-open", str(path)])
+
+
+def main() -> int:
+    args = parse_args()
+    source = args.session.expanduser().resolve()
+    if not source.is_file():
+        print(f"missing session file: {source}", file=sys.stderr)
+        return 2
+    requested_out = (args.out or source.with_suffix(source.suffix + ".html")).expanduser().absolute()
+    if requested_out.is_symlink():
+        print("refusing a symlink output", file=sys.stderr)
+        return 2
+    out = requested_out.resolve()
+    if out == source or (out.exists() and out.samefile(source)):
+        print("output must differ from the source transcript", file=sys.stderr)
+        return 2
+    events, warnings = read_events(source, should_redact=not args.no_redact)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | (os.O_TRUNC if args.overwrite else os.O_EXCL)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(out, flags, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            if hasattr(os, "fchmod"):
+                os.fchmod(handle.fileno(), 0o600)
+            handle.write(build_html(source, events, warnings))
+    except OSError as exc:
+        print(f"could not write output: {exc.strerror}; use a new path or --overwrite", file=sys.stderr)
+        return 2
+    print(f"wrote: {out}")
+    print(f"events: {len(events)}")
+    if warnings:
+        print(f"warnings: {len(warnings)}")
+    if args.open:
+        open_file(out)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,6 +1,6 @@
 {
   "name": "saarius-skills",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Experimental agent skills, product decisions, and instructions for local Cursor, Antigravity, Grok, and Muse ACP delegation (MCP servers ship in the separate ai-shed plugin).",
   "author": {
     "name": "Bobby Bones",
