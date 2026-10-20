@@ -31,11 +31,14 @@ Status: READY_FOR_REVIEW. Source implementation complete; external reviews and m
 | YAML parsing / name / description | PASS: twelve skills | `frontmatter-compatibility.json` |
 | Generic skill-creator quick validator | Two local skills PASS; ten upstream skills rejected only for their existing `disable-model-invocation` key | `quick-validate.json` |
 | Scope / unchanged discovery | No changed paths outside the assigned PStack/source/proof slice | `scope-check.json` |
-| `git diff --check` | PASS | `diff-check.txt` |
+| `git diff --check <base> HEAD` | One upstream EOF blank-line warning retained verbatim | `diff-check.txt` |
+| Non-vendor `git diff --check` | PASS | `diff-check-owned.txt` |
 
 The generic quick validator initially lacked PyYAML (`quick-validate-missing-pyyaml.json`). PyYAML 6.0.2 was installed in this task's disposable proof virtualenv, used to run validation and parse the metadata, then removed. The ten upstream `disable-model-invocation` fields are preserved rather than silently altering invocation policy. This is a validator-schema incompatibility inherited from the old upstream package, not claimed as a passing generic check.
 
 The existing packaging test initially passed, then its global filesystem scan encountered the temporary virtualenv's binary (`packaging-tests-scratch-environment-failure.txt`). Removing only this task-created disposable environment restored the 22-test PASS. No change to the existing test or its scope was made.
+
+The staged full diff reports `vendor/pstack/skills/automate-me/SKILL.md:104: new blank line at EOF`. This is a byte-for-byte upstream file, so it is preserved. The non-vendor diff passes. Source implementation commit: `66f52cd6169cc9fb44b21b37e21ec0ff5cd0a82d`.
 
 ## Boundaries and remaining review
 
