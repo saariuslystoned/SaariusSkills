@@ -1,0 +1,23 @@
+[
+  {
+    "path": "pstack/skills/bobby-mode/SKILL.md",
+    "source_path": "pstack/custom/skills/bobby-mode/SKILL.md",
+    "sha256": "846078d9131e431e2ca805f4e2d27bc738ef2e9f60a7a75d49e1501ba4596784",
+    "custom_source_matches_base": true,
+    "packaged_matches_base": true
+  },
+  {
+    "path": "pstack/skills/bobby-mode/chatgpt-custom-instructions.txt",
+    "source_path": "pstack/custom/skills/bobby-mode/chatgpt-custom-instructions.txt",
+    "sha256": "f591ed6f3ce17e90651201be85ab744b17766dcd8db83fcc06748e071bd532d7",
+    "custom_source_matches_base": true,
+    "packaged_matches_base": true
+  },
+  {
+    "path": "pstack/skills/pstack-playbooks/SKILL.md",
+    "source_path": "pstack/custom/skills/pstack-playbooks/SKILL.md",
+    "sha256": "fef3cbca526f17a8b5e992b645fe6dadd0ca2ab0611d946daaf90443accd5933",
+    "custom_source_matches_base": true,
+    "packaged_matches_base": true
+  }
+]

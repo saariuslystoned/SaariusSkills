@@ -1,0 +1,62 @@
+[
+  {
+    "skill": "architect",
+    "exit_code": 1,
+    "output": "Unexpected key(s) in SKILL.md frontmatter: disable-model-invocation. Allowed properties are: allowed-tools, description, license, metadata, name"
+  },
+  {
+    "skill": "automate-me",
+    "exit_code": 1,
+    "output": "Unexpected key(s) in SKILL.md frontmatter: disable-model-invocation. Allowed properties are: allowed-tools, description, license, metadata, name"
+  },
+  {
+    "skill": "blast-radius",
+    "exit_code": 1,
+    "output": "Unexpected key(s) in SKILL.md frontmatter: disable-model-invocation. Allowed properties are: allowed-tools, description, license, metadata, name"
+  },
+  {
+    "skill": "bobby-mode",
+    "exit_code": 0,
+    "output": "Skill is valid!"
+  },
+  {
+    "skill": "create-verification-skill",
+    "exit_code": 1,
+    "output": "Unexpected key(s) in SKILL.md frontmatter: disable-model-invocation. Allowed properties are: allowed-tools, description, license, metadata, name"
+  },
+  {
+    "skill": "how",
+    "exit_code": 1,
+    "output": "Unexpected key(s) in SKILL.md frontmatter: disable-model-invocation. Allowed properties are: allowed-tools, description, license, metadata, name"
+  },
+  {
+    "skill": "maintain-verification-skill",
+    "exit_code": 1,
+    "output": "Unexpected key(s) in SKILL.md frontmatter: disable-model-invocation. Allowed properties are: allowed-tools, description, license, metadata, name"
+  },
+  {
+    "skill": "pstack-playbooks",
+    "exit_code": 0,
+    "output": "Skill is valid!"
+  },
+  {
+    "skill": "reflect",
+    "exit_code": 1,
+    "output": "Unexpected key(s) in SKILL.md frontmatter: disable-model-invocation. Allowed properties are: allowed-tools, description, license, metadata, name"
+  },
+  {
+    "skill": "tdd",
+    "exit_code": 1,
+    "output": "Unexpected key(s) in SKILL.md frontmatter: disable-model-invocation. Allowed properties are: allowed-tools, description, license, metadata, name"
+  },
+  {
+    "skill": "unslop",
+    "exit_code": 1,
+    "output": "Unexpected key(s) in SKILL.md frontmatter: disable-model-invocation. Allowed properties are: allowed-tools, description, license, metadata, name"
+  },
+  {
+    "skill": "why",
+    "exit_code": 1,
+    "output": "Unexpected key(s) in SKILL.md frontmatter: disable-model-invocation. Allowed properties are: allowed-tools, description, license, metadata, name"
+  }
+]

@@ -1,0 +1,24 @@
+ pstack/skills/architect/SKILL.md                   |  18 ++--
+ .../architect/references/design-red-flags.md       |  24 +++++
+ .../skills/architect/references/runner-prompt.md   |   2 +-
+ pstack/skills/automate-me/SKILL.md                 |   2 +-
+ pstack/skills/blast-radius/SKILL.md                |   2 +-
+ pstack/skills/create-verification-skill/SKILL.md   |   6 +-
+ pstack/skills/how/SKILL.md                         |  44 ++------
+ pstack/skills/how/references/explorer-prompt.md    |  17 ---
+ pstack/skills/reflect/SKILL.md                     |  46 ++++----
+ .../reflect/references/divergent-reviewer.md       |  21 ++--
+ .../skills/reflect/references/judgment-reviewer.md |  21 ++--
+ pstack/skills/reflect/references/synthesizer.md    |   4 +-
+ .../skills/reflect/references/tooling-reviewer.md  |  25 ++---
+ pstack/skills/unslop/SKILL.md                      |  25 ++---
+ pstack/skills/why/SKILL.md                         | 118 +++++----------------
+ pstack/skills/why/references/epistemics.md         | 117 ++++----------------
+ .../skills/why/references/investigator-prompt.md   |  65 ++++--------
+ .../why/references/sources/code-archaeology.md     |  49 ++-------
+ pstack/skills/why/references/sources/datadog.md    |  24 ++---
+ .../why/references/sources/incident-postmortem.md  |  10 --
+ pstack/skills/why/references/sources/sentry.md     |  40 +------
+ pstack/skills/why/references/sources/slack.md      |  37 -------
+ pstack/skills/why/references/synthesizer-prompt.md |  74 ++++++-------
+ 23 files changed, 233 insertions(+), 558 deletions(-)
