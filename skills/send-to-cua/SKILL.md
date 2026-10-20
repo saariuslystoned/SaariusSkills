@@ -15,8 +15,8 @@ opens Codex with it already typed in.
 
 His cua model is **GPT-6.1 Sol, Medium effort, Fast** (his default in the
 Codex app). A Codex deep link cannot pick the model, effort, speed or
-permission mode, so the new chat uses whatever the app's picker last had. If
-the picker shows anything else, he switches it before pressing Enter.
+permission mode, so the new chat uses whatever the app's picker last had
+(Full access and Sol Medium Fast were set in the 20 Oct smoke test).
 
 ## 1. Write the prompt
 
@@ -58,10 +58,14 @@ Codex if it is not running, and opens `codex://new?prompt=...&path=<workspace>`.
 The workspace is `~/Developer/side-quests/x-api` or `CUA_WORKSPACE`; the
 script refuses to run if it is missing rather than open Codex on the whole
 home folder. A prompt too long for the link (`CUA_MAX_URL`, 16000 bytes)
-opens an empty chat and he pastes. Codex never sends a deep-linked prompt by
-itself: Bobby presses Enter, and picks Full access if Codex asks. If the
-composer comes up empty, he pastes. `--dry-run` prints the paths and the link
-without opening anything.
+opens an empty chat and the script pastes it. Codex never sends a
+deep-linked prompt by itself, so the script then presses Return in Codex, but
+only while Codex is the app in front (Bobby asked for this on 20 Oct: "ideally
+it does it all for me"). macOS asks once to allow the app running the script
+(Terminal, or the Remote Control session's app) under Accessibility. If it
+cannot press Return, it says why and he presses Enter. `--no-send` stops at
+the typed-in prompt, for a prompt he wants to read first. `--dry-run` prints
+the paths and the link without opening anything.
 
 **From a cloud thread** (no shell on his Mac):
 
@@ -79,10 +83,11 @@ without opening anything.
      never download or pull a newer one itself;
    - report one line (the script's output, or the exact error), and nothing
      else.
-3. Wait for that line. Then tell him in one line what is left for his hand:
-   allow the Remote Control card if one came up, check the picker shows
-   GPT-6.1 Sol, Medium, Fast, pick Full access if Codex asks, and press
-   Enter (or paste first, if the script said the prompt was too long).
+3. Wait for that line. "Sent:" means the cua is working: tell him in one
+   line, and that the report will land in `~/.cua/reports/`. Otherwise name
+   what is left for his hand: allow the Remote Control card or the
+   Accessibility prompt, and press Enter (or paste first, if the script said
+   the prompt was too long).
 
 **Installing the launcher** is Bobby's step, once per change, because his
 Mac's safety check rightly refuses to download and run code it has not
@@ -106,8 +111,9 @@ status, version ids, a GitHub secret's name) before calling a step done.
 - Codex needs Full access and the Computer Use plugin installed and allowed.
   The cua acts as Bobby in his signed-in browser, so the STOP rules are the
   only brake: never drop them to make a prompt shorter.
-- Nothing is sent without Bobby pressing Enter. That is intended: the cua
-  changes real accounts.
+- The cua starts without Bobby reading the prompt, so the launcher's
+  built-in STOP rules and the prompt's own STOPs are what make it wait for
+  him. Use `--no-send` for anything he should read first.
 - One cua job at a time against the same store, Worker or dashboard, and
   never while a Live journeys run uses that store.
 - ACP lanes (Cursor, Grok, Antigravity, Muse) are coding workers with no

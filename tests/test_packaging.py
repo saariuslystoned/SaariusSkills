@@ -558,6 +558,9 @@ class PackagingTests(unittest.TestCase):
             self.assertIn("at every permission grant or consent screen", body)
             self.assertIn(tricky, body)
             self.assertIn("pbcopy < '" + str(home / "reports"), body)
+            self.assertIn("--no-send", script.read_text(encoding="utf-8"))
+            # Keys go to Codex only while it is in front.
+            self.assertIn("frontmost is true", script.read_text(encoding="utf-8"))
 
             # Too long for the link: an empty chat to paste into.
             lines = dry_run(CUA_MAX_URL="100")

@@ -205,7 +205,7 @@ prompt the way the 20+ hand-copied prompts before it worked best (one target,
 STOP rules, numbered steps, a report table) and opens it in Codex for him:
 `scripts/send-to-cua.sh <prompt-file>` attaches Computer Use, opens
 `codex://new` with the prompt typed in, and asks the cua to save its report to
-`~/.cua/reports/` and the clipboard. Bobby presses Enter to start it. Cloud
+`~/.cua/reports/` and the clipboard, then presses Enter in Codex for him. Cloud
 threads run the same script on his Mac through a Remote Control session.
 
 ## PhoneProof

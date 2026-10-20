@@ -1,34 +1,41 @@
 #!/usr/bin/env bash
 # Open a new Codex chat on this Mac with a computer-use prompt typed into it.
 #
-#   send-to-cua.sh <prompt-file> [--name <slug>] [--dry-run]
+#   send-to-cua.sh <prompt-file> [--name <slug>] [--no-send] [--dry-run]
 #
 # The Codex app opens on a new chat with "@Computer Use" attached, fixed
 # ground rules, the prompt, and a report rule. Codex does not send a
-# deep-linked prompt by itself, so the owner presses Enter (and picks Full
-# access if Codex asks). The prompt also lands on the clipboard, in case the
-# composer comes up empty or the prompt is too long for the link.
+# deep-linked prompt by itself, so the script then presses Return in Codex
+# (System Events; macOS asks once to allow the app running this script to
+# control the computer). --no-send stops at the typed-in prompt. The prompt
+# also lands on the clipboard; a prompt too long for the link is pasted.
 #
 # Settings (environment):
 #   CUA_WORKSPACE  folder the Codex chat opens in.
 #                  Default: ~/Developer/side-quests/x-api (must exist).
 #   CUA_HOME       where prompts and reports are kept. Default: ~/.cua
 #   CUA_MAX_URL    longest link to hand to Codex, in bytes. Default: 16000.
-#                  A longer prompt opens an empty chat to paste into.
+#                  A longer prompt opens an empty chat and is pasted.
+#   CUA_APP_ID     Codex's bundle id. Default: com.openai.codex. Return is
+#                  pressed only while this app is in front.
+#   CUA_SEND_DELAY seconds to wait for the chat before pressing Return.
+#                  Default: 4.
 set -euo pipefail
 
 usage() {
-  echo "usage: send-to-cua.sh <prompt-file> [--name <slug>] [--dry-run]" >&2
+  echo "usage: send-to-cua.sh <prompt-file> [--name <slug>] [--no-send] [--dry-run]" >&2
   exit 2
 }
 
 prompt_file=""
 name=""
 dry_run=0
+send=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --name) [ $# -ge 2 ] || usage; name="$2"; shift 2 ;;
     --dry-run) dry_run=1; shift ;;
+    --no-send) send=0; shift ;;
     -h|--help) usage ;;
     -*) usage ;;
     *) [ -z "$prompt_file" ] || usage; prompt_file="$1"; shift ;;
@@ -96,20 +103,46 @@ if [ "$dry_run" -eq 1 ]; then
   exit 0
 fi
 
+app_id="${CUA_APP_ID:-com.openai.codex}"
 pbcopy < "$sent"
 # A deep link that arrives while the app is still starting can be dropped,
 # so start Codex first and give it a moment.
-if [ "$(osascript -e 'application id "com.openai.codex" is running' 2>/dev/null || echo false)" != "true" ]; then
+if [ "$(osascript -e "application id \"$app_id\" is running" 2>/dev/null || echo false)" != "true" ]; then
   # Best effort: if the bundle id is wrong, opening the link still starts
   # whichever app handles codex://.
-  if open -b com.openai.codex 2>/dev/null; then sleep 5; fi
+  if open -b "$app_id" 2>/dev/null; then sleep 5; fi
 fi
 open "$url"
-if [ "$pasted" -eq 1 ]; then
+
+sent_it=0
+if [ "$send" -eq 1 ]; then
+  sleep "${CUA_SEND_DELAY:-4}"
+  # Press keys only while Codex is in front, so a stray window never gets them.
+  front="$(osascript -e 'tell application "System Events" to get bundle identifier of first application process whose frontmost is true' 2>/dev/null || true)"
+  if [ "$front" = "$app_id" ]; then
+    keys='key code 36'
+    [ "$pasted" -eq 0 ] || keys='keystroke "v" using command down
+delay 1
+key code 36'
+    if osascript -e "tell application \"System Events\"
+$keys
+end tell" >/dev/null 2>&1; then
+      sent_it=1
+    else
+      echo "Could not press Return: allow this app under System Settings > Privacy & Security > Accessibility, then run again." >&2
+    fi
+  else
+    echo "Did not press Return: the app in front is '${front:-unknown}', not $app_id (set CUA_APP_ID if that is Codex)." >&2
+  fi
+fi
+
+if [ "$sent_it" -eq 1 ]; then
+  echo "Sent: the cua is working in a new Codex chat in $workspace."
+elif [ "$pasted" -eq 1 ]; then
   echo "Opened a new Codex chat in $workspace. The prompt is too long for the link: paste it (it is on the clipboard), then press Enter."
 else
   echo "Opened a new Codex chat in $workspace with the prompt typed in. Press Enter to start it."
+  echo "If the composer is empty, paste: the prompt is on the clipboard."
 fi
-echo "If the composer is empty, paste: the prompt is on the clipboard."
 echo "prompt: $sent"
 echo "report: $report"
