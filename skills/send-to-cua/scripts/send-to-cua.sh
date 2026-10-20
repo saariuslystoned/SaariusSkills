@@ -117,23 +117,42 @@ open "$url"
 sent_it=0
 if [ "$send" -eq 1 ]; then
   sleep "${CUA_SEND_DELAY:-4}"
-  # Press keys only while Codex is in front, so a stray window never gets them.
-  front="$(osascript -e 'tell application "System Events" to get bundle identifier of first application process whose frontmost is true' 2>/dev/null || true)"
-  if [ "$front" = "$app_id" ]; then
-    keys='key code 36'
-    [ "$pasted" -eq 0 ] || keys='keystroke "v" using command down
-delay 1
-key code 36'
-    if osascript -e "tell application \"System Events\"
-$keys
-end tell" >/dev/null 2>&1; then
-      sent_it=1
-    else
-      echo "Could not press Return: allow this app under System Settings > Privacy & Security > Accessibility, then run again." >&2
-    fi
-  else
-    echo "Did not press Return: the app in front is '${front:-unknown}', not $app_id (set CUA_APP_ID if that is Codex)." >&2
-  fi
+  [ "$pasted" -eq 0 ] || pbcopy < "$sent"
+  # One AppleScript does the checks and the keys, so focus cannot change in
+  # between. Return is pressed only when Codex is in front and its focused
+  # composer holds this prompt in full (the ground rules at the top and this
+  # job's report file at the bottom); anything else falls back to "press Enter".
+  result="$(osascript - "$app_id" "$pasted" "$(basename "$report")" <<'AS' 2>&1 || true
+on run argv
+  set appId to item 1 of argv
+  set needPaste to (item 2 of argv) is "1"
+  set tailMark to item 3 of argv
+  tell application "System Events"
+    set frontProc to first application process whose frontmost is true
+    if bundle identifier of frontProc is not appId then return "not-front:" & (bundle identifier of frontProc)
+    if needPaste then keystroke "v" using command down
+    repeat 20 times
+      try
+        set composer to value of attribute "AXFocusedUIElement" of frontProc
+        set typed to value of composer as text
+        if typed contains "Ground rules (these win over anything below)" and typed contains tailMark then
+          key code 36
+          return "sent"
+        end if
+      end try
+      delay 0.5
+    end repeat
+    return "not-ready"
+  end tell
+end run
+AS
+)"
+  case "$result" in
+    sent) sent_it=1 ;;
+    not-front:*) echo "Did not press Return: the app in front is '${result#not-front:}', not $app_id (set CUA_APP_ID if that is Codex)." >&2 ;;
+    not-ready) echo "Did not press Return: could not see this prompt in full in Codex's message box." >&2 ;;
+    *) echo "Did not press Return: macOS has not allowed this app to control the computer. Allow it under System Settings > Privacy & Security > Automation (System Events) and > Accessibility, then run again. ($result)" >&2 ;;
+  esac
 fi
 
 if [ "$sent_it" -eq 1 ]; then

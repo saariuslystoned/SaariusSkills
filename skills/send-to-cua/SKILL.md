@@ -60,11 +60,21 @@ script refuses to run if it is missing rather than open Codex on the whole
 home folder. A prompt too long for the link (`CUA_MAX_URL`, 16000 bytes)
 opens an empty chat and the script pastes it. Codex never sends a
 deep-linked prompt by itself, so the script then presses Return in Codex, but
-only while Codex is the app in front (Bobby asked for this on 20 Oct: "ideally
-it does it all for me"). macOS asks once to allow the app running the script
-(Terminal, or the Remote Control session's app) under Accessibility. If it
-cannot press Return, it says why and he presses Enter. `--no-send` stops at
-the typed-in prompt, for a prompt he wants to read first. `--dry-run` prints
+only while Codex is the app in front and its message box shows this prompt
+in full (Bobby asked for this on 20 Oct: "ideally it does it all for me").
+The first run asks two macOS prompts for the app running the script
+(Terminal, or the Remote Control session's app): **Automation** (control
+System Events) and **Accessibility**. Either grant covers everything run from
+that app, so every agent he runs there could also type into other apps. If
+it cannot press Return, it says why and he presses Enter. `--no-send` stops
+at the typed-in prompt.
+
+**His go comes before the send.** Pressing Enter used to be Bobby's go; now
+the launcher sends. So on every path, an agent shows him the prompt and
+waits for his typed go ("send it") before running the launcher without
+`--no-send`. A prompt that names a deploy, secret change, publish, payment or
+delete as a step runs those steps without stopping, so it never goes without
+that go. `--dry-run` prints
 the paths and the link without opening anything.
 
 **From a cloud thread** (no shell on his Mac):
