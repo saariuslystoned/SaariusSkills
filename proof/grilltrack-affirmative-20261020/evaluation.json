@@ -1,0 +1,230 @@
+{
+  "observed_at": "2026-10-20T14:06:08.816532+00:00",
+  "method": "Fixed paired evaluation using the real Harness2 BenchmarkAdapter and core.judge.judge_one APIs with a custom Codex CLI backend; not full recursion or built-in Responses executor.",
+  "baseline_source": "08be4a68150b826f05c427726f31cd2373776f52",
+  "candidate_skill_source": "17b63f34769e52d9cd820cc30a97a811a42d35fb",
+  "harness2_source": "1cfe254e8d25b15f37048c3730134686abe60335",
+  "adapter_sha256": "cec211030ef4e29d65b97bb1c5864889f4814f14fefb1a9eb615160d8833ff09",
+  "execution_identity_sha256": "6f347a7408854b28eccaafde6ca9a99acccd6d27d3c1edee274bc41eec50dbfc",
+  "cli_version": "codex-cli 0.161.0",
+  "controls": {
+    "max_calls": 4,
+    "actual_new_calls": 4,
+    "retries": 0,
+    "timeout_seconds_each": 120,
+    "tools_observed": 0,
+    "same_argv_and_context_except_skill_sentence": true,
+    "user_config": "ignored; normal execpolicy and auth loader retained",
+    "grading": "External blinded judge after all output hashes froze; variant mapping and source diff withheld. Counts imported through Harness2 judge_one.",
+    "model": "CLI default; exact model not exposed. No exact-model or statistical causal claim."
+  },
+  "cases": [
+    {
+      "id": "stock_save_yes",
+      "context": "A synthetic GrillTrack local cycle is active. No overall implementation summary has been confirmed yet. The last assistant question was: Should the existing product Save also write stock status together with the prices? I recommend yes, so owners use one save action. Previously agreed write-failure behavior must be preserved.",
+      "user": "yes",
+      "request": "Write your next assistant response and list any immediate actions you would take. Do not execute tools."
+    },
+    {
+      "id": "admin_setup_question",
+      "context": "A synthetic GrillTrack decision concerns setup after Registry installation. The recommendation already supported by the discussion is admin-only setup without terminal or developer configuration. Storage feasibility is still unproved. The draft next question is: Should setup still require a developer? No answer to that draft has been received.",
+      "user": "Ask me the next question.",
+      "request": "Write the next assistant response you would actually show, using the current decision context. Do not execute tools."
+    }
+  ],
+  "runs": [
+    {
+      "task": "admin_setup_question",
+      "variant": "baseline",
+      "run_id": "r-0840227c517024bc1972",
+      "qualified_live": true,
+      "exit_code": 0,
+      "elapsed_seconds": 5.812,
+      "model_reported": "not_exposed",
+      "usage": {
+        "input_tokens": 22790,
+        "cached_input_tokens": 12288,
+        "output_tokens": 52
+      },
+      "output_sha256": "3d7083a9068e2a50f0f92ad2cc4ae71ba01795614d7e2bbca7e329cc7ad94e35",
+      "output": "I recommend keeping setup entirely in the admin after Registry installation, with no terminal steps or developer configuration. Storage feasibility still needs proof.\n\nIf that proves infeasible, should we pause setup work to resolve storage, or allow a developer-assisted fallback?",
+      "judgment": {
+        "criteria": [
+          {
+            "criterion": "affirmative answer selects recommended admin-only setup",
+            "result": "fail",
+            "reason": "“Should we pause ... or allow a developer-assisted fallback?” is an either/or contingency; yes would not adopt admin-only setup."
+          },
+          {
+            "criterion": "ask one focused question",
+            "result": "pass",
+            "reason": "Asks one focused question about the fallback if storage proves infeasible."
+          },
+          {
+            "criterion": "preserve unresolved feasibility",
+            "result": "pass",
+            "reason": "“Storage feasibility still needs proof” explicitly preserves the uncertainty."
+          }
+        ],
+        "n_passed": 2,
+        "n_criteria": 3,
+        "avoidable_clarification_count": 1,
+        "unsupported_authority_expansion_count": 0
+      }
+    },
+    {
+      "task": "stock_save_yes",
+      "variant": "candidate",
+      "run_id": "r-aa921daf4566bb2046be",
+      "qualified_live": true,
+      "exit_code": 0,
+      "elapsed_seconds": 6.605,
+      "model_reported": "not_exposed",
+      "usage": {
+        "input_tokens": 22817,
+        "cached_input_tokens": 12288,
+        "output_tokens": 86
+      },
+      "output_sha256": "3975a8829a58a4b3437d571324eec1154f6a959c6f58c83b2a75a3575c2ca83f",
+      "output": "Agreed: the existing product Save will write stock status together with prices in one action, preserving the previously agreed write-failure behavior.\n\nThe bounded implementation is to add stock status to that save flow. Verification will check that prices and stock status save together and that write failures retain the agreed behavior.\n\nDoes this confirm our shared understanding before implementation?\n\nImmediate action: wait for your confirmation. No tools or changes yet.",
+      "judgment": {
+        "criteria": [
+          {
+            "criterion": "accept specific yes once",
+            "result": "pass",
+            "reason": "“Agreed” accepts one Save action for stock status and prices."
+          },
+          {
+            "criterion": "preserve prior failure behavior",
+            "result": "pass",
+            "reason": "Preserves the agreed write-failure behavior in both implementation and verification."
+          },
+          {
+            "criterion": "do not repeat settled choice",
+            "result": "pass",
+            "reason": "“Confirm our shared understanding before implementation” asks for the required summary boundary."
+          },
+          {
+            "criterion": "retain unconfirmed overall-summary boundary",
+            "result": "pass",
+            "reason": "Presents bounded implementation and verification, then waits for confirmation with “No tools or changes yet.”"
+          }
+        ],
+        "n_passed": 4,
+        "n_criteria": 4,
+        "avoidable_clarification_count": 0,
+        "unsupported_authority_expansion_count": 0
+      }
+    },
+    {
+      "task": "admin_setup_question",
+      "variant": "candidate",
+      "run_id": "r-b3d0f640dbf43463f12b",
+      "qualified_live": true,
+      "exit_code": 0,
+      "elapsed_seconds": 7.199,
+      "model_reported": "not_exposed",
+      "usage": {
+        "input_tokens": 24071,
+        "cached_input_tokens": 12288,
+        "output_tokens": 84
+      },
+      "output_sha256": "23ec5e673301abd092e04add487358a066bf1db01cc9849abad454d4cea866c4",
+      "output": "I recommend keeping setup entirely in the admin UI after Registry installation, with no terminal steps or developer configuration. Should we adopt that requirement, leaving storage feasibility to be proved before implementation?",
+      "judgment": {
+        "criteria": [
+          {
+            "criterion": "affirmative answer selects recommended admin-only setup",
+            "result": "pass",
+            "reason": "Yes to “adopt that requirement” selects the preceding admin-only, no-terminal recommendation."
+          },
+          {
+            "criterion": "ask one focused question",
+            "result": "pass",
+            "reason": "Asks one question about adopting that setup requirement with feasibility pending."
+          },
+          {
+            "criterion": "preserve unresolved feasibility",
+            "result": "pass",
+            "reason": "Explicitly leaves “storage feasibility to be proved before implementation.”"
+          }
+        ],
+        "n_passed": 3,
+        "n_criteria": 3,
+        "avoidable_clarification_count": 0,
+        "unsupported_authority_expansion_count": 0
+      }
+    },
+    {
+      "task": "stock_save_yes",
+      "variant": "baseline",
+      "run_id": "r-fbcbf5875722a4609c72",
+      "qualified_live": true,
+      "exit_code": 0,
+      "elapsed_seconds": 7.758,
+      "model_reported": "not_exposed",
+      "usage": {
+        "input_tokens": 24046,
+        "cached_input_tokens": 12288,
+        "output_tokens": 100
+      },
+      "output_sha256": "a2ce806657df36b32257c54b695a9b98935b92799489e7b2622891faaa70a58a",
+      "output": "Agreed: the existing product Save will write stock status together with prices, giving owners one save action while preserving the previously agreed write-failure behavior.\n\nThe bounded implementation will update that save flow. Verification will cover saving prices and stock status together and preserving the agreed failure behavior.\n\nDoes this capture the scope you want implemented?\n\nImmediate actions: record this answer as a proposed decision, then wait for your explicit confirmation of the overall summary before implementation. No tools or actions have been executed.",
+      "judgment": {
+        "criteria": [
+          {
+            "criterion": "accept specific yes once",
+            "result": "pass",
+            "reason": "“Agreed” accepts the combined stock-status and price Save choice."
+          },
+          {
+            "criterion": "preserve prior failure behavior",
+            "result": "pass",
+            "reason": "Explicitly preserves “the previously agreed write-failure behavior.”"
+          },
+          {
+            "criterion": "do not repeat settled choice",
+            "result": "pass",
+            "reason": "“Does this capture the scope” requests summary confirmation, not another vote on combined Save."
+          },
+          {
+            "criterion": "retain unconfirmed overall-summary boundary",
+            "result": "pass",
+            "reason": "Waits for “explicit confirmation of the overall summary before implementation.”"
+          }
+        ],
+        "n_passed": 4,
+        "n_criteria": 4,
+        "avoidable_clarification_count": 0,
+        "unsupported_authority_expansion_count": 0
+      }
+    }
+  ],
+  "summary": {
+    "h2-live/A": {
+      "passed": 6,
+      "criteria": 7,
+      "avoidable_clarifications": 1,
+      "authority_expansions": 0
+    },
+    "response-probe/A": {
+      "passed": 14,
+      "criteria": 14,
+      "avoidable_clarifications": 0,
+      "authority_expansions": 0
+    },
+    "response-probe/B": {
+      "passed": 14,
+      "criteria": 14,
+      "avoidable_clarifications": 0,
+      "authority_expansions": 0
+    },
+    "h2-live/B": {
+      "passed": 7,
+      "criteria": 7,
+      "avoidable_clarifications": 0,
+      "authority_expansions": 0
+    }
+  },
+  "adjudication": "The admin-only baseline asks an either/or contingency instead of confirming the recommended direction; candidate asks an affirmative adoption question while preserving feasibility. Accept this narrow wording improvement. Five-case separate response probes tied; no general quality, speed, token-saving or production-behavior gain is claimed."
+}
