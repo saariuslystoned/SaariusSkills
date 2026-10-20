@@ -18,9 +18,13 @@ at anything the prompt does not cover.
      into the one field it belongs in, by clipboard or file, and the clipboard
      is cleared after (`pbcopy < /dev/null`). Keys worth keeping go into
      1Password under a named item.
-   - STOP on: creating or widening a token, a new permission, signing in to a
-     different account, a password, 2FA code or passkey, a payment, live mode
-     or a live key, a real ID or real personal details.
+   - STOP and report back before any deploy, secret set or change, publish,
+     payment or delete that a numbered step does not name exactly, and at every
+     permission grant or consent screen; Bobby says continue. Also STOP on
+     creating or widening a token, signing in to a different account, a
+     password, 2FA code or passkey, live mode or a live key, a real ID or real
+     personal details. `send-to-cua.sh` puts the first rule at the top of every
+     prompt, but write the job's own STOPs too.
    - Name what must not be touched: the other stores, Workers, Access apps,
      shared login methods, other secrets.
    - "If a command fails, stop, show the error and hand back. Do not improvise
@@ -56,9 +60,9 @@ at anything the prompt does not cover.
 - **A Worker secret cannot be read back.** When a value replaces a list (for
   example `EMDASH_OPERATOR_ALLOWLIST`), the prompt gives every entry that must
   stay.
-- **Registry install consent** stops the cua unless the prompt lists the exact
-  permissions, hosts and routes it may accept; anything extra means Cancel and
-  STOP.
+- **Registry install consent** is always a STOP: the prompt lists the
+  permissions, hosts and routes Bobby expects, the cua stops at the screen and
+  reports what it shows next to that list, and Bobby says continue or cancel.
 - **Stripe TEST onboarding** only accepts Stripe's test values (DOB
   01/01/1901, SSN 000000000, address `address_full_match`, phone 000 000 0000,
   code 000000, website https://accessible.stripe.com, the test bank). Name the
@@ -66,10 +70,10 @@ at anything the prompt does not cover.
   and a webhook in the wrong one receives nothing.
 - **Cloudflare Access:** exact paths only, never a wildcard, and never touch
   the shared One-time PIN login or a policy other apps share.
-- **Node on Bobby's Mac** lives under mise:
-  `export PATH=$HOME/.local/share/mise/installs/node/22.23.2/bin:$PATH`, then
-  check `node --version`. Check `gh auth status` before `gh secret set`.
-- **Sign-in codes** for agent@smokyproduct.co come from the inbox through
+- **Node on Bobby's Mac** is managed by mise and is not on the default PATH:
+  give the exact PATH line the repo needs, then check `node --version`. Check
+  `gh auth status` before `gh secret set`.
+- **Sign-in codes** for the test inbox (`DINKUS_E2E_MAIL_ACCOUNT`) come from
   `gogcli`, read only.
 - **"No output, exit 1" is not a failure.** The Ship Worker deploy stalled
   when the cua read an empty file search as a failed command and stopped
@@ -82,7 +86,7 @@ at anything the prompt does not cover.
 
 ## Where proof goes
 
-The cua keeps its own proof under
-`~/Developer/side-quests/x-api/runs/<area>/<date>/PROOF.md` with screenshots
-next to it. `send-to-cua.sh` also tells it to write the report to
-`~/.cua/reports/<stamp>-<name>.md` and copy it to the clipboard.
+The cua keeps its own proof under `runs/<area>/<date>/PROOF.md` in its
+workspace, with screenshots next to it. `send-to-cua.sh` also tells it to
+write the report to `~/.cua/reports/<stamp>-<name>.md` and copy it to the
+clipboard.

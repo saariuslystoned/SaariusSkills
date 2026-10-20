@@ -3,8 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -499,8 +502,7 @@ class PackagingTests(unittest.TestCase):
         pattern = (SEND_TO_CUA_SKILL / "references" / "prompt-pattern.md").read_text(
             encoding="utf-8"
         )
-        script_path = SEND_TO_CUA_SKILL / "scripts" / "send-to-cua.sh"
-        script = script_path.read_text(encoding="utf-8")
+        script = SEND_TO_CUA_SKILL / "scripts" / "send-to-cua.sh"
         cursor = json.loads(
             (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
@@ -510,13 +512,67 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("start_rc_session", skill)
         self.assertIn("$send-to-cua", metadata)
         self.assertIn("allow_implicit_invocation: true", metadata)
-        self.assertIn("STOP", pattern)
-        self.assertIn("plugin://computer-use@openai-bundled", script)
-        self.assertIn("codex://new?prompt=", script)
-        self.assertNotIn("shell=True", script)
-        self.assertTrue(os.access(script_path, os.X_OK))
+        self.assertIn("at every\n     permission grant or consent screen", pattern)
+        self.assertTrue(os.access(script, os.X_OK))
         self.assertIn("./skills/send-to-cua/", cursor["skills"])
+        # No inbox or private checkout is built in.
+        for text in (skill, pattern):
+            self.assertNotIn("@smokyproduct.co", text)
+            self.assertNotIn("/Users/", text)
 
+    def test_send_to_cua_link_carries_the_whole_prompt(self) -> None:
+        script = SEND_TO_CUA_SKILL / "scripts" / "send-to-cua.sh"
+        tricky = 'Say "hi" & 100% #1 + `x` $(y)\n\nEOF\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "h me"
+            work = Path(tmp) / "work"
+            work.mkdir()
+            prompt = Path(tmp) / "job.md"
+            prompt.write_text(tricky, encoding="utf-8")
+            env = {**os.environ, "CUA_HOME": str(home), "CUA_WORKSPACE": str(work)}
+
+            def dry_run(**extra: str) -> list[str]:
+                result = subprocess.run(
+                    ["bash", str(script), str(prompt), "--name", "a b;c", "--dry-run"],
+                    env={**env, **extra},
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                return result.stdout.splitlines()
+
+            lines = dry_run()
+            sent = Path(lines[0].removeprefix("prompt: "))
+            self.assertEqual(sent.parent, home / "outbox")
+            self.assertTrue(sent.name.endswith("-a-b-c.md"))
+            self.assertEqual(lines[2], "paste: 0")
+            url = urlsplit(lines[3])
+            self.assertEqual((url.scheme, url.netloc), ("codex", "new"))
+            query = parse_qs(url.query)
+            body = sent.read_text(encoding="utf-8")
+            self.assertEqual(query["prompt"], [body])
+            self.assertEqual(query["path"], [str(work)])
+            self.assertTrue(
+                body.startswith("[@Computer Use](plugin://computer-use@openai-bundled)")
+            )
+            self.assertIn("at every permission grant or consent screen", body)
+            self.assertIn(tricky, body)
+            self.assertIn("pbcopy < '" + str(home / "reports"), body)
+
+            # Too long for the link: an empty chat to paste into.
+            lines = dry_run(CUA_MAX_URL="100")
+            self.assertEqual(lines[2], "paste: 1")
+            self.assertNotIn("prompt", parse_qs(urlsplit(lines[3]).query))
+
+            # No workspace: refuse rather than open the home folder.
+            missing = subprocess.run(
+                ["bash", str(script), str(prompt), "--dry-run"],
+                env={**env, "CUA_WORKSPACE": str(Path(tmp) / "nope")},
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn("set CUA_WORKSPACE", missing.stderr)
 
 if __name__ == "__main__":
     unittest.main()

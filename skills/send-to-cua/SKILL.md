@@ -47,14 +47,18 @@ the prompt to a file and run
 skills/send-to-cua/scripts/send-to-cua.sh <prompt-file> --name <short-slug>
 ```
 
-The script adds the `@Computer Use` attachment to the top, a report rule to
-the bottom, keeps a copy in `~/.cua/outbox/`, puts the prompt on the
-clipboard, and opens `codex://new?prompt=...&path=<workspace>`. Codex opens a
-new chat in `~/Developer/side-quests/x-api` (or `CUA_WORKSPACE`) with the
-prompt typed in. Codex never sends a deep-linked prompt by itself: Bobby
-presses Enter, and picks Full access if Codex asks. If the composer comes up
-empty, he pastes (the prompt is on the clipboard). `--dry-run` prints the
-paths and the link without opening anything.
+The script puts the `@Computer Use` attachment and fixed ground rules at the
+top (STOP before any deploy, secret change, publish, payment or delete a step
+does not name, and at every permission grant), a report rule at the bottom,
+keeps a copy in `~/.cua/outbox/`, puts the prompt on the clipboard, starts
+Codex if it is not running, and opens `codex://new?prompt=...&path=<workspace>`.
+The workspace is `~/Developer/side-quests/x-api` or `CUA_WORKSPACE`; the
+script refuses to run if it is missing rather than open Codex on the whole
+home folder. A prompt too long for the link (`CUA_MAX_URL`, 16000 bytes)
+opens an empty chat and he pastes. Codex never sends a deep-linked prompt by
+itself: Bobby presses Enter, and picks Full access if Codex asks. If the
+composer comes up empty, he pastes. `--dry-run` prints the paths and the link
+without opening anything.
 
 **From a cloud thread** (no shell on his Mac):
 
@@ -62,16 +66,25 @@ paths and the link without opening anything.
    there is a record and he can read it.
 2. When he says "send it" (or asked for that up front), call
    `start_rc_session` with his message as `message_id` and his approved Mac
-   folder from `list_devices` (today
-   `/Users/bobbybones/Developer/repos/saari-co/x-api`). In `instructions`,
-   give the prompt verbatim and tell the session to:
-   - write it to `~/.cua/inbox/<slug>.md`;
-   - run the launcher: `send-to-cua` if it is on PATH, else
-     `~/dinkus-e2e/SaariusSkills/skills/send-to-cua/scripts/send-to-cua.sh`
-     after `git -C ~/dinkus-e2e/SaariusSkills pull --ff-only`;
-   - report one line (opened, or the exact error), and nothing else.
-3. Tell him in one line that Codex is open on his Mac with the prompt typed
-   in and he presses Enter to start it.
+   folder from `list_devices`. In `instructions`, give the prompt verbatim
+   and tell the session to:
+   - write it to `~/.cua/inbox/<slug>.md` with its file-write tool, never
+     with echo or a heredoc (prompts hold backticks and `$(...)`), with a
+     slug of only `a-z0-9-`;
+   - run the launcher he installed (`~/.cua/bin/send-to-cua.sh`, see below)
+     as `~/.cua/bin/send-to-cua.sh ~/.cua/inbox/<slug>.md --name '<slug>'`;
+     never download or pull a newer one itself;
+   - report one line (the script's output, or the exact error), and nothing
+     else.
+3. Wait for that line. Then tell him in one line what is left for his hand:
+   allow the Remote Control card if one came up, check the picker shows
+   GPT-6.1 Sol, Medium, Fast, pick Full access if Codex asks, and press
+   Enter (or paste first, if the script said the prompt was too long).
+
+**Installing the launcher** is Bobby's step, once per change, because his
+Mac's safety check rightly refuses to download and run code it has not
+seen. He runs, in Terminal, from his SaariusSkills clone on `main`:
+`mkdir -p ~/.cua/bin && cp skills/send-to-cua/scripts/send-to-cua.sh ~/.cua/bin/`.
 
 If his Mac's safety check blocks a command, report its exact text and give
 him the one command to run in Terminal himself. If Remote Control cannot
