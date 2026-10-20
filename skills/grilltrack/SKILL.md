@@ -68,6 +68,13 @@ for CLI, API, document, device, or other non-frontend cycles.
    alternatives, or recommend closeout when no meaningful grill remains.
 11. Ask the user to confirm closure before closing the ledger.
 
+If the cycle exposes a reproducible handoff loss, repeated avoidable question,
+or recurring workflow repair with measurable acceptance, route one bounded
+Harness² refinement experiment through `../harness2/SKILL.md` while continuing
+the product cycle. Check existing experiment identity, capacity, authorization,
+and runtime qualification first. This does not apply to ordinary product
+bugs, unresolved preferences, provider outages, or authority gates.
+
 Treat the complete cycle—not an answer—as the atomic unit of progress.
 
 ## Preserve cumulative context
