@@ -25,9 +25,12 @@ Follow [the prompt pattern](references/prompt-pattern.md), learned from the
 
 - One opening paragraph: the job, the one target, what not to touch, and
   "Work start to finish. Stop only where a step says STOP."
-- Ground rules: no secret value written anywhere; STOP on new tokens or
-  permissions, another account, passwords, 2FA or passkeys, payments, live
-  mode or real personal details; if a command fails, stop and show it.
+- Ground rules: STOP and report back before any deploy, secret set or
+  change, publish, payment or delete a step does not name exactly, and at
+  every permission grant or consent screen (the launcher adds this rule to
+  every prompt too); also STOP on new tokens, another account, passwords,
+  2FA or passkeys, live mode or real personal details; no secret value
+  written anywhere; if a command fails, stop and show it.
 - The facts it cannot guess (account ids, Worker names, URLs, exact screen
   text), then numbered steps with what each should show, read-only checks
   first, rollback target recorded before any change.

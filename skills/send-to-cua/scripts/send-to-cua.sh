@@ -100,8 +100,9 @@ pbcopy < "$sent"
 # A deep link that arrives while the app is still starting can be dropped,
 # so start Codex first and give it a moment.
 if [ "$(osascript -e 'application id "com.openai.codex" is running' 2>/dev/null || echo false)" != "true" ]; then
-  open -b com.openai.codex
-  sleep 5
+  # Best effort: if the bundle id is wrong, opening the link still starts
+  # whichever app handles codex://.
+  if open -b com.openai.codex 2>/dev/null; then sleep 5; fi
 fi
 open "$url"
 if [ "$pasted" -eq 1 ]; then
