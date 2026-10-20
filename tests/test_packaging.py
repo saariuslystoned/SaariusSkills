@@ -88,7 +88,10 @@ class PackagingTests(unittest.TestCase):
             (ROOT / "plugin.json").read_text(encoding="utf-8")
         )
         expected_root = {
+            "$schema": "https://antigravity.google/schemas/v1/plugin.json",
             "name": "saarius-skills",
+            "displayName": "Saarius Skills",
+            "version": "0.7.0",
             "description": "Experimental agent skills, progressive product-decision workflows, and local ACP delegation.",
         }
         market = json.loads(
@@ -99,6 +102,7 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(root_plugin, expected_root)
         self.assertEqual(plugin["name"], "saarius-skills")
         self.assertEqual(plugin["version"], "0.7.0")
+        self.assertEqual(root_plugin["version"], plugin["version"])
         self.assertEqual(plugin["skills"], "./skills/")
         self.assertNotEqual(plugin, root_plugin)
         self.assertEqual(plugin["name"], root_plugin["name"])
@@ -324,7 +328,10 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(
             root_plugin,
             {
+                "$schema": "https://antigravity.google/schemas/v1/plugin.json",
                 "name": "saarius-skills",
+                "displayName": "Saarius Skills",
+                "version": "0.7.0",
                 "description": "Experimental agent skills, progressive product-decision workflows, and local ACP delegation.",
             },
         )
