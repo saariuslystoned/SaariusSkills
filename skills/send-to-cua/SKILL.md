@@ -58,7 +58,7 @@ Codex if it is not running, and opens `codex://new?prompt=...&path=<workspace>`.
 The workspace is `~/Developer/side-quests/x-api` or `CUA_WORKSPACE`; the
 script refuses to run if it is missing rather than open Codex on the whole
 home folder. A prompt too long for the link (`CUA_MAX_URL`, 16000 bytes)
-opens an empty chat and the script pastes it. Codex never sends a
+opens an empty chat and is never auto-sent: he pastes and presses Enter. Codex never sends a
 deep-linked prompt by itself, so the script then presses Return in Codex, but
 only while Codex is the app in front and its message box shows this prompt
 in full (Bobby asked for this on 20 Oct: "ideally it does it all for me").

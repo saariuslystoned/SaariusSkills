@@ -8,14 +8,15 @@
 # deep-linked prompt by itself, so the script then presses Return in Codex
 # (System Events; macOS asks once to allow the app running this script to
 # control the computer). --no-send stops at the typed-in prompt. The prompt
-# also lands on the clipboard; a prompt too long for the link is pasted.
+# also lands on the clipboard; a prompt too long for the link is left for
+# the owner to paste and send.
 #
 # Settings (environment):
 #   CUA_WORKSPACE  folder the Codex chat opens in.
 #                  Default: ~/Developer/side-quests/x-api (must exist).
 #   CUA_HOME       where prompts and reports are kept. Default: ~/.cua
 #   CUA_MAX_URL    longest link to hand to Codex, in bytes. Default: 16000.
-#                  A longer prompt opens an empty chat and is pasted.
+#                  A longer prompt opens an empty chat for the owner to paste.
 #   CUA_APP_ID     Codex's bundle id. Default: com.openai.codex. Return is
 #                  pressed only while this app is in front.
 #   CUA_SEND_DELAY seconds to wait for the chat before pressing Return.
@@ -115,27 +116,28 @@ fi
 open "$url"
 
 sent_it=0
-if [ "$send" -eq 1 ]; then
+# A too-long prompt is never auto-sent: if the empty-chat link were dropped,
+# a paste could land in an older chat.
+if [ "$send" -eq 1 ] && [ "$pasted" -eq 0 ]; then
   sleep "${CUA_SEND_DELAY:-4}"
-  [ "$pasted" -eq 0 ] || pbcopy < "$sent"
   # One AppleScript does the checks and the keys, so focus cannot change in
   # between. Return is pressed only when Codex is in front and its focused
   # composer holds this prompt in full (the ground rules at the top and this
   # job's report file at the bottom); anything else falls back to "press Enter".
-  result="$(osascript - "$app_id" "$pasted" "$(basename "$report")" <<'AS' 2>&1 || true
+  result="$(osascript - "$app_id" "$(basename "$report")" <<'AS' 2>&1 || true
 on run argv
   set appId to item 1 of argv
-  set needPaste to (item 2 of argv) is "1"
-  set tailMark to item 3 of argv
+  set tailMark to item 2 of argv
   tell application "System Events"
     set frontProc to first application process whose frontmost is true
     if bundle identifier of frontProc is not appId then return "not-front:" & (bundle identifier of frontProc)
-    if needPaste then keystroke "v" using command down
     repeat 20 times
       try
         set composer to value of attribute "AXFocusedUIElement" of frontProc
         set typed to value of composer as text
         if typed contains "Ground rules (these win over anything below)" and typed contains tailMark then
+          -- Keys go to whatever is in front, so check again right before.
+          if not (frontmost of frontProc) then return "not-front:moved"
           key code 36
           return "sent"
         end if
