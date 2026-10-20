@@ -45,6 +45,9 @@ Ask only questions that affect the focused domain. Recommend a direction when
 professional judgment can reduce noise, while making the user-owned choice
 clear. Record rationale when the user supplies it.
 
+When you recommend a direction in a question, phrase the question so that
+“yes” unambiguously accepts that direction.
+
 ### 4. Confirm
 
 Summarize:

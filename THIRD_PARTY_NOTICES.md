@@ -41,6 +41,13 @@ identity, multi-session decision maps, and human-guided setup gates as
 behavioral comparisons. GrillTrack does not bundle or invoke these upstream
 skills.
 
+Recommendation-question wording pin:
+<https://github.com/mattpocock/skills/blob/5beb35b040e3de97e54fa9e386d7e42d15c295c2/skills/productivity/grilling/SKILL.md>
+
+The protocol's recommendation-question wording rule is a narrow adaptation
+from `skills/productivity/grilling/SKILL.md` at this pin. No other changes at
+this pin are claimed as incorporated.
+
 ## Will Ness frontend prototyping skill
 
 Pinned source: <https://github.com/will-ness-ai/skills/tree/131c397a7731b6b0ce398a5b3bb8db8768136bc5>
