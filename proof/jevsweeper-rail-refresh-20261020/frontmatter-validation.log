@@ -1,0 +1,2 @@
+PASS: YAML parsed with Ruby stdlib Psych; required fields, allowed keys, name, description type/length, and placeholder checks pass.
+Canonical Python quick_validate.py could not start because the existing interpreter lacks PyYAML; no package was installed.

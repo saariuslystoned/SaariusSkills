@@ -2,6 +2,9 @@
 
 Use these three labels only. Each label's section below is its description in
 the `choice` question's `criteria`; the box and the locked line go in `state`.
+Apply this rubric only after the native publication eligibility checks in
+[coordinator.md](coordinator.md) hold. Absent or stale review evidence is not a
+box to label, and the rubric cannot stand in for a review.
 
 ## repair
 
@@ -12,7 +15,9 @@ rejects an upgrade shape the current main already writes; a genuine Registry
 install (`r_*` ids) still unproven while local tests used fixed plugin slugs.
 
 Missing required proof is repair (or coordinator `needs-evidence`), not
-owner-gate. Platinum, gold, or "findings none" does not waive that proof.
+owner-gate, when the gap is product or behavior proof in an otherwise eligible
+review. Missing native review/publication evidence remains a prerequisite
+mismatch. Platinum, gold, or "findings none" does not waive required proof.
 
 ## owner-gate
 
