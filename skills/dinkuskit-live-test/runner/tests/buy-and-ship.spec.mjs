@@ -8,6 +8,7 @@ import { note, record } from "../support/proof.mjs";
 import { journey, step } from "../support/steps.mjs";
 import { openShip, openStoreAdmin } from "../support/signin.mjs";
 import { placeTestOrder } from "../support/checkout.mjs";
+import { numberOf, openOrder } from "../support/orders-admin.mjs";
 import { thankYouShown } from "../support/checkout-text.mjs";
 import { describePlugins } from "../support/store-plugins.mjs";
 
@@ -56,10 +57,12 @@ function chooseOrder(rows, wanted) {
   return candidates[0];
 }
 
-/** Opens one order in Commerce Orders (already on the Orders page) and returns its detail text. */
-async function inspectOrder(page, number) {
-  await page.getByRole("button", { name: new RegExp(`^Inspect #${number}\\b`) }).first().click();
-  await expect(page.getByText(/Order ID:/).first()).toBeVisible({ timeout: 30_000 });
+/**
+ * Opens order #number in Commerce Orders and returns its page's text. Orders lists its orders by order
+ * ID, 25 to a page, so a run's order can be on any page; openOrder pages to it.
+ */
+async function orderText(page, number) {
+  await openOrder(page, number);
   return page.locator("main").innerText();
 }
 
@@ -98,14 +101,11 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
     if (!await openOrdersAdmin(page)) {
       record("Commerce Orders shows the paid TEST order", "SKIP", "the saved profile has no store admin sign-in yet; Commerce's background check sends the order to Ship");
     } else await step(page, "Commerce Orders shows the paid TEST order", async () => {
-      await expect(page.getByText(/#\d+ \(TEST\)/).first()).toBeVisible({ timeout: 60_000 });
-      if (orderName && !/^\d+$/.test(orderName)) {
-        // Orders numbers orders as they are paid, so the newest TEST order has the highest number.
-        const numbers = [...(await page.locator("main").innerText()).matchAll(/#(\d+) \(TEST\)/g)].map(m => Number(m[1]));
-        orderName = String(Math.max(...numbers));
-      }
-      const text = await inspectOrder(page, orderName);
-      if (placed.orderId) expect(text, "the newest TEST order should be this checkout's order").toContain(placed.orderId);
+      // Orders numbers orders as they are paid; this checkout's is among the newest Processing ones.
+      const number = placed.number ?? await numberOf(page, placed.orderId, "Processing");
+      const text = await orderText(page, number);
+      orderName = String(number);
+      if (placed.orderId) expect(text, `order #${number} should be this checkout's order`).toContain(placed.orderId);
       expect(text).toMatch(/Status:\s*Processing/);
       expect(text).toMatch(/Payment:\s*Provider-paid/);
       return `#${orderName} is TEST, provider-paid and Processing; opening Orders also sends it to Ship`;
@@ -237,7 +237,7 @@ test("Buy and ship", { tag: "@running" }, journey(async ({ page }) => {
   if (!await openOrdersAdmin(page)) {
     record("Commerce Orders shows Completed in the store admin", "SKIP", "the saved profile has no store admin sign-in yet; Ship's page already shows Commerce completed the order");
   } else await step(page, "Commerce Orders shows Completed in the store admin", async () => {
-    const text = await inspectOrder(page, orderName);
+    const text = await orderText(page, orderName);
     expect(text).toMatch(/Status:\s*Completed/);
     const tracking = text.match(/Tracking number:\s*(\S+)/)?.[1];
     if (label?.tracking) expect(tracking).toBe(label.tracking);
