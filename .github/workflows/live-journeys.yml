@@ -46,7 +46,7 @@ jobs:
     name: Journeys on beta.sm0ky.dev
     if: github.repository == 'saariuslystoned/SaariusSkills'
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 130
     env:
       DINKUS_E2E_STORE: https://beta.sm0ky.dev
       DINKUS_E2E_SITE_ID: 858232f9-bc07-44f6-b3de-259a8055a9dd
@@ -118,7 +118,7 @@ jobs:
         # the run prints goes to the private proof, never to this public log. Its exit code goes to the
         # report step, which fails the job unless it is 0 and every journey passed. The step's own
         # limit leaves time to save the proof when a run hangs.
-        timeout-minutes: 100
+        timeout-minutes: 110
         run: |
           mkdir -p "$DINKUS_E2E_PROOF/$DINKUS_E2E_RUN"
           log="$DINKUS_E2E_PROOF/$DINKUS_E2E_RUN/console.log"

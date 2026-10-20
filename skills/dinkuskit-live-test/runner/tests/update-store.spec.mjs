@@ -4,7 +4,7 @@ import { countStoreRequest, paceStore } from "../support/pace.mjs";
 import { note } from "../support/proof.mjs";
 import { notePlugins, openAdmin } from "../support/store-admin.mjs";
 import { pluginVersion } from "../support/store-plugins.mjs";
-import { BETA_STORE, namedBeta, notOffered, planUpdates, refusal } from "../support/store-updates.mjs";
+import { aimAt, BETA_STORE, cantTest, namedBeta, notOffered, planUpdates, refusal } from "../support/store-updates.mjs";
 import { journey, step } from "../support/steps.mjs";
 
 const API = () => `${config.store}/_emdash/api/admin/plugins`;
@@ -16,6 +16,8 @@ const UPDATE_TIME = 180_000;
 // How long a run started by a release waits for the Registry to offer the beta that release published.
 const OFFER_WAIT = 15 * 60_000;
 const OFFER_POLL = 30_000;
+// Room for the sign-in, that wait and an update of each plugin.
+const UPDATE_LIMIT = 45 * 60_000;
 
 /** EmDash's answer to an admin API GET, or an error naming the HTTP status. */
 async function readApi(page, path, options = {}) {
@@ -35,7 +37,7 @@ function stop(reason) {
   throw new Error(reason);
 }
 
-const listed = plan => plan.map(p => `${p.name} ${p.installed}${p.update ? ` (newest ${p.latest})` : ""}${p.problem ? ` (${p.problem})` : ""}`).join(", ");
+const listed = plan => plan.map(p => `${p.name} ${p.installed}${p.update ? ` (to ${p.latest})` : ""}${p.problem ? ` (${p.problem})` : ""}`).join(", ");
 
 // Not one of the plan's journeys: it gets the beta store ready for them, and the Live journeys workflow
 // runs it first (`npm run update-store`; other runs leave it out, see playwright.config.mjs). It moves
@@ -43,12 +45,15 @@ const listed = plan => plan.map(p => `${p.name} ${p.installed}${p.update ? ` (ne
 // place, as the Update button on Plugins does, so the journeys test those. It agrees to nothing that
 // button would ask the owner about: an update that asks for new permissions is refused, and the run
 // stops for the owner to update it by hand. A run a release started (DINKUS_E2E_BETA, the workflow's
-// `beta` input) first waits for the Registry to offer the beta that release published.
+// `beta` input) first waits for the Registry to offer the beta that release published, and installs
+// exactly that one, even if a later beta is out.
 test("Update the store", { tag: "@update" }, journey(async ({ page }) => {
+  test.setTimeout(UPDATE_LIMIT);
   if (config.store !== BETA_STORE.store || config.siteId !== BETA_STORE.siteId) {
     throw new Error(`Only the beta store, ${BETA_STORE.store} (site ${BETA_STORE.siteId}), is updated before a run; this run is set to ${config.store || "no store"} (site ${config.siteId || "not set"}).`);
   }
-  const beta = namedBeta(process.env.DINKUS_E2E_BETA);
+  let beta;
+  try { beta = namedBeta(process.env.DINKUS_E2E_BETA); } catch (error) { stop(error.message); }
 
   let list;
   await step(page, "The owner can open Plugins", async () => {
@@ -63,9 +68,14 @@ test("Update the store", { tag: "@update" }, journey(async ({ page }) => {
     const since = Date.now();
     for (;;) {
       plan = planUpdates(list, await readApi(page, "/updates", { timeout: CHECK_TIME }));
-      const waiting = beta && notOffered(plan, beta);
-      if (!waiting) break;
-      if (!plan.some(p => p.name === beta.name)) stop(`The release named ${beta.name} ${beta.version}, but ${waiting}.`);
+      if (!beta) break;
+      const cant = cantTest(plan, beta);
+      if (cant) stop(`The release named ${beta.name} ${beta.version}, but ${cant}.`);
+      const waiting = notOffered(plan, beta);
+      if (!waiting) {
+        plan = aimAt(plan, beta);
+        break;
+      }
       // A release's own check reads the publisher's record, which the Registry lists a little later.
       if (Date.now() - since > OFFER_WAIT) stop(`After ${OFFER_WAIT / 60_000} minutes ${waiting}.`);
       await page.waitForTimeout(OFFER_POLL);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { namedBeta, notOffered, planUpdates, refusal } from "../support/store-updates.mjs";
+import { aimAt, cantTest, namedBeta, notOffered, planUpdates, refusal } from "../support/store-updates.mjs";
 
 const list = items => ({ data: { items } });
 const commerce = { id: "r_commerce", source: "registry", registrySlug: "dinkus-commerce-beta", version: "0.3.0-beta.9" };
@@ -34,7 +34,21 @@ test("a release names its beta, and the run waits until the Registry offers it o
   assert.equal(notOffered(plan("0.2.9-beta.3"), beta), null);
   assert.equal(notOffered(plan("0.2.9-beta.10"), beta), null);
   assert.equal(notOffered(plan("0.2.9-beta.1"), { ...beta, version: "0.2.9-beta.1" }), null);
-  assert.equal(notOffered(plan("0.2.9-beta.3"), { name: "dinkus-ship-beta", version: "0.1.0-beta.0" }), "the store doesn't run dinkus-ship-beta");
+  assert.equal(cantTest(plan("0.2.9-beta.3"), { name: "dinkus-ship-beta", version: "0.1.0-beta.0" }), "the store doesn't run dinkus-ship-beta");
+  assert.equal(cantTest(plan("0.2.9-beta.3"), { ...beta, version: "0.2.9-beta.0" }), "the store already runs dinkus-payments-beta 0.2.9-beta.1, later than 0.2.9-beta.0");
+  assert.equal(cantTest(plan("0.2.9-beta.3"), { ...beta, version: "0.2.9-beta.1" }), null);
+  assert.equal(cantTest(plan("0.2.9-beta.3"), beta), null);
+});
+
+test("a run named for a beta installs exactly that beta, even when a later one is out", () => {
+  const plan = planUpdates(list([commerce, payments]), list([{ pluginId: "r_commerce", latest: "0.3.0-beta.10" }, { pluginId: "r_payments", latest: "0.2.9-beta.4" }]));
+  const aimed = aimAt(plan, { name: "dinkus-payments-beta", version: "0.2.9-beta.3" });
+  assert.deepEqual(aimed.map(p => [p.name, p.latest, p.update]), [["dinkus-commerce-beta", "0.3.0-beta.10", true], ["dinkus-payments-beta", "0.2.9-beta.3", true]]);
+  assert.equal(aimAt(plan, { name: "dinkus-payments-beta", version: "0.2.9-beta.1" })[1].update, false);
+  // The named version is known exactly, so the update check leaving it out doesn't matter; it still does for the others.
+  const unchecked = aimAt(planUpdates(list([commerce, payments]), list([])), { name: "dinkus-payments-beta", version: "0.2.9-beta.3" });
+  assert.equal(unchecked[1].problem, undefined);
+  assert.ok(unchecked[0].problem);
 });
 
 test("an update goes only forward in semver order, never back down to an older Registry version", () => {

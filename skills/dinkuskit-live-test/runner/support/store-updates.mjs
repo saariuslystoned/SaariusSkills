@@ -57,10 +57,25 @@ export function namedBeta(text) {
   return { name, version };
 }
 
-/** Why `plan` doesn't offer the named beta yet, or null once the Registry has it (or a later one). */
-export function notOffered(plan, beta) {
+/** Why the store can't test the named beta: it doesn't run that plugin, or already runs a later version. */
+export function cantTest(plan, beta) {
   const plugin = plan.find(p => p.name === beta.name);
   if (!plugin) return `the store doesn't run ${beta.name}`;
-  if (versionAtLeast(plugin.installed, beta.version) || (plugin.latest && versionAtLeast(plugin.latest, beta.version))) return null;
+  if (plugin.installed !== beta.version && versionAtLeast(plugin.installed, beta.version)) return `the store already runs ${beta.name} ${plugin.installed}, later than ${beta.version}`;
+  return null;
+}
+
+/** Why `plan` doesn't offer the named beta yet, or null once the store runs it or the Registry has it. */
+export function notOffered(plan, beta) {
+  const plugin = plan.find(p => p.name === beta.name);
+  if (!plugin || plugin.installed === beta.version || (plugin.latest && versionAtLeast(plugin.latest, beta.version))) return null;
   return `the Registry offers ${beta.name} ${plugin.latest ?? "nothing"}, not ${beta.version} yet`;
+}
+
+/**
+ * The plan with the named beta's plugin aimed at exactly that version, so a run named for a beta tests
+ * that beta even when the Registry already offers a later one. Every other plugin keeps its newest.
+ */
+export function aimAt(plan, beta) {
+  return plan.map(({ problem, ...p }) => p.name === beta.name ? { ...p, latest: beta.version, update: p.installed !== beta.version } : { ...p, ...(problem ? { problem } : {}) });
 }
