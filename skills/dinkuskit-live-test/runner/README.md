@@ -449,6 +449,9 @@ browser window under `video/`. The saved profile's window stays open for the
 whole run, so for one video per journey, run the journeys one at a time
 (`npm run journey -- cart`). The test hides the code it types
 into Cloudflare Access's sign-in, so neither screenshots nor videos show it.
+The run keeps no Playwright trace, even for a failed journey: a trace holds
+every request's headers, the sign-in cookies for the store's Cloudflare Access
+and DinkusKit.com among them.
 
 On Linux, label rendering requires Poppler's `pdftoppm`; macOS uses Quick Look.
 A missing renderer, failed render or invalid picture fails the label-PDF step
