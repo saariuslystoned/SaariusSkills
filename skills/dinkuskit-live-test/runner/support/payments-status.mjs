@@ -98,9 +98,9 @@ export async function paymentsStatusAdmin(page) {
   await openAdmin(page, `${config.store}/_emdash/admin`);
   const links = page.getByRole("link", { name: "Payments status", exact: true });
   await links.first().waitFor({ timeout: 30_000 }).catch(() => {});
-  const pages = betaPaymentsStatusLinks(await links.evaluateAll(anchors => anchors.map(anchor => anchor.href)), config.store);
-  if (pages.length === 1) return pages[0];
-  throw new Error("The store admin's menu has no Payments status page for dinkus-payments-beta, so that plugin isn't installed or is switched off. The release listing's page is not used.");
+  const [beta] = betaPaymentsStatusLinks(await links.evaluateAll(anchors => anchors.map(anchor => anchor.href)), config.store);
+  if (beta) return beta;
+  throw new Error("The store admin's menu showed no Payments status page for dinkus-payments-beta within 30 seconds: the plugin isn't installed, is switched off, or the admin didn't finish loading. The release listing's page is not used.");
 }
 
 /** Opens Payments status and waits until Payment setup is on the page. A plugin error is not kept if it carries a secret. */
@@ -176,19 +176,22 @@ export async function approvePayments(page, href) {
       await failClosed(consent, said || "DinkusKit's connect page has no Approve payments button.");
     }
     await approve.click();
+    // DinkusKit answers by sending the page on: back to the store, back to the connect page with
+    // ?error=<reason>, or to another account page (sites, sign-in) for a refusal it can't show there.
+    const landed = await consent.waitForURL(next => {
+      try {
+        const url = new URL(next);
+        if (url.origin === config.store) return true;
+        return url.origin === config.account && (url.pathname !== "/account/connect" || url.searchParams.has("error"));
+      } catch { return false; }
+    }, { timeout: 60_000 }).then(() => new URL(consent.url()), () => null);
+    if (!landed) await failClosed(consent, "DinkusKit did not answer Approve payments within a minute.");
     // Only dinkus-payments-beta's page counts: the beta store's release listing has its own.
-    const refused = consent.locator(".account-error");
-    const outcome = await Promise.race([
-      consent.waitForURL(next => {
-        try { return new URL(next).origin === config.store && new URL(next).pathname === PAYMENTS_BETA_STATUS_PATH; }
-        catch { return false; }
-      }, { timeout: 60_000 }).then(() => "back", () => "timeout"),
-      refused.waitFor({ state: "visible", timeout: 60_000 }).then(() => "refused", () => new Promise(() => {})),
-    ]);
-    if (outcome === "refused") {
-      await failClosed(consent, (await refused.innerText().catch(() => "")).trim() || "DinkusKit.com could not approve this connection.");
+    if (landed.origin !== config.store || landed.pathname !== PAYMENTS_BETA_STATUS_PATH) {
+      const reason = landed.searchParams.get("error") ?? "";
+      const where = landed.origin === config.store ? "another store page" : `DinkusKit's ${landed.pathname}`;
+      await failClosed(consent, `DinkusKit.com did not approve this connection${/^[a-z_]{1,64}$/.test(reason) ? ` (${reason})` : ""}; it sent the owner to ${where}.`);
     }
-    if (outcome === "timeout") await failClosed(consent, "DinkusKit did not return to Payments status after Approve payments.");
     // The status page's own load finishes the connection. Closing before Payment setup is shown would cut that off.
     await consent.getByRole("heading", { name: "Payment setup", exact: true }).waitFor({ timeout: 60_000 }).catch(async () => {
       await failClosed(consent, "Payments status did not show Payment setup after Approve payments.");

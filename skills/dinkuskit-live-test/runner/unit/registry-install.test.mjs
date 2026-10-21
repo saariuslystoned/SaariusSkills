@@ -12,6 +12,7 @@ test("an empty install list is the newest Ship beta", () => {
     { name: "dinkus-ship-beta", version: "0.1.0-beta.0" },
   ]);
   assert.throws(() => namedInstalls("dinkus-ship-beta 0.1.0-beta.1,"), /empty entry/);
+  assert.throws(() => namedInstalls("dinkus-ship-beta 0.1.0-beta.1, dinkus-ship-beta 0.1.0-beta.0"), /more than once/);
   for (const bad of ["dinkus-ship 0.1.0", "dinkus-ship-beta latest", "someone-beta 1.0.0"]) {
     assert.throws(() => namedInstalls(bad), /doesn't name a DinkusKit beta/);
   }

@@ -12,11 +12,14 @@ const SHIP_BETA = "dinkus-ship-beta 0.1.0-beta.1";
  */
 export function namedInstalls(text) {
   const value = String(text ?? "").trim() || SHIP_BETA;
-  return value.split(",").map(part => {
+  const betas = value.split(",").map(part => {
     const beta = namedBeta(part);
-    if (!beta) throw new Error(`"${value}" has an empty entry between its commas.`);
+    if (!beta) throw new Error(`"${value}" has an empty entry. Name each beta as "dinkus-<plugin>-beta <version>".`);
     return beta;
   });
+  const twice = betas.find((beta, i) => betas.findIndex(other => other.name === beta.name) !== i);
+  if (twice) throw new Error(`"${value}" names ${twice.name} more than once.`);
+  return betas;
 }
 
 /**

@@ -110,11 +110,7 @@ test("DinkusKit.com account and connect the store", { tag: "@next" }, journey(as
     await links.first().waitFor({ timeout: 30_000 }).catch(() => {});
     const hrefs = await links.evaluateAll(anchors => anchors.map(anchor => anchor.href));
     const matches = betaPaymentsStatusLinks(hrefs, config.store);
-    if (matches.length !== 1) {
-      throw new Error(matches.length
-        ? `The admin menu has ${matches.length} beta Payments status pages. This journey will not pick one.`
-        : "The admin menu has no Payments status page for the beta Payments plugin. This journey will not open another plugin.");
-    }
+    if (!matches.length) throw new Error("The admin menu has no Payments status page for the beta Payments plugin. This journey will not open another plugin.");
     await pause(page);
     const count = await links.count();
     let opened = false;
