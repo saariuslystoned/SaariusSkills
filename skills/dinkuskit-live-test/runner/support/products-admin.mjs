@@ -1,13 +1,12 @@
 import { newPage, expect } from "./browser.mjs";
 import { config } from "./env.mjs";
+import { firstLine } from "./errors.mjs";
 import { MEDIA_ROOM, PICKER_PAGE_ROOM, paceStore } from "./pace.mjs";
 import { confirmed, openAdmin } from "./store-admin.mjs";
 import { quick, text } from "./storefront-page.mjs";
 
 // What an owner does with products in the store admin: Commerce Products, the Media library, and
 // EmDash's product pages and categories. Manage products and Full catalog share these.
-
-const firstLine = error => String(error?.message ?? error).split("\n")[0];
 
 /** Answers the question the admin asks before an action with one of its buttons. */
 export async function answer(page, question, choice) {

@@ -462,14 +462,18 @@ browser window under `video/`. The saved profile's window stays open for the
 whole run, so for one video per journey, run the journeys one at a time
 (`npm run journey -- cart`). The test hides the code it types
 into Cloudflare Access's sign-in, so neither screenshots nor videos show it,
-and wipes it from the page when that sign-in fails, before Playwright writes
-down the page. The run keeps no Playwright trace, even for a failed journey: a
-trace holds every request's headers, the sign-in cookies for the store's
-Cloudflare Access and DinkusKit.com among them. For the same reason a failed
-step's error reaches the proof, the console and Playwright's report without
-Playwright's call log, which lists a request's headers, the addresses a page
-went to and the page's markup, and each address in it loses its query, where a
-sign-in link, a connect address or Ship's sign-in code carries its secret.
+and wipes it from the page when that sign-in fails. The run keeps no Playwright
+trace, even for a failed journey: a trace holds every request's headers, the
+sign-in cookies for the store's Cloudflare Access and DinkusKit.com among them.
+For the same reason a failed step's error reaches the proof, the console and
+Playwright's report as its first line alone. Below that line Playwright lists a
+request's headers, the addresses a page went to, the elements a locator matched
+and the values an assertion saw, and an assertion adds a snapshot of the page,
+its links and what its fields hold; none of that is kept, and Playwright's notes
+on a failure (`error-context.md`) take no snapshot of the page either. Each
+address on that first line loses its query, where a sign-in link, a connect
+address or Ship's sign-in code carries its secret, and a Ship print link loses
+its token.
 
 On Linux, label rendering requires Poppler's `pdftoppm`; macOS uses Quick Look.
 A missing renderer, failed render or invalid picture fails the label-PDF step

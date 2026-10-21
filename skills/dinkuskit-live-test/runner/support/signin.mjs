@@ -1,5 +1,5 @@
 import { config } from "./env.mjs";
-import { forProof, withoutQueries } from "./errors.mjs";
+import { firstLine, withoutQueries } from "./errors.mjs";
 import { mailBaseline, waitForMail } from "./mail.mjs";
 
 const HUMAN_WAIT_MS = 10 * 60 * 1000;
@@ -38,7 +38,7 @@ async function signInToDinkusKit(page) {
   const link = await waitForMail("dinkuskit", baseline);
   if (link) {
     // The link signs in whoever opens it, so a failure to open it leaves out the link's token.
-    await page.goto(link).catch(error => { throw new Error(`The sign-in link from DinkusKit.com's email didn't open: ${forProof(error).message.split("\n")[0]}`); });
+    await page.goto(link).catch(error => { throw new Error(`The sign-in link from DinkusKit.com's email didn't open: ${firstLine(error)}`); });
     return;
   }
   console.log(`\n>>> Open the "Sign in to DinkusKit" email for ${config.ownerEmail} and paste its link into this test's browser window.\n`);

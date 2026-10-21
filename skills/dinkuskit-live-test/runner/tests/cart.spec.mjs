@@ -1,5 +1,6 @@
 import { test, expect, shopperPage, closeShopper } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
+import { firstLine } from "../support/errors.mjs";
 import { STORE_OPENS, openShopperPage, storeOpens } from "../support/shopper.mjs";
 import { journey, step } from "../support/steps.mjs";
 import { quick, text } from "../support/storefront-page.mjs";
@@ -56,7 +57,7 @@ async function findProduct(page) {
   const unopened = [];
   for (const { id, href } of cards) {
     if (href) {
-      const opened = await openShopperPage(page, href).then(() => true, error => { unopened.push(error.message.replace(/\.$/, "")); return false; });
+      const opened = await openShopperPage(page, href).then(() => true, error => { unopened.push(firstLine(error).replace(/\.$/, "")); return false; });
       const found = opened && await onProductPage(page, href);
       if (found) return found;
       continue;

@@ -1,5 +1,6 @@
 import { test } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
+import { firstLine } from "../support/errors.mjs";
 import { countStoreRequest, paceStore } from "../support/pace.mjs";
 import { note } from "../support/proof.mjs";
 import { consentsOf, installBody, installRefusal, namedInstalls, planInstalls, PUBLISHER_DID } from "../support/registry-install.mjs";
@@ -21,7 +22,7 @@ async function postApi(page, path, data) {
   countStoreRequest(url);
   const response = await page.context().request.post(url, { headers: HEADERS, data, maxRedirects: 0, timeout: CALL_TIME })
     .catch(error => error);
-  if (response instanceof Error) throw new Error(`No answer from ${path} (${response.message.split("\n")[0]}).`);
+  if (response instanceof Error) throw new Error(`No answer from ${path} (${firstLine(response)}).`);
   if (!response.ok()) throw new Error(installRefusal(response.status(), await response.json().catch(() => null)));
   return response.json().catch(() => ({}));
 }
