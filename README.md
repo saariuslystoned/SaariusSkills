@@ -35,6 +35,14 @@ approval gates. All seven use the same plugin installation paths
 below; see [EmDash packaging](docs/emdash-skills.md) for the upstream pin,
 standalone installation and version-specific corrections.
 
+[DinkusKit E2E Blackbox](skills/dinkuskit-e2e-blackbox/SKILL.md) routes repeatable
+isolated execution through the enrolled Crabbox Cloudflare runner, reusing the
+canonical [dinkuskit-live-test](https://github.com/saariuslystoned/SaariusSkills/tree/main/skills/dinkuskit-live-test)
+journeys. Its [current status](skills/dinkuskit-e2e-blackbox/references/current-status.md)
+separates synthetic runner proof, offline Storefront preparation and hosted
+acceptance. Historical public probes remain available for qualification.
+It uses the same Codex, Cursor, Claude Code and path installation routes below.
+
 [DinkusKit Live Test](skills/dinkuskit-live-test/SKILL.md) runs one saved
 Playwright test against a live DinkusKit test store, from a Stripe TEST checkout
 to a Pitney Bowes sandbox label and Commerce marking the order Completed, and
