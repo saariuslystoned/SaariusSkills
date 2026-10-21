@@ -239,6 +239,7 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("allow_implicit_invocation: true", metadata)
         # The journeys, runner and workflow live in dinkuskit/live-journeys; only the pointer stays here.
         self.assertIn("https://github.com/dinkuskit/live-journeys/blob/main/SKILL.md", skill)
+        self.assertIn("\ndescription: ", skill.split("\n---\n", 1)[0])
         for rule in ("4242 4242 4242 4242", "Never pay twice", "read-only", "Never record Ship's print link"):
             self.assertIn(rule, skill)
         self.assertFalse((DINKUSKIT_LIVE_TEST_SKILL / "runner").exists())
