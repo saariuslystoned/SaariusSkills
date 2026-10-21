@@ -4,7 +4,6 @@ import { placeTestOrder } from "../support/checkout.mjs";
 import { config } from "../support/env.mjs";
 import { renderLabelPdf, showLabelPicture } from "../support/label-pdf.mjs";
 import { completionProblems, numberOf, openOrder } from "../support/orders-admin.mjs";
-import { PAGE_ROOM, paceStore } from "../support/pace.mjs";
 import { note } from "../support/proof.mjs";
 import { afterPress, chosen, choose, openEarlierLabels, openRow, openShipping, openShippingOrder, optionsOf, orderFields, printLabel, refusalShown,
   rowStatus, SANDBOX_KIND, SERVICES, shippingAdmin, shippingRow, weightField } from "../support/shipping-admin.mjs";
@@ -151,11 +150,9 @@ test("Buy a label in the store admin", { tag: "@running" }, journey(async ({ pag
   await step(page, "Opening Commerce Orders collects the label and completes the order", async () => {
     // Commerce asks Ship for new labels each time Commerce Orders opens, and every 5 minutes.
     const deadline = Date.now() + config.completeWaitMs;
-    await paceStore(PAGE_ROOM);
     let shown = await openOrder(page, number);
     while (shown.status !== "Completed" && Date.now() < deadline) {
       await page.waitForTimeout(30_000);
-      await paceStore(PAGE_ROOM);
       shown = await openOrder(page, number);
     }
     if (shown.status !== "Completed") throw new Error(`#${number} still shows ${shown.status ?? "no status"} in Commerce Orders ${config.completeWaitMs / 1000}s after the label was bought.`);
@@ -215,7 +212,6 @@ test("Buy a label in the store admin", { tag: "@running" }, journey(async ({ pag
     const row = await shippingRow(page, shipping, number);
     const status = row && await rowStatus(row);
     if (status !== "Label cancelled") throw new Error(`Shipping lists #${number} as "${status ?? "missing"}", not "Label cancelled".`);
-    await paceStore(PAGE_ROOM);
     const problems = completionProblems(await openOrder(page, number), { carrier: "USPS", tracking: bought.tracking });
     if (problems.length) throw new Error(`After the cancel, Commerce Orders' #${number} ${problems.join(" and ")}.`);
     return `Shipping lists "Label cancelled"; Commerce Orders still shows #${number} Completed with tracking ${bought.tracking}`;

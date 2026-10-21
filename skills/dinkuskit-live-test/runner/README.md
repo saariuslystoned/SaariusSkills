@@ -89,9 +89,9 @@ can cross the store's limit of 120 requests a minute per visitor.
 That limit counts every request from one address, pages, photos and admin calls
 alike, from every browser the run opens. So the run counts its own store requests
 from the moment each is sent, and before a step that sends many (opening a store
-page with its photos, reading each product's photo or link, uploading a photo to
-the Media library, the owner's work on a product in Full catalog) it waits until
-they fit under 100 in the last minute. The count carries on when Playwright starts
+page with its photos or a page of the store admin, reading each product's photo or
+link, uploading a photo to the Media library, the owner's work on a product in Full
+catalog) it waits until they fit under 100 in the last minute. The count carries on when Playwright starts
 a new worker after a journey fails, and into a run started straight after another:
 each store request's time also goes, as it's sent, in that minute's log
 (`.store-requests-<store>-<minute>.log`) beside the run folders in

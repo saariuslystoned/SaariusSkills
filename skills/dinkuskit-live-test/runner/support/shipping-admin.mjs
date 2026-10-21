@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { config } from "./env.mjs";
-import { PAGE_ROOM, paceStore } from "./pace.mjs";
 import { shippingPages } from "./shipping-text.mjs";
 import { openAdmin } from "./store-admin.mjs";
 
@@ -88,7 +87,6 @@ export async function afterPress(page, wanted) {
  * plugin reads Ship's orders as the page opens, and only that list carries a Refresh button.
  */
 export async function openShipping(page, url) {
-  await paceStore(PAGE_ROOM);
   await openAdmin(page, url);
   await afterPress(page, page.locator("main").getByRole("button", { name: "Refresh", exact: true }));
 }

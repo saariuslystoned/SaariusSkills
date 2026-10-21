@@ -1,6 +1,5 @@
 import { expect, test } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
-import { PAGE_ROOM, paceStore } from "../support/pace.mjs";
 import { note } from "../support/proof.mjs";
 import {
   SHIP_PLUGIN_NAME, STORE_ID_LABEL, STORE_KEY_LABEL, pluginIdFromSettingsUrl, pluginSettingsPath, storeIdProblem,
@@ -25,7 +24,6 @@ test("Ship settings", { tag: "@next" }, journey(async ({ page }) => {
   // Without the form there is nothing to read, so this step stops the journey.
   await step(page, "The owner opens Ship settings from Plugins", async () => {
     try {
-      await paceStore(PAGE_ROOM);
       await openAdmin(page, `${config.store}/_emdash/admin/plugins-manager`);
       const ship = page.getByRole("heading", { level: 3, name: SHIP_PLUGIN_NAME });
       const empty = page.getByRole("heading", { name: "No plugins configured", exact: true });
