@@ -18,7 +18,10 @@ export default defineConfig({
   // The verdict reporter goes last, so the run's verdict prints after Playwright's own summary.
   reporter: [["list"], ["json", { outputFile: `${config.runDir}/playwright${record}.json` }], ["./support/verdict-reporter.mjs"]],
   use: {
-    trace: "retain-on-failure",
+    // A Playwright trace keeps every request's headers, and with them the sign-in cookies for the
+    // store's Cloudflare Access and DinkusKit.com, so a run keeps none. Each step's screenshot and
+    // notes are its proof.
+    trace: "off",
     screenshot: "only-on-failure",
     // Playwright Test lets a click or a page load wait forever, so a button the page never shows, or a
     // page that never finishes loading, would hold the run until the test timeout. With these it fails
