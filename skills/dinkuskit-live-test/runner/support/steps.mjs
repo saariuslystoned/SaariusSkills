@@ -1,5 +1,6 @@
 import { test, expect } from "./browser.mjs";
 import { config } from "./env.mjs";
+import { withoutCallLog } from "./errors.mjs";
 import { journeyVerdict, record, shot, startJourney } from "./proof.mjs";
 
 // Errors that stopped a journey inside a step, which recorded them already.
@@ -21,8 +22,10 @@ export async function step(page, name, body, { soft = false } = {}) {
       await shot(page, `fail-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`);
       record(name, "FAIL", error.message.split("\n")[0]);
       if (typeof soft === "function" ? soft(error) : soft) return;
-      if (Object(error) === error) recorded.add(error);
-      throw error;
+      // Playwright's report and console print the error whole, so it goes up without its call log.
+      const kept = withoutCallLog(error);
+      if (Object(kept) === kept) recorded.add(kept);
+      throw kept;
     }
   });
 }
@@ -44,7 +47,7 @@ export function journey(body, { profile = true } = {}) {
     } catch (error) {
       // An error between steps (a page that wouldn't open) still fails the journey in its proof.
       if (!recorded.has(error)) record("The journey finished without an error", "FAIL", String(error?.message ?? error).split("\n")[0]);
-      throw error;
+      throw withoutCallLog(error);
     }
     const verdict = journeyVerdict(name);
     console.log(`\n${name}: ${verdict}\n`);

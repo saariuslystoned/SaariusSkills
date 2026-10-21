@@ -18,13 +18,9 @@ import { journey, step } from "../support/steps.mjs";
 const SANDBOX_CANCEL = "The sandbox label is voided with Pitney Bowes. The order stays as it is in Commerce.";
 const COMPLETED_NOTE = /^This order is Completed in Commerce, so Ship makes no label for it\./;
 
-// Ship's print link opens the label for five minutes with no sign-in, and Playwright's trace records
-// every page, link and request the run makes, so this journey keeps no trace. Its step screenshots and
-// notes are its proof.
-test.use({ trace: "off" });
-
-// On a failure Playwright also writes down the open page, links included (error-context.md), after the
-// test's own screenshot. A blank page by then leaves no print link to write down.
+// Ship's print link opens the label for five minutes with no sign-in. On a failure Playwright writes
+// down the open page, links included (error-context.md), after the test's own screenshot; a blank page
+// by then leaves no print link to write down.
 test.afterEach(async ({ page }) => {
   await page.goto("about:blank").catch(() => {});
 });

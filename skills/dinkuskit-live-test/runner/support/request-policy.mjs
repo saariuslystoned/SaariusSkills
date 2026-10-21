@@ -1,3 +1,5 @@
+import { withoutCallLog } from "./errors.mjs";
+
 /** The selected store and the services its canonical journeys use, never sibling stores. */
 const PRIVATE_HEADERS = /^(authorization|proxy-authorization|cookie|cf-access-client-id|cf-access-client-secret|x-api-key|x-emdash-key|x-commerce-guest-capability)$/i;
 const loopback = hostname => ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
@@ -217,7 +219,13 @@ export async function filteredGet(client, address, settings, options = {}) {
   for (let hop = 0; hop < 6; hop++) {
     if (!policy.allows(url)) throw new Error("A direct request left the selected sites.");
     const headers = policy.isStore(url) ? options.headers : policy.publicHeaders(options.headers ?? {});
-    const response = await client.get(url, { ...options, headers, maxRedirects: 0 });
+    let response;
+    try {
+      response = await client.get(url, { ...options, headers, maxRedirects: 0 });
+    } catch (error) {
+      // The request carries the browser's cookies, and Playwright's call log for a failure lists them.
+      throw withoutCallLog(error);
+    }
     const location = response.headers().location;
     if (![301, 302, 303, 307, 308].includes(response.status()) || !location) return response;
     const next = new URL(location, url).href;

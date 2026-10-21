@@ -40,7 +40,7 @@ const redirected = response => response.status >= 300 && response.status < 400;
 
 /**
  * A call from the test itself rather than from its browser, so neither the agent's key nor the
- * answer that carries it ever reaches the browser's trace. A failure names only what went wrong.
+ * answer that carries it ever passes through the browser. A failure names only what went wrong.
  */
 async function send(url, init, what) {
   return fetch(url, { ...init, redirect: "manual", signal: AbortSignal.timeout(30_000) })
