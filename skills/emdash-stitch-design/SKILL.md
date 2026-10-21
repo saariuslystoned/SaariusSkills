@@ -1,6 +1,6 @@
 ---
 name: emdash-stitch-design
-description: Design and upgrade EmDash Astro sites with Google Stitch MCP (`stitch-mcp`) and GrillTrack. Use for `code-to-design` snapshots, `taste-design` `DESIGN.md` systems, 5-candidate GrillTrack visual variants, tiebreaker hybrids, upstream EmDash `tokens.css`/`theme.css` multi-preset theming, and Astro/EmDash translation preserving `FEATURE_MAP.md` hooks.
+description: Design and upgrade EmDash Astro sites with Google Stitch MCP (`stitch-mcp`) and GrillTrack. Use for `code-to-design` snapshots, `taste-design` `DESIGN.md` systems, 5-candidate GrillTrack visual variants, tiebreaker hybrids, upstream EmDash `tokens.css`/`theme.css` theming (plus optional playground preset switchers), and Astro/EmDash translation preserving `FEATURE_MAP.md` hooks.
 ---
 
 # EmDash Stitch Design
@@ -22,9 +22,9 @@ Pair GrillTrack's product/visual decision loop with Google Stitch's native MCP (
 
 3. **Walk the Complete Storefront Surface Checklist (One Variable / Surface at a Time):**
    - Never compound multiple visual variables in one round, and **never jump into codebase implementation or long test runs until every storefront surface on the checklist is visually locked** (unless the user explicitly requests a checkpoint PR):
-     1. **Global Foundations (`design.md` + `tokens.css`):** Homepage Layout Architecture (`/`) → Color Palette & Curated Presets (holding chosen layout constant) → Typography Role System (holding chosen layout + palette constant).
+     1. **Global Foundations (`design.md` + `tokens.css`):** Homepage Layout Architecture (`/`) → Color Palette (holding chosen layout constant) → Typography Role System (holding chosen layout + palette constant).
      2. **Core Storefront Pages:** Product Detail Page (`/products/[id]`) → Category Collection Page (`/categories/[slug]`) → Guest Cart (`/cart`) → Checkout (`/checkout` or cart checkout stage) → Order Confirmation (`/checkout/success`) → Shopper Account (`/account`, showing both Signed-In and Signed-Out states) → Store Policies (`/shipping` & `/returns`, standardized against Shopify/WooCommerce/BigCommerce/Google Merchant Center).
-     3. **Global Chrome & Discovery:** Shared Global Footer (`StoreFooter.astro` with `<WidgetArea name="footer" />` + footer-only Theme/Preset switcher) → Header Search Bar & Live Search Page (`/search` with `<LiveSearch />`).
+     3. **Global Chrome & Discovery:** Shared Global Footer (`StoreFooter.astro` with `<WidgetArea name="footer" />` + footer-only Theme toggle and, if a starter/playground showcase, Preset switcher) → Header Search Bar & Live Search Page (`/search` with `<LiveSearch />`).
    - When holding locked variables constant, upload deterministic HTML variants via `stitch_upload_file` (`screens:batchCreate`) so Stitch renders pixel-accurate `=w2560` screenshots in ~2s without mutating locked DOM structure.
    - **Tiebreaker & Hybrid Rounds:** When the user is torn between two candidates (e.g., likes Layout A's frame with Candidate B's cards or search pill bar), immediately generate a 2–3 screen **Tiebreaker / Hybrid** round in real page context so the user can compare the exact combination before locking.
 
@@ -38,8 +38,7 @@ Pair GrillTrack's product/visual decision loop with Google Stitch's native MCP (
    - Read [references/grilltrack-visual-cycle.md](references/grilltrack-visual-cycle.md) before modifying Astro/EmDash components.
    - **Upstream EmDash Theming (`src/styles/tokens.css` + `src/styles/theme.css`):**
      - Define all design tokens inside `@layer base` in `src/styles/tokens.css` using CSS `light-dark(<light>, <dark>)`, and ship a blank unlayered `src/styles/theme.css` (`:root {}` with adopter comments) imported after `tokens.css`.
-     - Retain **2–3 curated Stitch palette presets** inside `@layer base` (`:root, :root[data-preset="..."]` plus alternate `:root[data-preset="..."]` blocks).
-     - Ship a cookie-persisted (`dinkus_theme`, `dinkus_preset`) `Light` / `Dark` / `System` switcher and (on `proof`/playground) **color-coded preset pills** (styled with each preset's palette fill, border, stamp shadow, and dual-tone swatch dot) strictly in the footer colophon—never duplicated in the header—and restored inline in `<head>` before first paint.
+     - **Real Live Store vs. Starter / Playground Showcase:** A live production storefront locks **one** chosen brand palette in `src/styles/tokens.css` (with optional `Light` / `Dark` / `System` appearance toggle in the footer colophon). Only include multi-palette `:root[data-preset="..."]` blocks and **color-coded preset pills** (styled with each preset's palette fill, border, stamp shadow, and dual-tone swatch dot) **circumstantially on starter templates, demo playgrounds, or staging sites** meant to showcase multiple color formats to prospects—and keep any switcher strictly in the footer colophon (never duplicated in the header).
    - **All 3 EmDash Composition Primitives (`blocks`, `sections`, `widgetAreas`):**
      - `blocks`: Keep `pages.layout` blocks (`home_opener`, `rich_text`, `query_card`) on `/`.
      - `sections`: Seed a reusable Portable Text section (e.g., `policy-support-note`) rendered via `getSection()` + `<PortableText />` on `/shipping` and `/returns` while preserving any legacy migration section (`home-opener`).

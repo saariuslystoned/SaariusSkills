@@ -52,9 +52,10 @@ When translating locked Stitch designs into an EmDash starter or storefront:
 
 - **Token Layering (`src/styles/tokens.css` + `src/styles/theme.css`):**
   - Place all design tokens inside `@layer base` in `src/styles/tokens.css` using CSS `light-dark(<light>, <dark>)` with `color-scheme: light dark` controlled by `:root[data-theme="light"|"dark"|"system"]`.
-  - Keep **2–3 curated Stitch presets** in `@layer base` (e.g. `:root, :root[data-preset="aizome"]`, `:root[data-preset="forest"]`, `:root[data-preset="cobalt"]`) so alternate Stitch palettes remain switchable on the playground and selectable by adopters.
-  - Ship a blank unlayered `src/styles/theme.css` (`:root {}`) imported immediately after `tokens.css` so adopter overrides win without `!important`.
-  - Mount the cookie-persisted (`dinkus_theme`, `dinkus_preset`) `Light`/`Dark`/`System` switcher and **color-coded preset pills** (each styled with its own palette swatch, fill, border, and offset shadow) **strictly in the footer colophon** (never duplicated in the header), with an inline `<script is:inline data-theme-init>` in `StoreHeader.astro` restoring attributes before first paint.
+  - Ship a blank unlayered `src/styles/theme.css` (`:root {}`) imported immediately after `tokens.css` so DevToolbar live previews and adopter overrides win without `!important`.
+  - **Production Storefront vs. Starter / Playground Showcase:**
+    - A real live store chooses **one** locked palette in `src/styles/tokens.css` (and may expose a `Light`/`Dark`/`System` appearance toggle in the footer colophon).
+    - **Circumstantial (Starter Templates / Demo Playgrounds / Prospect Staging Sites only):** When showcasing a template or staging site across multiple color formats to prospects (such as `template-store`), retain **2–3 curated Stitch presets** in `@layer base` (e.g. `:root, :root[data-preset="aizome"]`, `:root[data-preset="forest"]`, `:root[data-preset="cobalt"]`) and mount cookie-persisted (`dinkus_theme`, `dinkus_preset`) **color-coded preset pills** (each styled with its own palette swatch, fill, border, and offset shadow) **strictly in the footer colophon** (never duplicated in the header), restored inline in `StoreHeader.astro` before first paint.
 - **Exercise All 3 EmDash Composition Primitives:**
   1. `blocks`: `pages.layout` (`home_opener`, `rich_text`, `query_card`) on `/`.
   2. `sections`: Reusable Portable Text section (`getSection("<slug>")` + `<PortableText />`) on `/shipping` and `/returns`, keeping legacy sections (`home-opener`) in `seed/seed.json` for migration test compatibility.

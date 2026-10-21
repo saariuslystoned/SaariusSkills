@@ -9,11 +9,11 @@ Encode these rules in `.stitch/DESIGN.md` before generating screens:
 - **Atmosphere Axes:**
   - **Density:** 1–3 (Gallery Airy) · 4–7 (Balanced Storefront) · 8–10 (Cockpit Dense; use monospace for numbers).
   - **Variance:** 1–3 (Symmetric Grid) · 4–7 (Offset Asymmetric) · 8–10 (Editorial Asymmetric).
-- **Color Calibration & Multi-Preset Tokens:**
-  - Maximum 1 primary accent color per preset (saturation < 80%).
+- **Color Calibration & Optional Playground Presets:**
+  - Maximum 1 primary accent color per palette (saturation < 80%).
   - Ban "AI Purple/Blue Neon" gradients and outer button glows.
   - Never use pure `#000000`; use warm off-black, charcoal, or deep ink (`#101827`, `#0F1F18`, `#111318`).
-  - Give every color a semantic name + hex code + functional role, and map the top 2–3 Stitch palette candidates into `@layer base` presets in `src/styles/tokens.css` using `light-dark(<light>, <dark>)`.
+  - Give every color a semantic name + hex code + functional role, and map the locked Stitch palette into `@layer base` in `src/styles/tokens.css` using `light-dark(<light>, <dark>)`. (Circumstantially on starter templates, demo playgrounds, or staging sites built to preview multiple colorways for prospects, also retain 2–3 runner-up Stitch palettes as `:root[data-preset="..."]` blocks.)
 - **Tactile Stamp & Vault Contrast Hierarchy:**
   - Pair warm paper/chalk surfaces (`#F4F1EA` canvas, `#FCFBF8` cards with `1.5px–2px` dark ink borders and `3px–5px` solid offset shadows) with inverted dark architectural vaults (`#101827` with `6px–7px` accent offset shadows) on hero, cart summary, checkout manifest, order receipt, account rail, policy summary, and search command surfaces.
 - **Typography:**
@@ -23,7 +23,7 @@ Encode these rules in `.stitch/DESIGN.md` before generating screens:
   - No emojis in UI chrome.
   - No fabricated metrics (`99.98% SLA`, `10k+ customers`) or `LABEL // 2026` filler tags.
   - No invented cart/checkout/buy buttons when the slice contract forbids them.
-  - No duplicated theme/preset switchers in both header and footer (keep theme and color-coded preset pills strictly in the footer colophon).
+  - No duplicated theme/preset switchers in both header and footer (keep appearance toggles—and any circumstantial playground/staging color-coded preset pills—strictly in the footer colophon).
   - No horizontal overflow on narrow mobile viewports (`320px–767px`).
 
 ## 2. Prompt Enhancement Pipeline (`generate-design`)
