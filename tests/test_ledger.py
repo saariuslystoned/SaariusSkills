@@ -754,6 +754,167 @@ class LedgerCliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("dependency cycle", result.stderr)
 
+    def test_summary_is_bounded_and_default_remains_full(self) -> None:
+        self.run_cli(
+            "init",
+            "--title",
+            "Summary fixture",
+            "--track-id",
+            "summary-track",
+            "--output",
+            "summary",
+        )
+        self.run_cli(
+            "focus",
+            "--domain",
+            "Summary output",
+            "--cadence",
+            "sequential",
+            "--summary",
+            "Existing user-content input remains accepted.",
+            "--output",
+            "summary",
+        )
+        self.run_cli(
+            "confirm",
+            "--summary",
+            "Confirm the bounded receipt.",
+            "--output",
+            "summary",
+        )
+        proposed = self.run_cli(
+            "propose",
+            "--id",
+            "summary-001",
+            "--question",
+            "Which output?",
+            "--choice",
+            "Bounded",
+            "--rationale",
+            "Avoid unbounded agent output.",
+            "--output",
+            "summary",
+        )
+        receipt = json.loads(proposed.stdout)
+        self.assertEqual(
+            receipt,
+            {
+                "command": "propose",
+                "decision": {"id": "summary-001", "status": "proposed"},
+                "durable_paths": {
+                    "ledger": str((self.project / ".grilltrack" / "ledger.json").resolve()),
+                    "events": str((self.project / ".grilltrack" / "events.jsonl").resolve()),
+                },
+                "track": {"id": "summary-track", "status": "active"},
+                "updated_at": receipt["updated_at"],
+            },
+        )
+        self.assertNotIn("choice", receipt)
+        self.assertNotIn("rationale", receipt)
+
+        full = self.run_cli("show")
+        full_data = json.loads(full.stdout)
+        self.assertEqual(full_data["decisions"][0]["choice"], "Bounded")
+        self.assertEqual(full_data["current_focus"]["summary"], "Confirm the bounded receipt.")
+        self.assertTrue(full.stdout.startswith("{\n"))
+        self.assertEqual(self.run_cli("validate").stdout.strip(), "valid")
+
+    def test_summary_preserves_durable_semantics_and_shrinks_large_history(self) -> None:
+        first = LedgerCliTests()
+        first.setUp()
+        second = LedgerCliTests()
+        second.setUp()
+        try:
+            for fixture in (first, second):
+                fixture.run_cli(
+                    "init",
+                    "--title",
+                    "Equivalent fixture",
+                    "--track-id",
+                    "equivalent-track",
+                    "--output",
+                    "summary" if fixture is second else "full",
+                )
+                fixture.focus_and_confirm()
+                for index in range(24):
+                    fixture.add_verified(f"decision-{index:02d}")
+
+            first_full = first.run_cli("focus", "--domain", "Large history", "--cadence", "sequential")
+            second_summary = second.run_cli(
+                "focus",
+                "--domain",
+                "Large history",
+                "--cadence",
+                "sequential",
+                "--output",
+                "summary",
+            )
+            self.assertLess(len(second_summary.stdout), len(first_full.stdout))
+            self.assertLess(len(second_summary.stdout), 800)
+            self.assertGreater(len(first_full.stdout), 10000)
+
+            first_ledger = first.read_ledger()
+            second_ledger = second.read_ledger()
+            for ledger in (first_ledger, second_ledger):
+                ledger["created_at"] = "<timestamp>"
+                ledger["updated_at"] = "<timestamp>"
+                ledger["last_activation"]["at"] = "<timestamp>"
+                ledger["current_focus"]["started_at"] = "<timestamp>"
+                ledger["current_focus"].pop("confirmed_at", None)
+                for decision in ledger["decisions"]:
+                    decision["created_at"] = "<timestamp>"
+                    decision["updated_at"] = "<timestamp>"
+                    for transition_record in decision["history"]:
+                        transition_record["at"] = "<timestamp>"
+            self.assertEqual(first_ledger, second_ledger)
+
+            def event_semantics(fixture: LedgerCliTests) -> list[dict]:
+                events = [
+                    json.loads(line)
+                    for line in (
+                        fixture.project / ".grilltrack" / "events.jsonl"
+                    ).read_text(encoding="utf-8").splitlines()
+                ]
+                for event in events:
+                    event.pop("event_id", None)
+                    event.pop("at", None)
+                return events
+
+            self.assertEqual(event_semantics(first), event_semantics(second))
+        finally:
+            first.tearDown()
+            second.tearDown()
+
+    def test_invalid_summary_transition_preserves_failure_and_durability(self) -> None:
+        self.init()
+        ledger_path = self.project / ".grilltrack" / "ledger.json"
+        events_path = self.project / ".grilltrack" / "events.jsonl"
+        before_ledger = ledger_path.read_bytes()
+        before_events = events_path.read_bytes()
+        result = self.run_cli(
+            "lock",
+            "--id",
+            "missing-001",
+            "--output",
+            "summary",
+            ok=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("unknown decision: missing-001", result.stderr)
+        self.assertEqual(ledger_path.read_bytes(), before_ledger)
+        self.assertEqual(events_path.read_bytes(), before_events)
+
+    def test_all_lifecycle_parsers_accept_output_selector(self) -> None:
+        commands = (
+            "init", "new", "focus", "confirm", "propose", "lock", "implement",
+            "verify", "review", "reopen", "supersede", "defer", "recommend",
+            "pause", "resume", "close",
+        )
+        for command in commands:
+            result = self.run_cli(command, "--output", "summary", "--help")
+            self.assertEqual(result.returncode, 0, command)
+            self.assertIn("--output", result.stdout, command)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -96,12 +96,19 @@ Run the standard-library ledger CLI from this skill directory:
 
 ```bash
 python3 scripts/grilltrack_ledger.py --project <project-root> init \
-  --title "<track title>"
+  --title "<track title>" --output summary
 python3 scripts/grilltrack_ledger.py --project <project-root> new \
-  --title "<next track title>"
+  --title "<next track title>" --output summary
 python3 scripts/grilltrack_ledger.py --project <project-root> show
 python3 scripts/grilltrack_ledger.py --project <project-root> validate
 ```
+
+Prefer `--output summary` for ordinary agent lifecycle transitions: it emits a bounded
+JSON receipt containing current track/decision status, update time, and the
+durable ledger/event paths. Full ledger output remains the default; use
+`show` when a deliberate full-state read is needed. The existing `--summary`
+inputs are unchanged, and `show`, `validate`, and reconciliation do not accept
+the selector.
 
 Use `new` after a closed track. It preserves the prior ledger and event log
 under `.grilltrack/archive/<track-id>/`, links the successor, and starts clean
@@ -122,7 +129,7 @@ Record an adjudicated review after verification:
 ```bash
 python3 scripts/grilltrack_ledger.py --project <project-root> review \
   --id <decision-id> --source-identity git:<full-commit-sha> \
-  --ref <review-proof-ref> --result clean
+  --ref <review-proof-ref> --result clean --output summary
 ```
 
 For a non-Git artifact, use another immutable identity such as a content hash.
