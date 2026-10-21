@@ -1,0 +1,386 @@
+{
+  "after": {
+    "after_implementation_sha256": "2e303480de7689072f5fe708e75a09155ff57b83904e7ed0b648db65499eb38c",
+    "baseline_implementation_sha256": "7b0e90143afb9f04537e1992861bbc8b7cef87b5e4e626e3fd22de702ae1365b",
+    "compared_to_fixed_impl": false,
+    "diff_names": [
+      "normalize-lines.mjs"
+    ],
+    "implementation_changed": true,
+    "implementation_path": "normalize-lines.mjs",
+    "known_answer_applied": false,
+    "label": "live agent after; independent before/after implementation diff",
+    "protected_test_digest_unchanged": true,
+    "protected_test_path": "normalize-lines.test.mjs",
+    "tests": {
+      "command": [
+        "node",
+        "--test",
+        "--test-reporter=tap",
+        "normalize-lines.test.mjs"
+      ],
+      "cwd": "/Users/bobbybones/Developer/worktrees/puppet-cursor-qualification-pr68-20260921/runs/puppet-controller-proof-runs/20260921/v3/workspaces/cursor-proof-v3-live-pr68-20260921-once",
+      "failed": 0,
+      "implementation_sha256": "2e303480de7689072f5fe708e75a09155ff57b83904e7ed0b648db65499eb38c",
+      "passed": 3,
+      "protected_test_sha256": "bf063a0bdbf43dbe3fcda4e4d297af1aebcc2d7d1766efb6582f38e84710742e",
+      "returncode": 0,
+      "total": 3
+    },
+    "unrelated_edits": []
+  },
+  "available": false,
+  "baseline": {
+    "command": [
+      "node",
+      "--test",
+      "--test-reporter=tap",
+      "normalize-lines.test.mjs"
+    ],
+    "cwd": "/Users/bobbybones/Developer/worktrees/puppet-cursor-qualification-pr68-20260921/runs/puppet-controller-proof-runs/20260921/v3/workspaces/cursor-proof-v3-live-pr68-20260921-once",
+    "failed": 1,
+    "implementation_sha256": "7b0e90143afb9f04537e1992861bbc8b7cef87b5e4e626e3fd22de702ae1365b",
+    "passed": 2,
+    "protected_test_sha256": "bf063a0bdbf43dbe3fcda4e4d297af1aebcc2d7d1766efb6582f38e84710742e",
+    "returncode": 1,
+    "total": 3
+  },
+  "cleanup": {
+    "backend_after_finish": {
+      "backend_discard": "unsupported",
+      "cleanup_uncertain": false,
+      "helper_exit_sufficient": false,
+      "inferred_from_helper_exit": false,
+      "matched": true,
+      "process_lifecycle": {
+        "exits": [
+          {
+            "exitCode": 143,
+            "exitedAt": "2026-09-21T19:00:16.228Z",
+            "launchId": "6fda3225-8ef3-4343-b110-337e69d14bbc",
+            "pid": 98648,
+            "scope": {
+              "kind": "runtime-session",
+              "sessionKey": "cursor-proof-v3-live-pr68-20260921-once"
+            },
+            "signal": null,
+            "startedAt": "2026-09-21T18:59:53.666Z"
+          }
+        ],
+        "started": [
+          {
+            "launchId": "6fda3225-8ef3-4343-b110-337e69d14bbc",
+            "pid": 98648,
+            "scope": {
+              "kind": "runtime-session",
+              "sessionKey": "cursor-proof-v3-live-pr68-20260921-once"
+            },
+            "startedAt": "2026-09-21T18:59:53.666Z"
+          }
+        ]
+      },
+      "replacement_blocked": false,
+      "surviving_pids": [],
+      "terminated": true,
+      "worker_termination": "proven"
+    },
+    "backend_discard": "unsupported",
+    "child_exit": {
+      "exited": true,
+      "kind": "qualified_archive",
+      "pid": 98127,
+      "returncode": -15
+    },
+    "cleanup_uncertain": false,
+    "current_model": "grok-4.6[effort=high,fast=true]",
+    "fence": null,
+    "final_discard": true,
+    "finish_attempted_once": true,
+    "finish_error": null,
+    "local_release": false,
+    "owner_mediated": true,
+    "persistent_state": "discarded",
+    "process_lifecycle": {
+      "exits": [
+        {
+          "exitCode": 143,
+          "exitedAt": "2026-09-21T19:00:16.228Z",
+          "launchId": "6fda3225-8ef3-4343-b110-337e69d14bbc",
+          "pid": 98648,
+          "scope": {
+            "kind": "runtime-session",
+            "sessionKey": "cursor-proof-v3-live-pr68-20260921-once"
+          },
+          "signal": null,
+          "startedAt": "2026-09-21T18:59:53.666Z"
+        }
+      ],
+      "started": [
+        {
+          "launchId": "6fda3225-8ef3-4343-b110-337e69d14bbc",
+          "pid": 98648,
+          "scope": {
+            "kind": "runtime-session",
+            "sessionKey": "cursor-proof-v3-live-pr68-20260921-once"
+          },
+          "startedAt": "2026-09-21T18:59:53.666Z"
+        }
+      ]
+    },
+    "replacement_blocked": false,
+    "selected_model": "grok-4.6[effort=high,fast=true]",
+    "source_contract": {
+      "backend_discard": "unsupported",
+      "cleanup_uncertain": false,
+      "process_lifecycle": {
+        "exits": [
+          {
+            "exitCode": 143,
+            "exitedAt": "2026-09-21T19:00:16.228Z",
+            "launchId": "6fda3225-8ef3-4343-b110-337e69d14bbc",
+            "pid": 98648,
+            "scope": {
+              "kind": "runtime-session",
+              "sessionKey": "cursor-proof-v3-live-pr68-20260921-once"
+            },
+            "signal": null,
+            "startedAt": "2026-09-21T18:59:53.666Z"
+          }
+        ],
+        "started": [
+          {
+            "launchId": "6fda3225-8ef3-4343-b110-337e69d14bbc",
+            "pid": 98648,
+            "scope": {
+              "kind": "runtime-session",
+              "sessionKey": "cursor-proof-v3-live-pr68-20260921-once"
+            },
+            "startedAt": "2026-09-21T18:59:53.666Z"
+          }
+        ]
+      },
+      "replacement_blocked": false,
+      "worker": {
+        "exitCode": 143,
+        "exitedAt": "2026-09-21T19:00:16.228Z",
+        "launchId": "6fda3225-8ef3-4343-b110-337e69d14bbc",
+        "pid": 98648,
+        "scope": {
+          "kind": "runtime-session",
+          "sessionKey": "cursor-proof-v3-live-pr68-20260921-once"
+        },
+        "signal": null,
+        "startedAt": "2026-09-21T18:59:53.666Z"
+      },
+      "worker_termination": "proven"
+    },
+    "worker": {
+      "exitCode": 143,
+      "exitedAt": "2026-09-21T19:00:16.228Z",
+      "launchId": "6fda3225-8ef3-4343-b110-337e69d14bbc",
+      "pid": 98648,
+      "scope": {
+        "kind": "runtime-session",
+        "sessionKey": "cursor-proof-v3-live-pr68-20260921-once"
+      },
+      "signal": null,
+      "startedAt": "2026-09-21T18:59:53.666Z"
+    },
+    "worker_termination": "proven"
+  },
+  "cleanup_api": "owner.finish",
+  "continuation_api": "owner.next_turn",
+  "entrypoint": "_cursor_acp_structured_launch",
+  "events": {
+    "first": {
+      "body_retained": false,
+      "event_count": 3,
+      "observed_types": [
+        "status",
+        "text_delta",
+        "tool_call"
+      ]
+    },
+    "second": null
+  },
+  "fixture_retained": true,
+  "host": {
+    "conversation_id": "conv-cursor-proof-v3-live-pr68-20260921-once",
+    "first_request_id": "cursor-proof-v3-live-pr68-20260921-once-turn-1",
+    "second_request_id": null,
+    "session": "cursor-proof-v3-live-pr68-20260921-once"
+  },
+  "implementation_job_id": "91a1240f-de3d-4546-a809-3a68c54d13d0",
+  "isolated_root": "/Users/bobbybones/Developer/worktrees/puppet-cursor-qualification-pr68-20260921/runs/puppet-controller-proof-runs/20260921/v3/state/cursor-proof-v3-live-pr68-20260921-once/cursor-proof-v3-live-pr68-20260921-once/acp-isolated",
+  "launch_parameters": {
+    "catalog_injected": false,
+    "contract_repo": "/Users/bobbybones/Developer/worktrees/puppet-cursor-qualification-pr68-20260921/runs/puppet-controller-proof-runs/20260921/v3/workspaces/cursor-proof-v3-live-pr68-20260921-once",
+    "entrypoint": "_cursor_acp_structured_launch",
+    "expected_workspace_path": "/Users/bobbybones/Developer/worktrees/puppet-cursor-qualification-pr68-20260921/runs/puppet-controller-proof-runs/20260921/v3/workspaces/cursor-proof-v3-live-pr68-20260921-once",
+    "first_turn_source": "_cursor_acp_structured_launch.require_observation",
+    "intended_kind": "official_route",
+    "owner_next_turn_is_first_turn": false,
+    "requested_model": "cursor-grok-4.6-high",
+    "route_resolver": "resolve_cursor_acp_route_binding",
+    "task_text_bound": true
+  },
+  "live": false,
+  "live_claimed": false,
+  "live_cursor_acp_claimed": false,
+  "mode": "live_path_substitute",
+  "model": {
+    "advertised_model_ids": [],
+    "available": false,
+    "catalog_injected": false,
+    "current_model": "grok-4.6[effort=high,fast=true]",
+    "live_claimed": false,
+    "live_current_model": "grok-4.6[effort=high,fast=true]",
+    "live_selector": "cursor-grok-4.6-high",
+    "official_route_identity": "cursor-agent-acp",
+    "ordinary_launch": "unavailable",
+    "requested_model": "cursor-grok-4.6-high",
+    "route_resolver": "resolve_cursor_acp_route_binding",
+    "selected_model": "grok-4.6[effort=high,fast=true]",
+    "source": "acp_runtime_metadata",
+    "synthetic_catalog_used_as_live": false,
+    "used_kind": "qualified_archive"
+  },
+  "offline_known_answer": null,
+  "ok": true,
+  "ordinary_launch": "unavailable",
+  "process": {
+    "backend_after_finish": {
+      "backend_discard": "unsupported",
+      "cleanup_uncertain": false,
+      "helper_exit_sufficient": false,
+      "inferred_from_helper_exit": false,
+      "matched": true,
+      "process_lifecycle": {
+        "exits": [
+          {
+            "exitCode": 143,
+            "exitedAt": "2026-09-21T19:00:16.228Z",
+            "launchId": "6fda3225-8ef3-4343-b110-337e69d14bbc",
+            "pid": 98648,
+            "scope": {
+              "kind": "runtime-session",
+              "sessionKey": "cursor-proof-v3-live-pr68-20260921-once"
+            },
+            "signal": null,
+            "startedAt": "2026-09-21T18:59:53.666Z"
+          }
+        ],
+        "started": [
+          {
+            "launchId": "6fda3225-8ef3-4343-b110-337e69d14bbc",
+            "pid": 98648,
+            "scope": {
+              "kind": "runtime-session",
+              "sessionKey": "cursor-proof-v3-live-pr68-20260921-once"
+            },
+            "startedAt": "2026-09-21T18:59:53.666Z"
+          }
+        ]
+      },
+      "replacement_blocked": false,
+      "surviving_pids": [],
+      "terminated": true,
+      "worker_termination": "proven"
+    },
+    "first_turn": {
+      "backend": {
+        "child_count": 1,
+        "evidence_gap": null,
+        "helper_exit_sufficient": false,
+        "incarnations": [
+          {
+            "executable_name": "/Users/bobbybones/.local/share/cursor-agent/versions/2026.08.11-e8db854/cursor-agent",
+            "pid": 98648,
+            "ppid": 98127,
+            "start_identity": "Mon Sep 21 14:59:53 2026"
+          }
+        ],
+        "inferred_from_helper_exit": false,
+        "observed": true
+      },
+      "first_turn_source": "_cursor_acp_structured_launch.require_observation",
+      "helper": {
+        "exited": false,
+        "kind": "qualified_archive",
+        "note": "Node controller-runtime-driver PID; not automatically a Cursor backend PID",
+        "pid": 98127,
+        "returncode": null,
+        "role": "implementation_or_helper",
+        "source": "runtime.child_process_identity"
+      },
+      "os_children": [
+        {
+          "executable_name": "/Users/bobbybones/.local/share/cursor-agent/versions/2026.08.11-e8db854/cursor-agent",
+          "pid": 98648,
+          "ppid": 98127,
+          "start_identity": "Mon Sep 21 14:59:53 2026"
+        }
+      ],
+      "os_helper": {
+        "executable_name": "node",
+        "pid": 98127,
+        "ppid": 98101,
+        "start_identity": "Mon Sep 21 14:59:52 2026"
+      },
+      "owner_next_turn_is_first_turn": false,
+      "sampled_after": "structured_launch_first_turn"
+    },
+    "helper_exit_sufficient": false,
+    "second_turn": null
+  },
+  "runtime_ids": {
+    "backend_mapping": {
+      "acpx_record_id": "cursor-proof-v3-live-pr68-20260921-once",
+      "assumed_stable_after_reconnect": false,
+      "backend_identity_changed": false,
+      "backend_session_id": "d40c9b09-264e-4a72-9d72-4e6c145ed407",
+      "previous_acpx_record_id": "cursor-proof-v3-live-pr68-20260921-once",
+      "previous_backend_session_id": "d40c9b09-264e-4a72-9d72-4e6c145ed407",
+      "previous_runtime_session_name": "acpx:v2:eyJuYW1lIjoiY3Vyc29yLXByb29mLXYzLWxpdmUtcHI2OC0yMDI2MDkyMS1vbmNlIiwiYWdlbnQiOiJjdXJzb3IiLCJjd2QiOiIvVXNlcnMvYm9iYnlib25lcy9EZXZlbG9wZXIvd29ya3RyZWVzL3B1cHBldC1jdXJzb3ItcXVhbGlmaWNhdGlvbi1wcjY4LTIwMjYwOTIxL3J1bnMvcHVwcGV0LWNvbnRyb2xsZXItcHJvb2YtcnVucy8yMDI2MDkyMS92My93b3Jrc3BhY2VzL2N1cnNvci1wcm9vZi12My1saXZlLXByNjgtMjAyNjA5MjEtb25jZSIsIm1vZGUiOiJwZXJzaXN0ZW50IiwiYWNweFJlY29yZElkIjoiY3Vyc29yLXByb29mLXYzLWxpdmUtcHI2OC0yMDI2MDkyMS1vbmNlIiwiYmFja2VuZFNlc3Npb25JZCI6ImQ0MGM5YjA5LTI2NGUtNGE3Mi05ZDcyLTRlNmMxNDVlZDQwNyJ9",
+      "runtime_session_name": "acpx:v2:eyJuYW1lIjoiY3Vyc29yLXByb29mLXYzLWxpdmUtcHI2OC0yMDI2MDkyMS1vbmNlIiwiYWdlbnQiOiJjdXJzb3IiLCJjd2QiOiIvVXNlcnMvYm9iYnlib25lcy9EZXZlbG9wZXIvd29ya3RyZWVzL3B1cHBldC1jdXJzb3ItcXVhbGlmaWNhdGlvbi1wcjY4LTIwMjYwOTIxL3J1bnMvcHVwcGV0LWNvbnRyb2xsZXItcHJvb2YtcnVucy8yMDI2MDkyMS92My93b3Jrc3BhY2VzL2N1cnNvci1wcm9vZi12My1saXZlLXByNjgtMjAyNjA5MjEtb25jZSIsIm1vZGUiOiJwZXJzaXN0ZW50IiwiYWNweFJlY29yZElkIjoiY3Vyc29yLXByb29mLXYzLWxpdmUtcHI2OC0yMDI2MDkyMS1vbmNlIiwiYmFja2VuZFNlc3Npb25JZCI6ImQ0MGM5YjA5LTI2NGUtNGE3Mi05ZDcyLTRlNmMxNDVlZDQwNyJ9"
+    },
+    "first": {
+      "acpx_record_id": "cursor-proof-v3-live-pr68-20260921-once",
+      "backend_session_id": "d40c9b09-264e-4a72-9d72-4e6c145ed407",
+      "runtime_session_name": "acpx:v2:eyJuYW1lIjoiY3Vyc29yLXByb29mLXYzLWxpdmUtcHI2OC0yMDI2MDkyMS1vbmNlIiwiYWdlbnQiOiJjdXJzb3IiLCJjd2QiOiIvVXNlcnMvYm9iYnlib25lcy9EZXZlbG9wZXIvd29ya3RyZWVzL3B1cHBldC1jdXJzb3ItcXVhbGlmaWNhdGlvbi1wcjY4LTIwMjYwOTIxL3J1bnMvcHVwcGV0LWNvbnRyb2xsZXItcHJvb2YtcnVucy8yMDI2MDkyMS92My93b3Jrc3BhY2VzL2N1cnNvci1wcm9vZi12My1saXZlLXByNjgtMjAyNjA5MjEtb25jZSIsIm1vZGUiOiJwZXJzaXN0ZW50IiwiYWNweFJlY29yZElkIjoiY3Vyc29yLXByb29mLXYzLWxpdmUtcHI2OC0yMDI2MDkyMS1vbmNlIiwiYmFja2VuZFNlc3Npb25JZCI6ImQ0MGM5YjA5LTI2NGUtNGE3Mi05ZDcyLTRlNmMxNDVlZDQwNyJ9"
+    },
+    "second": null
+  },
+  "schema": "puppet.cursor-live-capable-controller-proof/v3",
+  "session_replaced": false,
+  "source": {
+    "branch": "codex/puppet-cursor-qualification-pr68-20260921",
+    "dirty": true,
+    "expected_head": "6a9140f81b1850a0b39935bb8cd3e58b9ca0f0e2",
+    "expected_tree": "2c4a2142266a6f7eaa80873a609935d0e6736e38",
+    "head": "6a9140f81b1850a0b39935bb8cd3e58b9ca0f0e2",
+    "immutable_parent": "b8672726939a64710c69f4c2839b037d15e36945",
+    "path": "/Users/bobbybones/Developer/worktrees/puppet-cursor-qualification-pr68-20260921",
+    "product_source_altered": false,
+    "tree": "2c4a2142266a6f7eaa80873a609935d0e6736e38",
+    "upstream_commit": "2e05de525dd1ab62e9e74bf02d91e3638920fcf3",
+    "upstream_tree": "c612e764ead5d8eaa409956fb1b11c008a7579ed"
+  },
+  "state_retained": true,
+  "turn_attribution": {
+    "first_request_id": "cursor-proof-v3-live-pr68-20260921-once-turn-1",
+    "first_turn_source": "_cursor_acp_structured_launch.require_observation",
+    "owner_next_turn_is_first_turn": false,
+    "require_observation_completes_first_turn": true,
+    "second_request_id": null,
+    "second_turn_source": null,
+    "structured_launch_includes_first_turn": true
+  },
+  "workspace": {
+    "branch": "cursor-proof-fixture-v3",
+    "dirty": true,
+    "head": "056c18c5ed6a62509c5a0dcb1fc5e3009c741d3c",
+    "path": "/Users/bobbybones/Developer/worktrees/puppet-cursor-qualification-pr68-20260921/runs/puppet-controller-proof-runs/20260921/v3/workspaces/cursor-proof-v3-live-pr68-20260921-once",
+    "tree": "22f4224a3400d1e8597666c3bfd90233309f02b1"
+  }
+}

@@ -1,0 +1,152 @@
+{
+  "ok": true,
+  "live": false,
+  "live_claimed": false,
+  "receipt": "/Users/bobbybones/Developer/worktrees/puppet-cursor-qualification-pr68-20260921/runs/puppet-controller-proof-runs/20260921/v3/receipts/live-receipt.json",
+  "receipt_sha256": "8b19acc25d0f604154059a3fa95e19900a1fb3579d443258109ebdc68c5c27a9",
+  "implementation_job_id": "91a1240f-de3d-4546-a809-3a68c54d13d0",
+  "cleanup": {
+    "final_discard": true,
+    "local_release": false,
+    "persistent_state": "discarded",
+    "backend_discard": "unsupported",
+    "worker_termination": "proven",
+    "cleanup_uncertain": false,
+    "replacement_blocked": false,
+    "worker": {
+      "pid": 98648,
+      "startedAt": "2026-09-21T18:59:53.666Z",
+      "launchId": "6fda3225-8ef3-4343-b110-337e69d14bbc",
+      "scope": {
+        "kind": "runtime-session",
+        "sessionKey": "cursor-proof-v3-live-pr68-20260921-once"
+      },
+      "signal": null,
+      "exitCode": 143,
+      "exitedAt": "2026-09-21T19:00:16.228Z"
+    },
+    "process_lifecycle": {
+      "started": [
+        {
+          "pid": 98648,
+          "startedAt": "2026-09-21T18:59:53.666Z",
+          "launchId": "6fda3225-8ef3-4343-b110-337e69d14bbc",
+          "scope": {
+            "kind": "runtime-session",
+            "sessionKey": "cursor-proof-v3-live-pr68-20260921-once"
+          }
+        }
+      ],
+      "exits": [
+        {
+          "pid": 98648,
+          "startedAt": "2026-09-21T18:59:53.666Z",
+          "launchId": "6fda3225-8ef3-4343-b110-337e69d14bbc",
+          "scope": {
+            "kind": "runtime-session",
+            "sessionKey": "cursor-proof-v3-live-pr68-20260921-once"
+          },
+          "signal": null,
+          "exitCode": 143,
+          "exitedAt": "2026-09-21T19:00:16.228Z"
+        }
+      ]
+    },
+    "selected_model": "grok-4.6[effort=high,fast=true]",
+    "current_model": "grok-4.6[effort=high,fast=true]",
+    "child_exit": {
+      "pid": 98127,
+      "returncode": -15,
+      "exited": true,
+      "kind": "qualified_archive"
+    },
+    "fence": null,
+    "owner_mediated": true,
+    "finish_attempted_once": true,
+    "backend_after_finish": {
+      "matched": true,
+      "terminated": true,
+      "surviving_pids": [],
+      "inferred_from_helper_exit": false,
+      "helper_exit_sufficient": false,
+      "backend_discard": "unsupported",
+      "worker_termination": "proven",
+      "process_lifecycle": {
+        "started": [
+          {
+            "pid": 98648,
+            "startedAt": "2026-09-21T18:59:53.666Z",
+            "launchId": "6fda3225-8ef3-4343-b110-337e69d14bbc",
+            "scope": {
+              "kind": "runtime-session",
+              "sessionKey": "cursor-proof-v3-live-pr68-20260921-once"
+            }
+          }
+        ],
+        "exits": [
+          {
+            "pid": 98648,
+            "startedAt": "2026-09-21T18:59:53.666Z",
+            "launchId": "6fda3225-8ef3-4343-b110-337e69d14bbc",
+            "scope": {
+              "kind": "runtime-session",
+              "sessionKey": "cursor-proof-v3-live-pr68-20260921-once"
+            },
+            "signal": null,
+            "exitCode": 143,
+            "exitedAt": "2026-09-21T19:00:16.228Z"
+          }
+        ]
+      },
+      "cleanup_uncertain": false,
+      "replacement_blocked": false
+    },
+    "finish_error": null,
+    "source_contract": {
+      "backend_discard": "unsupported",
+      "worker_termination": "proven",
+      "cleanup_uncertain": false,
+      "replacement_blocked": false,
+      "worker": {
+        "pid": 98648,
+        "startedAt": "2026-09-21T18:59:53.666Z",
+        "launchId": "6fda3225-8ef3-4343-b110-337e69d14bbc",
+        "scope": {
+          "kind": "runtime-session",
+          "sessionKey": "cursor-proof-v3-live-pr68-20260921-once"
+        },
+        "signal": null,
+        "exitCode": 143,
+        "exitedAt": "2026-09-21T19:00:16.228Z"
+      },
+      "process_lifecycle": {
+        "started": [
+          {
+            "pid": 98648,
+            "startedAt": "2026-09-21T18:59:53.666Z",
+            "launchId": "6fda3225-8ef3-4343-b110-337e69d14bbc",
+            "scope": {
+              "kind": "runtime-session",
+              "sessionKey": "cursor-proof-v3-live-pr68-20260921-once"
+            }
+          }
+        ],
+        "exits": [
+          {
+            "pid": 98648,
+            "startedAt": "2026-09-21T18:59:53.666Z",
+            "launchId": "6fda3225-8ef3-4343-b110-337e69d14bbc",
+            "scope": {
+              "kind": "runtime-session",
+              "sessionKey": "cursor-proof-v3-live-pr68-20260921-once"
+            },
+            "signal": null,
+            "exitCode": 143,
+            "exitedAt": "2026-09-21T19:00:16.228Z"
+          }
+        ]
+      }
+    }
+  },
+  "staged_only_note": "caller executed the live path"
+}

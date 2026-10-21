@@ -1,0 +1,415 @@
+{
+  "consume": {
+    "after": {
+      "after_implementation_sha256": "318facc09614a6adaf79f772807cfc6c0b8f632e9f9e8af99d79cc1f01cb6225",
+      "baseline_implementation_sha256": "7b0e90143afb9f04537e1992861bbc8b7cef87b5e4e626e3fd22de702ae1365b",
+      "compared_to_fixed_impl": false,
+      "diff_names": [
+        "normalize-lines.mjs"
+      ],
+      "implementation_changed": true,
+      "implementation_path": "normalize-lines.mjs",
+      "known_answer_applied": false,
+      "label": "offline-only known-answer normalization; not useful agent output",
+      "protected_test_digest_unchanged": true,
+      "protected_test_path": "normalize-lines.test.mjs",
+      "tests": {
+        "command": [
+          "node",
+          "--test",
+          "--test-reporter=tap",
+          "normalize-lines.test.mjs"
+        ],
+        "cwd": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921/v3/workspaces/cursor-proof-v3-offline",
+        "failed": 0,
+        "implementation_sha256": "318facc09614a6adaf79f772807cfc6c0b8f632e9f9e8af99d79cc1f01cb6225",
+        "passed": 3,
+        "protected_test_sha256": "bf063a0bdbf43dbe3fcda4e4d297af1aebcc2d7d1766efb6582f38e84710742e",
+        "returncode": 0,
+        "total": 3
+      },
+      "unrelated_edits": []
+    },
+    "available": false,
+    "baseline": {
+      "command": [
+        "node",
+        "--test",
+        "--test-reporter=tap",
+        "normalize-lines.test.mjs"
+      ],
+      "cwd": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921/v3/workspaces/cursor-proof-v3-offline",
+      "failed": 1,
+      "implementation_sha256": "7b0e90143afb9f04537e1992861bbc8b7cef87b5e4e626e3fd22de702ae1365b",
+      "passed": 2,
+      "protected_test_sha256": "bf063a0bdbf43dbe3fcda4e4d297af1aebcc2d7d1766efb6582f38e84710742e",
+      "returncode": 1,
+      "total": 3
+    },
+    "cleanup": {
+      "backend_after_finish": {
+        "evidence_gap": "no matched backend incarnation; helper exit is not backend proof",
+        "helper_exit_sufficient": false,
+        "inferred_from_helper_exit": false,
+        "matched": false,
+        "surviving_pids": [],
+        "terminated": false
+      },
+      "backend_discard": null,
+      "child_exit": {
+        "exited": true,
+        "kind": "synthetic_peer",
+        "pid": 919,
+        "returncode": -15
+      },
+      "fence": null,
+      "final_discard": true,
+      "finish_attempted_once": true,
+      "local_release": false,
+      "owner_mediated": true,
+      "persistent_state": "discarded"
+    },
+    "cleanup_api": "owner.finish",
+    "continuation_api": "owner.next_turn",
+    "entrypoint": "_cursor_acp_structured_launch",
+    "events": {
+      "first": {
+        "body_retained": false,
+        "event_count": 1,
+        "observed_types": [
+          "text_delta"
+        ]
+      },
+      "second": {
+        "body_retained": false,
+        "event_count": 1,
+        "observed_types": [
+          "text_delta"
+        ]
+      }
+    },
+    "fixture_retained": true,
+    "host": {
+      "conversation_id": "conv-cursor-proof-v3-offline",
+      "first_request_id": "cursor-proof-v3-offline-turn-1",
+      "second_request_id": "cursor-proof-v3-offline-turn-2",
+      "session": "cursor-proof-v3-offline"
+    },
+    "implementation_job_id": "4e0415d3-f1e1-4e7c-951b-cd093b06f13d",
+    "isolated_root": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921/v3/state/cursor-proof-v3-offline/cursor-proof-v3-offline/acp-isolated",
+    "launch_parameters": {
+      "catalog_injected": true,
+      "contract_repo": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921/v3/workspaces/cursor-proof-v3-offline",
+      "entrypoint": "_cursor_acp_structured_launch",
+      "expected_workspace_path": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921/v3/workspaces/cursor-proof-v3-offline",
+      "first_turn_source": "_cursor_acp_structured_launch.require_observation",
+      "intended_kind": "synthetic_peer",
+      "owner_next_turn_is_first_turn": false,
+      "requested_model": "candidate-fast",
+      "route_resolver": "test_only_cursor_synthetic_route_binding",
+      "task_text_bound": true
+    },
+    "live": false,
+    "live_claimed": false,
+    "live_cursor_acp_claimed": false,
+    "mode": "offline_synthetic",
+    "model": {
+      "advertised_model_ids": [
+        "candidate-default",
+        "candidate-fast"
+      ],
+      "available": false,
+      "catalog_injected": true,
+      "current_model": "candidate-fast",
+      "live_claimed": false,
+      "live_current_model": "grok-4.6[effort=high,fast=true]",
+      "live_selector": "cursor-grok-4.6-high",
+      "official_route_identity": "cursor-agent-acp",
+      "ordinary_launch": "unavailable",
+      "requested_model": "candidate-fast",
+      "route_resolver": "test_only_cursor_synthetic_route_binding",
+      "selected_model": "candidate-fast",
+      "source": "acp_runtime_metadata",
+      "synthetic_catalog_used_as_live": false,
+      "used_kind": "synthetic_peer"
+    },
+    "offline_known_answer": {
+      "implementation_only": true,
+      "implementation_sha256": "318facc09614a6adaf79f772807cfc6c0b8f632e9f9e8af99d79cc1f01cb6225",
+      "label": "offline-only known-answer normalization; not live agent output",
+      "offline_known_answer": true,
+      "protected_test_sha256": "bf063a0bdbf43dbe3fcda4e4d297af1aebcc2d7d1766efb6582f38e84710742e",
+      "useful_agent_output": false
+    },
+    "ok": true,
+    "ordinary_launch": "unavailable",
+    "process": {
+      "backend_after_finish": {
+        "evidence_gap": "no matched backend incarnation; helper exit is not backend proof",
+        "helper_exit_sufficient": false,
+        "inferred_from_helper_exit": false,
+        "matched": false,
+        "surviving_pids": [],
+        "terminated": false
+      },
+      "first_turn": {
+        "backend": {
+          "child_count": 0,
+          "evidence_gap": "OS children of the owned helper were not cursor-agent; those PIDs are helper-side runtime/peer processes, not a Cursor backend. Backend death is not inferred from helper exit",
+          "helper_exit_sufficient": false,
+          "incarnations": [],
+          "inferred_from_helper_exit": false,
+          "observed": false
+        },
+        "first_turn_source": "_cursor_acp_structured_launch.require_observation",
+        "helper": {
+          "exited": false,
+          "kind": "synthetic_peer",
+          "note": "Node controller-runtime-driver PID; not automatically a Cursor backend PID",
+          "pid": 919,
+          "returncode": null,
+          "role": "implementation_or_helper",
+          "source": "runtime.child_process_identity"
+        },
+        "os_children": [
+          {
+            "executable_name": "/Users/bobbybones/.local/share/cursor-agent/versions/2026.08.11-e8db854/node",
+            "pid": 1234,
+            "ppid": 919,
+            "start_identity": "Mon Sep 21 11:39:14 2026"
+          }
+        ],
+        "os_helper": {
+          "executable_name": "node",
+          "pid": 919,
+          "ppid": 842,
+          "start_identity": "Mon Sep 21 11:39:13 2026"
+        },
+        "owner_next_turn_is_first_turn": false,
+        "sampled_after": "structured_launch_first_turn"
+      },
+      "helper_exit_sufficient": false,
+      "second_turn": {
+        "backend": {
+          "child_count": 0,
+          "evidence_gap": "OS children of the owned helper were not cursor-agent; those PIDs are helper-side runtime/peer processes, not a Cursor backend. Backend death is not inferred from helper exit",
+          "helper_exit_sufficient": false,
+          "incarnations": [],
+          "inferred_from_helper_exit": false,
+          "observed": false
+        },
+        "first_turn_source": "_cursor_acp_structured_launch.require_observation",
+        "helper": {
+          "exited": false,
+          "kind": "synthetic_peer",
+          "note": "Node controller-runtime-driver PID; not automatically a Cursor backend PID",
+          "pid": 919,
+          "returncode": null,
+          "role": "implementation_or_helper",
+          "source": "runtime.child_process_identity"
+        },
+        "os_children": [
+          {
+            "executable_name": "/Users/bobbybones/.local/share/cursor-agent/versions/2026.08.11-e8db854/node",
+            "pid": 1234,
+            "ppid": 919,
+            "start_identity": "Mon Sep 21 11:39:14 2026"
+          }
+        ],
+        "os_helper": {
+          "executable_name": "node",
+          "pid": 919,
+          "ppid": 842,
+          "start_identity": "Mon Sep 21 11:39:13 2026"
+        },
+        "owner_next_turn_is_first_turn": false,
+        "sampled_after": "owner_next_turn_second_turn"
+      }
+    },
+    "runtime_ids": {
+      "backend_mapping": {
+        "acpx_record_id": "cursor-proof-v3-offline",
+        "assumed_stable_after_reconnect": false,
+        "backend_identity_changed": false,
+        "backend_session_id": "candidate-session",
+        "previous_acpx_record_id": "cursor-proof-v3-offline",
+        "previous_backend_session_id": "candidate-session",
+        "previous_runtime_session_name": "acpx:v2:eyJuYW1lIjoiY3Vyc29yLXByb29mLXYzLW9mZmxpbmUiLCJhZ2VudCI6ImNhbmRpZGF0ZSIsImN3ZCI6Ii9Vc2Vycy9ib2JieWJvbmVzL0RldmVsb3Blci93b3JrdHJlZXMvcHVwcGV0LWN1cnNvci1jb250cm9sbGVyLXByb29mLTIwMjYwOTIxL3J1bnMvcHVwcGV0LWNvbnRyb2xsZXItcHJvb2YtcnVucy8yMDI2MDkyMS92My93b3Jrc3BhY2VzL2N1cnNvci1wcm9vZi12My1vZmZsaW5lIiwibW9kZSI6InBlcnNpc3RlbnQiLCJhY3B4UmVjb3JkSWQiOiJjdXJzb3ItcHJvb2YtdjMtb2ZmbGluZSIsImJhY2tlbmRTZXNzaW9uSWQiOiJjYW5kaWRhdGUtc2Vzc2lvbiJ9",
+        "runtime_session_name": "acpx:v2:eyJuYW1lIjoiY3Vyc29yLXByb29mLXYzLW9mZmxpbmUiLCJhZ2VudCI6ImNhbmRpZGF0ZSIsImN3ZCI6Ii9Vc2Vycy9ib2JieWJvbmVzL0RldmVsb3Blci93b3JrdHJlZXMvcHVwcGV0LWN1cnNvci1jb250cm9sbGVyLXByb29mLTIwMjYwOTIxL3J1bnMvcHVwcGV0LWNvbnRyb2xsZXItcHJvb2YtcnVucy8yMDI2MDkyMS92My93b3Jrc3BhY2VzL2N1cnNvci1wcm9vZi12My1vZmZsaW5lIiwibW9kZSI6InBlcnNpc3RlbnQiLCJhY3B4UmVjb3JkSWQiOiJjdXJzb3ItcHJvb2YtdjMtb2ZmbGluZSIsImJhY2tlbmRTZXNzaW9uSWQiOiJjYW5kaWRhdGUtc2Vzc2lvbiJ9"
+      },
+      "first": {
+        "acpx_record_id": "cursor-proof-v3-offline",
+        "backend_session_id": "candidate-session",
+        "runtime_session_name": "acpx:v2:eyJuYW1lIjoiY3Vyc29yLXByb29mLXYzLW9mZmxpbmUiLCJhZ2VudCI6ImNhbmRpZGF0ZSIsImN3ZCI6Ii9Vc2Vycy9ib2JieWJvbmVzL0RldmVsb3Blci93b3JrdHJlZXMvcHVwcGV0LWN1cnNvci1jb250cm9sbGVyLXByb29mLTIwMjYwOTIxL3J1bnMvcHVwcGV0LWNvbnRyb2xsZXItcHJvb2YtcnVucy8yMDI2MDkyMS92My93b3Jrc3BhY2VzL2N1cnNvci1wcm9vZi12My1vZmZsaW5lIiwibW9kZSI6InBlcnNpc3RlbnQiLCJhY3B4UmVjb3JkSWQiOiJjdXJzb3ItcHJvb2YtdjMtb2ZmbGluZSIsImJhY2tlbmRTZXNzaW9uSWQiOiJjYW5kaWRhdGUtc2Vzc2lvbiJ9"
+      },
+      "second": {
+        "acpx_record_id": "cursor-proof-v3-offline",
+        "backend_session_id": "candidate-session",
+        "runtime_session_name": "acpx:v2:eyJuYW1lIjoiY3Vyc29yLXByb29mLXYzLW9mZmxpbmUiLCJhZ2VudCI6ImNhbmRpZGF0ZSIsImN3ZCI6Ii9Vc2Vycy9ib2JieWJvbmVzL0RldmVsb3Blci93b3JrdHJlZXMvcHVwcGV0LWN1cnNvci1jb250cm9sbGVyLXByb29mLTIwMjYwOTIxL3J1bnMvcHVwcGV0LWNvbnRyb2xsZXItcHJvb2YtcnVucy8yMDI2MDkyMS92My93b3Jrc3BhY2VzL2N1cnNvci1wcm9vZi12My1vZmZsaW5lIiwibW9kZSI6InBlcnNpc3RlbnQiLCJhY3B4UmVjb3JkSWQiOiJjdXJzb3ItcHJvb2YtdjMtb2ZmbGluZSIsImJhY2tlbmRTZXNzaW9uSWQiOiJjYW5kaWRhdGUtc2Vzc2lvbiJ9"
+      }
+    },
+    "schema": "puppet.cursor-live-capable-controller-proof/v3",
+    "session_replaced": false,
+    "source": {
+      "branch": "codex/puppet-cursor-controller-proof-20260921",
+      "dirty": true,
+      "expected_head": "d5e33f67f6b42384f6feec1d15be3b69b4525eb8",
+      "expected_tree": "938ef948a6a1218ad055a17d5d297c633b936167",
+      "head": "d5e33f67f6b42384f6feec1d15be3b69b4525eb8",
+      "immutable_parent": "b8672726939a64710c69f4c2839b037d15e36945",
+      "path": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921",
+      "product_source_altered": false,
+      "tree": "938ef948a6a1218ad055a17d5d297c633b936167",
+      "upstream_commit": "2e05de525dd1ab62e9e74bf02d91e3638920fcf3",
+      "upstream_tree": "c612e764ead5d8eaa409956fb1b11c008a7579ed"
+    },
+    "state_retained": true,
+    "turn_attribution": {
+      "first_request_id": "cursor-proof-v3-offline-turn-1",
+      "first_turn_source": "_cursor_acp_structured_launch.require_observation",
+      "owner_next_turn_is_first_turn": false,
+      "require_observation_completes_first_turn": true,
+      "second_request_id": "cursor-proof-v3-offline-turn-2",
+      "second_turn_source": "owner.next_turn",
+      "structured_launch_includes_first_turn": true
+    },
+    "workspace": {
+      "branch": "cursor-proof-fixture-v3",
+      "dirty": true,
+      "head": "24e19e183df5daef44fb66d8965919e2a372d6ae",
+      "path": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921/v3/workspaces/cursor-proof-v3-offline",
+      "tree": "22f4224a3400d1e8597666c3bfd90233309f02b1"
+    }
+  },
+  "git_diff": {
+    "names": [],
+    "product_paths": [],
+    "product_source_changed": false
+  },
+  "implementation_job_id": "4e0415d3-f1e1-4e7c-951b-cd093b06f13d",
+  "live": false,
+  "live_claimed": false,
+  "preserved_prior_evidence": {
+    "v1_overwritten": false,
+    "v1_root": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921",
+    "v2_overwritten": false,
+    "v2_root": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921/v2"
+  },
+  "rejections": {
+    "live_release": {
+      "message": "live Cursor provider qualification requires --live plus a parent-issued non-secret --parent-release; missing release rejects before process start",
+      "ok": true,
+      "rejected": "live_release_missing",
+      "type": "RuntimeError"
+    },
+    "mismatched_ids": {
+      "cleanup": {
+        "child_exited": true,
+        "final_discard": null,
+        "owner_release_on_failed_next_turn": true
+      },
+      "ok": true,
+      "rejections": [
+        {
+          "message": "process-local ACP consumer owner does not match",
+          "ok": true,
+          "rejected": "mismatched_owner",
+          "type": "ValidationError"
+        },
+        {
+          "message": "process-local ACP consumer session does not match",
+          "ok": true,
+          "rejected": "mismatched_session",
+          "type": "ValidationError"
+        },
+        {
+          "message": "runtime cwd does not match the bound checkout",
+          "ok": true,
+          "rejected": "mismatched_workspace",
+          "type": "IdentityError"
+        }
+      ]
+    },
+    "mismatched_model": {
+      "message": "requested Cursor ACP selector is unavailable",
+      "ok": true,
+      "rejected": "mismatched_model",
+      "type": "IdentityError"
+    },
+    "placeholder": {
+      "message": "task text must not use a fixed placeholder prompt",
+      "ok": true,
+      "rejected": "placeholder_task_text",
+      "type": "ValidationError"
+    }
+  },
+  "remaining_blocker": "parent independent review of this v3 driver, then one parent-issued --live --parent-release --session on the staged fresh session after preflight proves workspace/state/fence are absent; no retry and no live Cursor provider turn has been executed",
+  "runtime": {
+    "artifact": {
+      "pin_path": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-dual-acp-controller-runs/20260921/artifacts-refresh-2e05de52/acpx-0.18.0.tgz",
+      "sha256": "5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614"
+    },
+    "imported_chunks": {
+      "package/dist/agent-registry-Ct2yWPW7.js": "5091abb775cb9cfc36bc210acd84a830bd5a413db2ba61eab8a0ef22817230ba",
+      "package/dist/ipc-Bn8rocUR.js": "33b50f531ae5bb3d39a56b9f325249631721aee54c764b1ce5a2f72a1eff98c0",
+      "package/dist/queue-owner-runtime-B-uQhwMC.js": "fc4f3b27e6c003646539fc933a38c80886e1cdabf38d6f33a4abc7185d8b0d5b",
+      "package/dist/runtime.js": "ffdb6949b2239d991f63970514ad99677b19db1839313127a55ad9fcd30a4683",
+      "package/dist/watch-yKB9yCio.js": "06254f5cf0af1ee1b5855c0380469ea5f6b691d7f693cfa519288adb7798c635"
+    },
+    "lifecycle_scripts": "disabled",
+    "merge_commit": "2e05de525dd1ab62e9e74bf02d91e3638920fcf3",
+    "module_path": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-dual-acp-controller-runs/20260921/runtime-refresh-2e05de52/node_modules/acpx/dist/runtime.js",
+    "module_sha256": "ffdb6949b2239d991f63970514ad99677b19db1839313127a55ad9fcd30a4683",
+    "rebuilt": false,
+    "reused": true,
+    "runtime_root": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-dual-acp-controller-runs/20260921/runtime-refresh-2e05de52"
+  },
+  "schema": "puppet.cursor-live-capable-controller-proof/v3",
+  "source": {
+    "branch": "codex/puppet-cursor-controller-proof-20260921",
+    "dirty": true,
+    "expected_head": "d5e33f67f6b42384f6feec1d15be3b69b4525eb8",
+    "expected_tree": "938ef948a6a1218ad055a17d5d297c633b936167",
+    "head": "d5e33f67f6b42384f6feec1d15be3b69b4525eb8",
+    "immutable_parent": "b8672726939a64710c69f4c2839b037d15e36945",
+    "path": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921",
+    "product_source_altered": false,
+    "tree": "938ef948a6a1218ad055a17d5d297c633b936167",
+    "upstream_commit": "2e05de525dd1ab62e9e74bf02d91e3638920fcf3",
+    "upstream_tree": "c612e764ead5d8eaa409956fb1b11c008a7579ed"
+  },
+  "staged_live_invocation": {
+    "argv_tail": "acp",
+    "command": [
+      "/opt/homebrew/opt/python@3.14/bin/python3.14",
+      "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921/v3/driver/cursor_live_capable_proof_driver.py",
+      "--live",
+      "--parent-release",
+      "PARENT_ISSUED_RELEASE",
+      "--session",
+      "cursor-proof-v3-live-20260921-oneshot"
+    ],
+    "cwd": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921",
+    "executed": false,
+    "expected_current_model": "grok-4.6[effort=high,fast=true]",
+    "note": "staged only; implementation job did not execute this invocation",
+    "official_executable": "/Users/bobbybones/.local/bin/cursor-agent",
+    "official_route_identity": "cursor-agent-acp",
+    "parent_live_allocation": "one session, at most 2 prompts <=300000ms each, no retry",
+    "preflight": {
+      "exclusive": true,
+      "fence": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921/v3/fences/cursor-proof-v3-live-20260921-oneshot/cursor-proof-v3-live-20260921-oneshot-cleanup-uncertain.json",
+      "fence_exists": false,
+      "retry": false,
+      "rmtree_on_live": false,
+      "session": "cursor-proof-v3-live-20260921-oneshot",
+      "state": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921/v3/state/cursor-proof-v3-live-20260921-oneshot",
+      "state_exists": false,
+      "workspace": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921/v3/workspaces/cursor-proof-v3-live-20260921-oneshot",
+      "workspace_exists": false
+    },
+    "route_resolver": "resolve_cursor_acp_route_binding",
+    "selector": "cursor-grok-4.6-high",
+    "session": "cursor-proof-v3-live-20260921-oneshot"
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "schema": "puppet.cursor-live-capable-controller-proof/v3-qualification-outcome",
+  "outcome": "useful_turn_cleanup_uncertain",
+  "ok": false,
+  "live": true,
+  "live_claimed": true,
+  "provider_turns_completed": 1,
+  "useful_fixture_edit": true,
+  "source": {
+    "head": "84a6dad7110ed97722b35ff1d7c102671312ec80",
+    "tree": "c923dfc6fc698d14d2e5c3fcdfdce3f156226b39",
+    "worktree": "/Users/bobbybones/Developer/worktrees/puppet-cursor-qualification-pr64-20260921",
+    "branch": "codex/puppet-cursor-qualification-pr64-20260921",
+    "accepted_pr": "https://github.com/saariuslystoned/SaariusSkills/pull/64"
+  },
+  "route": {
+    "official_executable": "/Users/bobbybones/.local/bin/cursor-agent",
+    "argv_tail": "acp",
+    "selector": "cursor-grok-4.6-high",
+    "expected_current_model": "grok-4.6[effort=high,fast=true]",
+    "observed_selected_model": null,
+    "observed_current_model": null,
+    "model_attribution_note": "The real first turn completed, but selected/current model metadata was not durably retained before owner cleanup failed; no model PASS is claimed.",
+    "driver_sha256": "2292f0f39220b214fa561ff413d162e812b668a8ccdc86013ed1b645c0cb682f"
+  },
+  "session": {
+    "name": "cursor-proof-v3-live-pr64-20260921",
+    "conversation_id": "conv-cursor-proof-v3-live-pr64-20260921",
+    "owner": "puppet-owner",
+    "transport": "cursor-acp",
+    "workspace": "/Users/bobbybones/Developer/worktrees/puppet-cursor-qualification-pr64-20260921/runs/puppet-controller-proof-runs/20260921/v3/workspaces/cursor-proof-v3-live-pr64-20260921",
+    "state": "/Users/bobbybones/Developer/worktrees/puppet-cursor-qualification-pr64-20260921/runs/puppet-controller-proof-runs/20260921/v3/state/cursor-proof-v3-live-pr64-20260921",
+    "fence": "/Users/bobbybones/Developer/worktrees/puppet-cursor-qualification-pr64-20260921/runs/puppet-controller-proof-runs/20260921/v3/fences/cursor-proof-v3-live-pr64-20260921/cursor-proof-v3-live-pr64-20260921-cleanup-uncertain.json",
+    "workspace_retained": true,
+    "state_retained": true,
+    "replacement_blocked": true,
+    "retry": false
+  },
+  "fixture": {
+    "branch": "cursor-proof-fixture-v3",
+    "head": "869b85b701ecb3f8f22899fa852657dc0f9c9d24",
+    "tree": "22f4224a3400d1e8597666c3bfd90233309f02b1",
+    "changed_paths": ["normalize-lines.mjs"],
+    "implementation_sha256": "6fd316c56c49e22ce954c8020dd014a2958a1c97d61d101daaeb63dbab2edd8d",
+    "protected_test_sha256": "bf063a0bdbf43dbe3fcda4e4d297af1aebcc2d7d1766efb6582f38e84710742e",
+    "protected_test_unchanged": true,
+    "protected_test_command": ["node", "--test", "--test-reporter=tap", "normalize-lines.test.mjs"],
+    "protected_test_passed": 3,
+    "protected_test_failed": 0
+  },
+  "cleanup": {
+    "owner_finish_attempted": true,
+    "owner_finish_error_type": "ValidationError",
+    "owner_finish_error": "Agent does not support session/close for cursor-proof-v3-live-pr64-20260921.",
+    "backend_termination_verified": false,
+    "helper_exit_sufficient": false,
+    "replacement_blocked": true,
+    "fence_retained": true
+  },
+  "runtime": {
+    "upstream_commit": "2e05de525dd1ab62e9e74bf02d91e3638920fcf3",
+    "artifact_sha256": "5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614",
+    "runtime_js_sha256": "ffdb6949b2239d991f63970514ad99677b19db1839313127a55ad9fcd30a4683",
+    "reused": true,
+    "rebuilt": false
+  },
+  "allocation": {
+    "release": "parent-pr64-qualification-20260921",
+    "sessions_allowed": 1,
+    "sessions_consumed": 1,
+    "max_prompts": 1,
+    "prompts_completed": 1,
+    "max_prompt_timeout_ms": 300000,
+    "retry": false
+  }
+}
