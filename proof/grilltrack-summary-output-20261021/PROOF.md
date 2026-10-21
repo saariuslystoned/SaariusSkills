@@ -18,16 +18,25 @@ credential, or external service was accessed.
 Commands and results:
 
 ```text
-/Users/bobbybones/.local/share/mise/installs/python/3.12.9/bin/python -m unittest tests.test_ledger
+python3 -m unittest tests.test_ledger
 PASS (26 tests)
 
-/Users/bobbybones/.local/share/mise/installs/python/3.12.9/bin/python -m unittest discover
-PASS
+python3 -m unittest discover
+OK (176 tests discovered; 175 passed, 1 skipped because Node was absent from PATH)
+
+# With Node 24.22.0 on PATH:
+python3 -m unittest tests.test_plugin_corrections tests.test_packaging -q
+PASS (24 tests, including the previously skipped Node-backed check)
 ```
+
+The implementation worker reported 26 focused tests and 176 discovered tests
+passing with Python 3.12.9. The coordinator independently ran full discovery
+with the result shown above, then ran the skipped check and packaging checks
+with Node 24.22.0 available.
 
 The focused large-history fixture used 24 verified decisions. Its successful
 `focus` operation produced 54,419 bytes of full output versus 347 bytes for
-the summary receipt (99.36% smaller). The full receipt still named the actual
+the summary receipt (99.36% smaller). The summary receipt still named the actual
 absolute paths:
 
 ```json
@@ -46,7 +55,36 @@ absolute paths:
 The displayed clock and temporary-root values are redacted in this curated
 proof; tests assert the generated values and preserve the durable files.
 
+## Independent CLI acceptance
+
+A separate reader inspected only public CLI help and usage documentation, then
+executed synthetic operations against implementation commit
+`06b523f3003c9effab8a5a8731ee5317b23442ab` with Python 3.12.9. It did not read
+implementation or test source. The later documentation changes do not alter
+that implementation.
+
+| Check | Observed result |
+| --- | --- |
+| Lifecycle commands | All 16 advertised and successfully executed with `--output summary`. |
+| Default and explicit full output | Parsed output matched the persisted ledger. |
+| Receipt contents | Current command, track/decision status, timestamp and real durable paths; no rationale or history payload. |
+| Existing content input | `focus`, `confirm` and `close` preserved the existing `--summary` input. |
+| Read interfaces | `show` matched durable state and `validate` printed `valid`; `show`, `validate` and `reconcile` rejected the output selector with exit 2. |
+| Invalid transition | Resuming an active track returned exit 2, empty stdout and useful stderr; durable file hashes were unchanged. |
+| Rollover | `new` archived byte-identical copies of the closed ledger and events. |
+
+Across 107 successful summary transitions, receipts were 410–503 bytes, under
+the independent 2,000-byte ceiling. Forty `propose`/`defer` pairs grew full
+`show` output from 12,467 to 84,827 bytes and events from 4,957 to 17,597 bytes.
+The first and last `defer` receipts were both 467 bytes. These sizes come from
+different fixtures than the 24-decision unit test above. Only owned disposable
+fixtures were removed; their removal was verified.
+
 ## Limits
 
 This proves deterministic local CLI behavior only. It does not claim Harness²
 savings, interruption metrics, provider behavior, or reconciliation changes.
+Cross-mode persistence parity is a unit-suite result, not an independent
+black-box claim. The independent exercise did not run a reconciliation
+transaction. Byte reductions are measured output, not measured token, latency,
+or end-to-end productivity gains.
