@@ -230,38 +230,17 @@ class PackagingTests(unittest.TestCase):
         self.assertNotIn("os.system", helper)
         self.assertNotIn('"serial": serial', helper)
 
-    def test_dinkuskit_live_test_is_packaged_and_reads_mail_only(self) -> None:
+    def test_dinkuskit_live_test_points_at_live_journeys(self) -> None:
         skill = (DINKUSKIT_LIVE_TEST_SKILL / "SKILL.md").read_text(encoding="utf-8")
         metadata = (
             DINKUSKIT_LIVE_TEST_SKILL / "agents" / "openai.yaml"
         ).read_text(encoding="utf-8")
-        runner = DINKUSKIT_LIVE_TEST_SKILL / "runner"
-        mail = (runner / "scripts" / "gog-mail.sh").read_text(encoding="utf-8")
-        env = (runner / "support" / "env.mjs").read_text(encoding="utf-8")
-        settings = (runner / "support" / "settings-file.mjs").read_text(
-            encoding="utf-8"
-        )
-        self.assertLessEqual(len(skill.splitlines()), 500)
         self.assertIn("$dinkuskit-live-test", metadata)
         self.assertIn("allow_implicit_invocation: true", metadata)
-        for name in ("setup.md", "status.md"):
-            self.assertTrue((DINKUSKIT_LIVE_TEST_SKILL / "references" / name).is_file())
-        for name in ("package.json", "package-lock.json", "playwright.config.mjs"):
-            self.assertTrue((runner / name).is_file(), name)
-        for name in ("buy-and-ship.spec.mjs", "storefront.spec.mjs", "cart.spec.mjs", "manage-products.spec.mjs",
-                     "full-catalog.spec.mjs", "mark-completed.spec.mjs", "problems.spec.mjs", "store-admin-label.spec.mjs"):
-            self.assertTrue((runner / "tests" / name).is_file(), name)
-        for name in ("shipping-admin.mjs", "shipping-text.mjs"):
-            self.assertTrue((runner / "support" / name).is_file(), name)
-        self.assertIn("Never pay twice", skill)
-        self.assertIn("Never record Ship's print link", skill)
-        self.assertIn("4242 4242 4242 4242", skill)
-        # The test inbox is read, never written, and no machine's inbox or store is built in.
-        self.assertIn("gog --readonly --gmail-no-send", mail)
-        self.assertNotIn("gmail send", mail)
-        self.assertIn("${DINKUS_E2E_MAIL_ACCOUNT:?", mail)
-        self.assertIn('read("DINKUS_E2E_STORE")', env)
-        self.assertIn("DINKUS_E2E_[A-Z0-9_]+", settings)
+        # The journeys, runner and workflow live in dinkuskit/live-journeys; only the pointer stays here.
+        self.assertIn("https://github.com/dinkuskit/live-journeys/blob/main/SKILL.md", skill)
+        self.assertFalse((DINKUSKIT_LIVE_TEST_SKILL / "runner").exists())
+        self.assertFalse((ROOT / ".github" / "workflows" / "live-journeys.yml").exists())
 
     def test_antigravity_acp_skill_is_packaged(self) -> None:
         skill = (ANTIGRAVITY_SKILL / "SKILL.md").read_text(encoding="utf-8")
