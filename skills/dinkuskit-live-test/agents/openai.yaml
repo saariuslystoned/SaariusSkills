@@ -1,6 +1,6 @@
 interface:
   display_name: "DinkusKit Live Test"
-  short_description: "Run the saved live test and hand back its proof"
-  default_prompt: "Use $dinkuskit-live-test to run the saved DinkusKit live test and hand back its proof."
+  short_description: "Find the DinkusKit live journeys and their safety rules"
+  default_prompt: "Use $dinkuskit-live-test to find the DinkusKit live journeys in dinkuskit/live-journeys and follow their rules."
 policy:
   allow_implicit_invocation: true
