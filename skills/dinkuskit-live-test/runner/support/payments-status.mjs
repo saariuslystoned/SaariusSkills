@@ -1,4 +1,4 @@
-import { APPROVE_PAYMENTS, AUTHORIZE_LINK, consentReading } from "./connect-dinkuskit.mjs";
+import { APPROVE_PAYMENTS, AUTHORIZE_LINK, PAYMENTS_BETA_STATUS_PATH, consentReading } from "./connect-dinkuskit.mjs";
 import { config } from "./env.mjs";
 import { mailBaseline, waitForMail } from "./mail.mjs";
 import { PAGE_ROOM, paceStore } from "./pace.mjs";
@@ -101,16 +101,19 @@ export function nextPress(reading, controls, { approved = false } = {}) {
   return { action: "blocked", because: "The Payments status page shows no connect control from its status screen." };
 }
 
-/** The store admin's Payments status page: the one menu link labeled Payments status whose path is /status. */
+/**
+ * The beta Payments plugin's status page among the admin menu's Payments status links. The beta
+ * store also runs the release listing, which has its own Payments status page; that one is left alone.
+ */
 export async function paymentsStatusAdmin(page) {
   const { openAdmin } = await import("./store-admin.mjs");
   await openAdmin(page, `${config.store}/_emdash/admin`);
   const links = page.getByRole("link", { name: "Payments status", exact: true });
   await links.first().waitFor({ timeout: 30_000 }).catch(() => {});
-  const pages = statusPages(await links.evaluateAll(anchors => anchors.map(anchor => anchor.href)), config.store);
+  const pages = statusPages(await links.evaluateAll(anchors => anchors.map(anchor => anchor.href)), config.store)
+    .filter(href => new URL(href).pathname === PAYMENTS_BETA_STATUS_PATH);
   if (pages.length === 1) return pages[0];
-  if (pages.length) throw new Error(`The store admin's menu has ${pages.length} Payments status pages.`);
-  throw new Error("The store admin's menu has no Payments status page, so the Payments plugin isn't installed or is switched off.");
+  throw new Error("The store admin's menu has no Payments status page for dinkus-payments-beta, so that plugin isn't installed or is switched off. The release listing's page is not used.");
 }
 
 /** Opens Payments status and waits until Payment setup is on the page. A plugin error is not kept if it carries a secret. */
