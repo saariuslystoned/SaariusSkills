@@ -37,7 +37,15 @@ When `design.md` or the active GrillTrack track calls for comparing materially d
    ```
 2. For distinct aesthetic archetypes (e.g., *Warm Architectural Studio*, *Swiss Utilitarian Catalog*, *Editorial Monograph*, *Tactile Field Goods*, *High-Contrast Gallery*), you can also call `generate_screen_from_text` or `edit_screens` per candidate and download each via `stitch_download_screen` with `width: 2560`.
 
-## 3. Translating Stitch HTML into Astro / EmDash Safely
+## 3. Handling Unbuilt Code or Plugin Features Discovered During Design
+
+When a visual review uncovers a missing capability in the EmDash storefront or a companion plugin (for example, missing PDP quantity selectors or multi-variant batch selection):
+
+1. **File an issue on the owning repository (`gh issue create`)** with the exact component path, current limitation, and requested behavior.
+2. **Mock the control or state directly in the Stitch screen** so the locked visual design and spacing accommodate the target UX.
+3. **Stay focused on the frontend/UI grill**—do not pause the visual design cycle to build plugin or backend features.
+
+## 4. Translating Stitch HTML into Astro / EmDash Safely
 
 Stitch outputs static HTML + Tailwind/CSS tokens. When applying the winning candidate to an EmDash site:
 
