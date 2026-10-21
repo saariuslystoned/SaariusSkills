@@ -66,5 +66,6 @@ test("only the beta Payments status page on this store is the Connect page", () 
     beta,
     "https://other.example/_emdash/admin/plugins/r_sffx6l4z6mpqliki/status",
     `${beta}?view=full`,
+    "/_emdash/admin/plugins/r_sffx6l4z6mpqliki/status",
   ], STORE), [beta]);
 });

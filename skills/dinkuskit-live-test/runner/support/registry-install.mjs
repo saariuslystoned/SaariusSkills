@@ -12,7 +12,11 @@ const SHIP_BETA = "dinkus-ship-beta 0.1.0-beta.1";
  */
 export function namedInstalls(text) {
   const value = String(text ?? "").trim() || SHIP_BETA;
-  return value.split(",").map(part => namedBeta(part));
+  return value.split(",").map(part => {
+    const beta = namedBeta(part);
+    if (!beta) throw new Error(`"${value}" has an empty entry between its commas.`);
+    return beta;
+  });
 }
 
 /**

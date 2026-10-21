@@ -39,8 +39,7 @@ test("Install the Registry plugins", { tag: "@next" }, journey(async ({ page }) 
   if (config.store !== BETA_STORE.store || config.siteId !== BETA_STORE.siteId) {
     throw new Error(`Only the beta store, ${BETA_STORE.store} (site ${BETA_STORE.siteId}), gets a Registry install; this run is set to ${config.store || "no store"} (site ${config.siteId || "not set"}).`);
   }
-  let wanted;
-  try { wanted = namedInstalls(process.env.DINKUS_E2E_INSTALL); } catch (error) { throw new Error(error.message); }
+  const wanted = namedInstalls(process.env.DINKUS_E2E_INSTALL);
 
   let list;
   await step(page, "The owner can open Plugins", async () => {
@@ -85,6 +84,6 @@ test("Install the Registry plugins", { tag: "@next" }, journey(async ({ page }) 
     const moved = have.filter(plugin => plugin.installed !== plugin.version && plan.find(item => item.name === plugin.name)?.install);
     if (moved.length) throw new Error(`Plugins lists ${moved.map(plugin => `${plugin.name} ${plugin.installed}, not ${plugin.version}`).join("; ")}.`);
     await page.waitForTimeout(FOLLOW);
-    return have.map(plugin => `${plugin.name} ${plugin.installed}`).join(", ");
+    return have.map(plugin => `${plugin.listing ?? plugin.name} ${plugin.installed}`).join(", ");
   });
 }));

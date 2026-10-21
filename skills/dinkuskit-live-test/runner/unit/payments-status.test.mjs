@@ -1,33 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { authorizeHref, nextPress, readStatusText, redact, showsSecret, statusPages } from "../support/payments-status.mjs";
+import { authorizeHref, nextPress, readStatusText, redact, showsSecret } from "../support/payments-status.mjs";
 
 const store = "https://store.example";
 const account = "https://dinkuskit.com";
 const connectLine = "Connect payments: Not complete. Connect your DinkusKit account to check payment setup. No Payments service endpoint is configured.";
 const connectedLine = "Connect payments: Connected: Stripe test mode. Test card payments work at checkout. Real customer payments need a live Stripe connection, which isn't set up yet.";
-
-test("the admin menu's Payments status links name each status page once", () => {
-  assert.deepEqual(statusPages([
-    "/_emdash/admin/plugins/dinkus-payments/status",
-    `${store}/_emdash/admin/plugins/dinkus-payments/status`,
-    "https://store.example/_emdash/admin/plugins/r_sffx6l4z6mpqliki/status",
-  ], store), [
-    `${store}/_emdash/admin/plugins/dinkus-payments/status`,
-    `${store}/_emdash/admin/plugins/r_sffx6l4z6mpqliki/status`,
-  ]);
-});
-
-test("no other link counts as Payments status", () => {
-  assert.deepEqual(statusPages([
-    "https://other.example/_emdash/admin/plugins/dinkus-payments/status",
-    "/_emdash/admin/plugins/dinkus-payments/status?connection_id=abc",
-    "/_emdash/admin/plugins/dinkus-payments/status#top",
-    "/_emdash/admin/plugins/dinkus-payments/settings",
-    "/_emdash/admin/status",
-    "http://[not a url",
-  ], store), []);
-});
 
 test("the known connect line asks for Connect and a verified test connection does not", () => {
   const asking = readStatusText(`Payment setup\nNot ready to sell\n${connectLine}\nPlace a test order: Not complete. Connect payments first, then place a test order.`);

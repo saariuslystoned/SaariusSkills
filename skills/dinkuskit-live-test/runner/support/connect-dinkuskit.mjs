@@ -60,13 +60,14 @@ export function isSignInLink(href) {
   try { return new URL(href).pathname.startsWith("/api/auth/magic-link/"); } catch { return false; }
 }
 
-/** Menu links that are the beta Payments status page on this store, and no other. */
+/** Menu links that are the beta Payments status page on this store, and no other, each once. */
 export function betaPaymentsStatusLinks(hrefs, store) {
   const storeOrigin = originOf(store);
-  return hrefs.filter(href => {
-    try {
-      const url = new URL(href, store);
-      return url.origin === storeOrigin && url.pathname === PAYMENTS_BETA_STATUS_PATH && !url.search && !url.hash;
-    } catch { return false; }
-  });
+  const pages = new Set();
+  for (const href of hrefs) {
+    let url;
+    try { url = new URL(href, store); } catch { continue; }
+    if (url.origin === storeOrigin && url.pathname === PAYMENTS_BETA_STATUS_PATH && !url.search && !url.hash) pages.add(url.href);
+  }
+  return [...pages];
 }

@@ -1,4 +1,4 @@
-import { APPROVE_PAYMENTS, AUTHORIZE_LINK, PAYMENTS_BETA_STATUS_PATH, consentReading } from "./connect-dinkuskit.mjs";
+import { APPROVE_PAYMENTS, AUTHORIZE_LINK, PAYMENTS_BETA_STATUS_PATH, betaPaymentsStatusLinks, consentReading } from "./connect-dinkuskit.mjs";
 import { config } from "./env.mjs";
 import { mailBaseline, waitForMail } from "./mail.mjs";
 import { PAGE_ROOM, paceStore } from "./pace.mjs";
@@ -12,7 +12,6 @@ import { filterPage } from "./request-policy.mjs";
 // (src/pages/account/connect.astro). registry_session is written only by that flow.
 // Reconnect, Deny, and Set up or resume Stripe are on those pages and this journey never presses them.
 
-const STATUS_PATH = /^\/_emdash\/admin\/plugins\/[^/]+\/status$/;
 const CONNECTION_ID = /^[A-Za-z0-9_-]{1,200}$/;
 const SECRET = /sk_(?:test|live)_[0-9A-Za-z]+|rk_(?:test|live)_[0-9A-Za-z]+|whsec_[0-9A-Za-z]+|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/;
 
@@ -20,17 +19,6 @@ export { AUTHORIZE_LINK };
 export const CONNECT_LINE = "Connect your DinkusKit account to check payment setup.";
 const BANNERS = ["Not ready to sell", "Connected: Stripe test mode", "Payment status not checked"];
 const PRESSABLE = ["Connect", "Sign in again", "Continue", "Check connection"];
-
-/** The Payments status pages among the store admin's menu links, each once. */
-export function statusPages(hrefs, store) {
-  const pages = new Set();
-  for (const href of hrefs) {
-    let url;
-    try { url = new URL(href, store); } catch { continue; }
-    if (url.origin === store && STATUS_PATH.test(url.pathname) && !url.search && !url.hash) pages.add(url.href);
-  }
-  return [...pages];
-}
 
 /** DinkusKit's connect page for one connection, and nothing else that could carry a token. */
 export function authorizeHref(href, account) {
@@ -110,8 +98,7 @@ export async function paymentsStatusAdmin(page) {
   await openAdmin(page, `${config.store}/_emdash/admin`);
   const links = page.getByRole("link", { name: "Payments status", exact: true });
   await links.first().waitFor({ timeout: 30_000 }).catch(() => {});
-  const pages = statusPages(await links.evaluateAll(anchors => anchors.map(anchor => anchor.href)), config.store)
-    .filter(href => new URL(href).pathname === PAYMENTS_BETA_STATUS_PATH);
+  const pages = betaPaymentsStatusLinks(await links.evaluateAll(anchors => anchors.map(anchor => anchor.href)), config.store);
   if (pages.length === 1) return pages[0];
   throw new Error("The store admin's menu has no Payments status page for dinkus-payments-beta, so that plugin isn't installed or is switched off. The release listing's page is not used.");
 }
@@ -189,12 +176,19 @@ export async function approvePayments(page, href) {
       await failClosed(consent, said || "DinkusKit's connect page has no Approve payments button.");
     }
     await approve.click();
-    await consent.waitForURL(next => {
-      try { return new URL(next).origin === config.store && STATUS_PATH.test(new URL(next).pathname); }
-      catch { return false; }
-    }, { timeout: 60_000 }).catch(async () => {
-      await failClosed(consent, "DinkusKit did not return to Payments status after Approve payments.");
-    });
+    // Only dinkus-payments-beta's page counts: the beta store's release listing has its own.
+    const refused = consent.locator(".account-error");
+    const outcome = await Promise.race([
+      consent.waitForURL(next => {
+        try { return new URL(next).origin === config.store && new URL(next).pathname === PAYMENTS_BETA_STATUS_PATH; }
+        catch { return false; }
+      }, { timeout: 60_000 }).then(() => "back", () => "timeout"),
+      refused.waitFor({ state: "visible", timeout: 60_000 }).then(() => "refused", () => new Promise(() => {})),
+    ]);
+    if (outcome === "refused") {
+      await failClosed(consent, (await refused.innerText().catch(() => "")).trim() || "DinkusKit.com could not approve this connection.");
+    }
+    if (outcome === "timeout") await failClosed(consent, "DinkusKit did not return to Payments status after Approve payments.");
     // The status page's own load finishes the connection. Closing before Payment setup is shown would cut that off.
     await consent.getByRole("heading", { name: "Payment setup", exact: true }).waitFor({ timeout: 60_000 }).catch(async () => {
       await failClosed(consent, "Payments status did not show Payment setup after Approve payments.");
