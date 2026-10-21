@@ -1,11 +1,11 @@
 import { get } from "./browser.mjs";
 import { config } from "./env.mjs";
+import { firstLine } from "./errors.mjs";
 import { note } from "./proof.mjs";
 import { openStoreAdmin } from "./signin.mjs";
 import { describePlugins } from "./store-plugins.mjs";
 import { text } from "./storefront-page.mjs";
 
-const firstLine = error => String(error?.message ?? error).split("\n")[0];
 const SIGN_IN_ONCE = "Run once with DINKUS_E2E_ADMIN_SIGNIN=wait and sign in by hand.";
 
 /** Opens a page of the store admin, signing in to its Access app with a one-time PIN when it asks. */

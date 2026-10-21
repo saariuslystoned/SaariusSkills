@@ -7,6 +7,11 @@ import { config } from "./support/env.mjs";
 const updating = process.env.DINKUS_E2E_UPDATE === "1";
 const record = updating ? "-update" : "";
 
+// On a failure Playwright's notes (error-context.md) also take a snapshot of the open page, with its
+// links (sign-in, connect and print links among them) and what its fields hold. Each step's screenshot
+// shows the page, so the run takes none; Playwright takes no such snapshot while this is set.
+process.env.PLAYWRIGHT_NO_COPY_PROMPT = "1";
+
 export default defineConfig({
   testDir: "./tests",
   grepInvert: updating ? undefined : /@update/,

@@ -5,6 +5,7 @@ import {
 } from "../support/checkout.mjs";
 import { stripeSession, thankYouShown } from "../support/checkout-text.mjs";
 import { config } from "../support/env.mjs";
+import { firstLine } from "../support/errors.mjs";
 import { note, record } from "../support/proof.mjs";
 import { numberOf, openOrder, orderShown, ordersListed, testOrders } from "../support/orders-admin.mjs";
 import { openStorePage } from "../support/signin.mjs";
@@ -45,7 +46,7 @@ async function refuse(page, shopper, { card, says, bankCheck }) {
     if (await paidInCommerce(page)) {
       shopper.paid = true;
       // The proof keeps a step's first line, so the reason goes on that line.
-      const reason = String(error?.message ?? error).split("\n")[0].replace(/\.?$/, ".");
+      const reason = firstLine(error).replace(/\.?$/, ".");
       throw new Error(`${reason} Commerce reports the checkout paid, so the test pays nothing more.`);
     }
     throw error;

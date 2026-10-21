@@ -89,9 +89,9 @@ can cross the store's limit of 120 requests a minute per visitor.
 That limit counts every request from one address, pages, photos and admin calls
 alike, from every browser the run opens. So the run counts its own store requests
 from the moment each is sent, and before a step that sends many (opening a store
-page with its photos, reading each product's photo or link, uploading a photo to
-the Media library, the owner's work on a product in Full catalog) it waits until
-they fit under 100 in the last minute. The count carries on when Playwright starts
+page with its photos or a page of the store admin, reading each product's photo or
+link, uploading a photo to the Media library, the owner's work on a product in Full
+catalog) it waits until they fit under 100 in the last minute. The count carries on when Playwright starts
 a new worker after a journey fails, and into a run started straight after another:
 each store request's time also goes, as it's sent, in that minute's log
 (`.store-requests-<store>-<minute>.log`) beside the run folders in
@@ -166,8 +166,8 @@ completes the first in Commerce Orders. For the second, the test makes an admin
 key with the saved profile's admin sign-in, set to stop working after an hour,
 and the agent completes the order with that key alone. The test deletes the key
 at the end of the run, even after a failed step. The key only ever travels in
-the test's own calls, never through the browser, so it can't reach the proof or
-the browser's trace. When Cloudflare Access fronts the store's API as well as
+the test's own calls, never through the browser, so it can't reach the proof.
+When Cloudflare Access fronts the store's API as well as
 its admin, the agent's calls also carry the saved Access sign-in, as an agent's
 Access service token would. To complete existing Processing TEST orders instead
 of placing new ones, set `DINKUS_E2E_ORDERS_TO_COMPLETE` (the owner's order,
@@ -202,9 +202,9 @@ gives TEST orders sandbox labels. It finds the Shipping page in the admin's menu
 when the menu has more than one, set `DINKUS_E2E_SHIPPING_ADMIN`.
 Print label's link shows the label to anyone who has it, for five minutes, so
 the test reads it with its own fetch and writes it in no note or error. For the
-same reason this journey keeps no Playwright trace, and it leaves a blank page
-behind it, so Playwright's notes on a failure can't show the link either; its
-step screenshots and notes are its proof.
+same reason the journey leaves a blank page behind it, so Playwright's notes on
+a failure can't show the link either; its step screenshots and notes are its
+proof.
 
 The machine's settings come from `~/.dinkus-e2e/env`; see
 [setup](../references/setup.md).
@@ -461,10 +461,19 @@ was Completed as `store-admin-label-completed.pdf`. With `DINKUS_E2E_VIDEO=1` it
 browser window under `video/`. The saved profile's window stays open for the
 whole run, so for one video per journey, run the journeys one at a time
 (`npm run journey -- cart`). The test hides the code it types
-into Cloudflare Access's sign-in, so neither screenshots nor videos show it.
-The run keeps no Playwright trace, even for a failed journey: a trace holds
-every request's headers, the sign-in cookies for the store's Cloudflare Access
-and DinkusKit.com among them.
+into Cloudflare Access's sign-in, so neither screenshots nor videos show it,
+and wipes it from the page when that sign-in fails. The run keeps no Playwright
+trace, even for a failed journey: a trace holds every request's headers, the
+sign-in cookies for the store's Cloudflare Access and DinkusKit.com among them.
+For the same reason a failed step's error reaches the proof, the console and
+Playwright's report as its first line alone. Below that line Playwright lists a
+request's headers, the addresses a page went to, the elements a locator matched
+and the values an assertion saw, and an assertion adds a snapshot of the page,
+its links and what its fields hold; none of that is kept, and Playwright's notes
+on a failure (`error-context.md`) take no snapshot of the page either. Each
+address on that first line loses its query, where a sign-in link, a connect
+address or Ship's sign-in code carries its secret, and a Ship print link loses
+its token.
 
 On Linux, label rendering requires Poppler's `pdftoppm`; macOS uses Quick Look.
 A missing renderer, failed render or invalid picture fails the label-PDF step

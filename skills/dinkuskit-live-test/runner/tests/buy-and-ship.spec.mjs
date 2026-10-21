@@ -4,6 +4,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { get, test, expect } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
+import { firstLine } from "../support/errors.mjs";
 import { note, record } from "../support/proof.mjs";
 import { journey, step } from "../support/steps.mjs";
 import { openShip, openStoreAdmin } from "../support/signin.mjs";
@@ -28,7 +29,7 @@ async function openOrdersAdmin(page) {
       const response = await get(page, `${config.store}/_emdash/api/admin/plugins`, { headers: { "X-EmDash-Request": "1" } });
       note("plugins", response.ok() ? describePlugins(await response.json()) : `couldn't read the plugin list (HTTP ${response.status()})`);
     } catch (error) {
-      note("plugins", `couldn't read the plugin list (${error.message.split("\n")[0]})`);
+      note("plugins", `couldn't read the plugin list (${firstLine(error)})`);
     }
   }
   return signedIn;

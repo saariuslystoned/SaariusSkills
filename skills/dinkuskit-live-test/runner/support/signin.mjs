@@ -1,5 +1,7 @@
 import { config } from "./env.mjs";
+import { firstLine, withoutQueries } from "./errors.mjs";
 import { mailBaseline, waitForMail } from "./mail.mjs";
+import { PAGE_ROOM, paceStore } from "./pace.mjs";
 
 const HUMAN_WAIT_MS = 10 * 60 * 1000;
 const at = (page, base) => page.url().startsWith(base);
@@ -24,7 +26,7 @@ export async function openShip(page, path) {
     if (/could not (sign in|confirm the sign-in)/i.test(text)) { await page.waitForTimeout(60_000); continue; }
     if (page.url().startsWith(target)) return;
   }
-  throw new Error(`Could not open ${target} signed in; last page ${page.url()}.`);
+  throw new Error(`Could not open ${target} signed in; last page ${withoutQueries(page.url())}.`);
 }
 
 /** The magic-link sign-in on dinkuskit.com. The link opens in this same browser so Ship's sign-in cookie is still there. */
@@ -36,7 +38,8 @@ async function signInToDinkusKit(page) {
   await page.waitForLoadState("domcontentloaded");
   const link = await waitForMail("dinkuskit", baseline);
   if (link) {
-    await page.goto(link);
+    // The link signs in whoever opens it, so a failure to open it leaves out the link's token.
+    await page.goto(link).catch(error => { throw new Error(`The sign-in link from DinkusKit.com's email didn't open: ${firstLine(error)}`); });
     return;
   }
   console.log(`\n>>> Open the "Sign in to DinkusKit" email for ${config.ownerEmail} and paste its link into this test's browser window.\n`);
@@ -48,14 +51,16 @@ async function signInToDinkusKit(page) {
  * Access offers a one-time PIN, the test asks for one and reads it from the test
  * inbox. Otherwise (Google only) the saved profile has to carry a sign-in a person
  * made once. Returns false when a sign-in is needed and nobody can make it:
- * `waitForPerson` is off, or the window is hidden.
+ * `waitForPerson` is off, or the window is hidden. An admin page sends many store
+ * requests as it opens (EmDash's and the plugins' calls, the photos it lists), so
+ * it first waits its turn, as a store page does.
  */
 export async function openStoreAdmin(page, url, { waitForPerson = true } = {}) {
+  await paceStore(PAGE_ROOM);
   await page.goto(url);
   await page.waitForLoadState("domcontentloaded");
   if (at(page, config.store)) return true;
   if (await signInToAccessByCode(page)) {
-    await page.waitForURL(next => next.href.startsWith(config.store), { timeout: 120_000 });
     await page.waitForLoadState("domcontentloaded");
     return true;
   }
@@ -75,14 +80,13 @@ export async function openStoreAdmin(page, url, { waitForPerson = true } = {}) {
 export async function openStorePage(page, url) {
   const response = await page.goto(url);
   if (at(page, config.store) || !await signInToAccessByCode(page)) return response;
-  await page.waitForURL(next => next.href.startsWith(config.store), { timeout: 120_000 });
   return page.goto(url);
 }
 
 /**
- * Cloudflare Access's one-time PIN login: email in, code from the test inbox, sign in.
- * Returns false, having changed nothing, when this isn't Access's login page or it
- * offers no PIN login (a Google-only app sends the browser straight to Google).
+ * Cloudflare Access's one-time PIN login: email in, code from the test inbox, sign in, and
+ * back on the store. Returns false, having changed nothing, when this isn't Access's login
+ * page or it offers no PIN login (a Google-only app sends the browser straight to Google).
  */
 async function signInToAccessByCode(page) {
   if (!config.mailCmd || !config.ownerEmail || !/\.cloudflareaccess\.com$/.test(new URL(page.url()).hostname)) return false;
@@ -104,7 +108,15 @@ async function signInToAccessByCode(page) {
   await field.waitFor({ timeout: 30_000 });
   // Hide what gets typed, so screenshots and recordings never show the code.
   await page.addStyleTag({ content: "input { -webkit-text-security: disc !important; color: transparent !important; caret-color: transparent !important; }" });
-  await field.fill(code);
-  await page.getByRole("button", { name: /sign in|submit|verify|log in|continue/i }).first().click();
+  try {
+    await field.fill(code);
+    await page.getByRole("button", { name: /sign in|submit|verify|log in|continue/i }).first().click();
+    await page.waitForURL(next => next.href.startsWith(config.store), { timeout: 120_000 });
+  } catch (error) {
+    // The style hides the code from pictures, but Playwright's notes on a failure (error-context.md)
+    // write down what each field holds, so the code is wiped before the failure goes up.
+    await field.fill("", { timeout: 5_000 }).catch(() => {});
+    throw error;
+  }
   return true;
 }

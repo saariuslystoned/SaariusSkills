@@ -1,5 +1,6 @@
 import { get, test } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
+import { firstLine } from "../support/errors.mjs";
 import { countStoreRequest, paceStore } from "../support/pace.mjs";
 import { note } from "../support/proof.mjs";
 import { notePlugins, openAdmin } from "../support/store-admin.mjs";
@@ -98,7 +99,7 @@ test("Update the store", { tag: "@update" }, journey(async ({ page }) => {
       if (response instanceof Error) {
         // The store may still have finished, so say what it runs now.
         const now = await readApi(page, "", { timeout: CHECK_TIME }).then(body => pluginVersion(body, plugin.id), () => null);
-        stop(`${plugin.name}'s update to ${plugin.latest} got no answer (${response.message.split("\n")[0]}); the store now runs ${plugin.name} ${now ?? "(couldn't read its version)"}.`);
+        stop(`${plugin.name}'s update to ${plugin.latest} got no answer (${firstLine(response)}); the store now runs ${plugin.name} ${now ?? "(couldn't read its version)"}.`);
       }
       if (!response.ok()) stop(`${plugin.name} stays on ${plugin.installed}, not ${plugin.latest}: ${refusal(response.status(), await response.json().catch(() => null))}.`);
       return `${plugin.name} updated from ${plugin.installed} to ${plugin.latest}`;

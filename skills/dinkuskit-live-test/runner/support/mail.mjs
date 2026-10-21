@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { config } from "./env.mjs";
+import { firstLine } from "./errors.mjs";
 import { clean, extract } from "./mail-patterns.mjs";
 
 /** What each sign-in email looks like. */
@@ -38,5 +39,5 @@ export async function waitForMail(kind, baseline, timeoutMs = 180_000) {
       if (fresh) return fresh;
     } catch (error) { lastError = error; }
   }
-  throw new Error(`No new ${kind} email arrived within ${timeoutMs / 1000}s for "${MAIL[kind].query}"${lastError ? ` (mail command: ${lastError.message.split("\n")[0]})` : ""}.`);
+  throw new Error(`No new ${kind} email arrived within ${timeoutMs / 1000}s for "${MAIL[kind].query}"${lastError ? ` (mail command: ${firstLine(lastError)})` : ""}.`);
 }

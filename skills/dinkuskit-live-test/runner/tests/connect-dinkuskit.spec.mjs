@@ -4,7 +4,6 @@ import {
 } from "../support/connect-dinkuskit.mjs";
 import { config } from "../support/env.mjs";
 import { mailBaseline, waitForMail } from "../support/mail.mjs";
-import { PAGE_ROOM, paceStore } from "../support/pace.mjs";
 import { approvePayments, authorizeHref as isConnectLink } from "../support/payments-status.mjs";
 import { openAdmin } from "../support/store-admin.mjs";
 import { BETA_STORE } from "../support/store-updates.mjs";
@@ -19,10 +18,8 @@ const accountUrl = () => `${config.account}/account`;
 const mainText = page => page.locator("main").innerText();
 const heading = page => page.getByRole("heading", { level: 1 }).first();
 
-// The connect address is a bearer for that approval and the sign-in link opens the account, and
-// Playwright's trace would keep both, so this journey keeps no trace, as Payments status does.
-test.use({ trace: "off" });
-
+// The connect address is a bearer for that approval and the sign-in link opens the account, so the
+// journey leaves a blank page for Playwright's failure notes, as Payments status does.
 test.afterEach(async ({ page }) => {
   await page.goto("about:blank").catch(() => {});
 });
@@ -104,7 +101,6 @@ test("DinkusKit.com account and connect the store", { tag: "@next" }, journey(as
 
   let authorizeHref;
   await step(page, "Payment setup offers Connect", async () => {
-    await paceStore(PAGE_ROOM);
     await openAdmin(page, `${config.store}/_emdash/admin`);
     const links = page.getByRole("link", { name: PAYMENTS_STATUS_LABEL, exact: true });
     await links.first().waitFor({ timeout: 30_000 }).catch(() => {});

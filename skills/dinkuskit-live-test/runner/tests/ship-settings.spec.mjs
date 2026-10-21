@@ -1,6 +1,5 @@
 import { expect, test } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
-import { PAGE_ROOM, paceStore } from "../support/pace.mjs";
 import { note } from "../support/proof.mjs";
 import {
   SHIP_PLUGIN_NAME, STORE_ID_LABEL, STORE_KEY_LABEL, pluginIdFromSettingsUrl, pluginSettingsPath, storeIdProblem,
@@ -11,11 +10,8 @@ import { journey, step } from "../support/steps.mjs";
 // EmDash draws this form from admin.settingsSchema (packages/admin/src/components/PluginSettings.tsx).
 // Plugins lists an enabled plugin's Settings link to /plugins-manager/$pluginId/settings
 // (PluginManager.tsx). The secret field is a password input whose value stays empty. This journey
-// never types, saves, or clears a setting, and it never buys a label.
-
-// A trace would keep the settings response, so this journey keeps none, as Commerce settings does.
-test.use({ trace: "off" });
-
+// never types, saves, or clears a setting, and it never buys a label. It leaves a blank page for
+// Playwright's failure notes, as Commerce settings does.
 test.afterEach(async ({ page }) => {
   await page.goto("about:blank").catch(() => {});
 });
@@ -28,7 +24,6 @@ test("Ship settings", { tag: "@next" }, journey(async ({ page }) => {
   // Without the form there is nothing to read, so this step stops the journey.
   await step(page, "The owner opens Ship settings from Plugins", async () => {
     try {
-      await paceStore(PAGE_ROOM);
       await openAdmin(page, `${config.store}/_emdash/admin/plugins-manager`);
       const ship = page.getByRole("heading", { level: 3, name: SHIP_PLUGIN_NAME });
       const empty = page.getByRole("heading", { name: "No plugins configured", exact: true });

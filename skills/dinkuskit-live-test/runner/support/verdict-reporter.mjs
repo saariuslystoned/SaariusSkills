@@ -1,7 +1,8 @@
 import { config } from "./env.mjs";
+import { withoutQueries } from "./errors.mjs";
 import { TEST_RUN, failUnrecorded, startRun, verdicts } from "./proof.mjs";
 
-const firstLine = text => String(text ?? "").replace(/\u001b\[[0-9;]*m/g, "").split("\n").map(line => line.trim()).find(Boolean) ?? "";
+const firstLine = text => withoutQueries(String(text ?? "").replace(/\u001b\[[0-9;]*m/g, "").split("\n").map(line => line.trim()).find(Boolean) ?? "");
 
 /**
  * Prints the run's verdict last, once Playwright has every journey's outcome. A journey Playwright

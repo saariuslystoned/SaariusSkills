@@ -1,5 +1,6 @@
 import { test, expect } from "./browser.mjs";
 import { config } from "./env.mjs";
+import { firstLine, forProof } from "./errors.mjs";
 import { journeyVerdict, record, shot, startJourney } from "./proof.mjs";
 
 // Errors that stopped a journey inside a step, which recorded them already.
@@ -17,9 +18,11 @@ export async function step(page, name, body, { soft = false } = {}) {
       await shot(page, name.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
       record(name, "PASS", detail && typeof detail === "object" ? JSON.stringify(detail) : detail ?? "");
       return detail;
-    } catch (error) {
+    } catch (caught) {
+      // What the proof and Playwright's report keep of the failure: its first line, with no address's query.
+      const error = forProof(caught);
       await shot(page, `fail-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`);
-      record(name, "FAIL", error.message.split("\n")[0]);
+      record(name, "FAIL", firstLine(error));
       if (typeof soft === "function" ? soft(error) : soft) return;
       if (Object(error) === error) recorded.add(error);
       throw error;
@@ -41,9 +44,10 @@ export function journey(body, { profile = true } = {}) {
     startJourney(name);
     try {
       await body({ page });
-    } catch (error) {
+    } catch (caught) {
+      const error = forProof(caught);
       // An error between steps (a page that wouldn't open) still fails the journey in its proof.
-      if (!recorded.has(error)) record("The journey finished without an error", "FAIL", String(error?.message ?? error).split("\n")[0]);
+      if (!recorded.has(error)) record("The journey finished without an error", "FAIL", firstLine(error));
       throw error;
     }
     const verdict = journeyVerdict(name);

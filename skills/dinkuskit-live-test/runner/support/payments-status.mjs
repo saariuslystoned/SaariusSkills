@@ -1,7 +1,6 @@
 import { APPROVE_PAYMENTS, AUTHORIZE_LINK, PAYMENTS_BETA_STATUS_PATH, betaPaymentsStatusLinks, consentReading } from "./connect-dinkuskit.mjs";
 import { config } from "./env.mjs";
 import { mailBaseline, waitForMail } from "./mail.mjs";
-import { PAGE_ROOM, paceStore } from "./pace.mjs";
 import { filterPage } from "./request-policy.mjs";
 
 // Payments status in the store admin. The menu label and path are the plugin's admin page
@@ -106,7 +105,6 @@ export async function paymentsStatusAdmin(page) {
 /** Opens Payments status and waits until Payment setup is on the page. A plugin error is not kept if it carries a secret. */
 export async function openPaymentsStatus(page, url) {
   const { openAdmin } = await import("./store-admin.mjs");
-  await paceStore(PAGE_ROOM);
   await openAdmin(page, url);
   const heading = page.getByRole("heading", { name: "Payment setup", exact: true });
   const failed = page.getByRole("heading", { name: "Plugin Error", exact: true });

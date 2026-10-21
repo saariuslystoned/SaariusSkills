@@ -1,11 +1,12 @@
 import { newPage, test, expect, shopperPage, closeShopper } from "../support/browser.mjs";
 import { catalogPlan } from "../support/catalog.mjs";
 import { config } from "../support/env.mjs";
+import { firstLine, withoutQueries } from "../support/errors.mjs";
 import {
   addCategory, addProduct, addProductPage, choosePhoto, finishProductPage, listedProducts, openProduct, productPageEntry, publish, publishedLink, setPrice,
   setWeight, shownProductId, uploadPhotos,
 } from "../support/products-admin.mjs";
-import { PAGE_ROOM, PHOTO_ROOM, STORE_BUDGET, paceStore } from "../support/pace.mjs";
+import { PHOTO_ROOM, STORE_BUDGET, paceStore } from "../support/pace.mjs";
 import { note } from "../support/proof.mjs";
 import { openShopperPage } from "../support/shopper.mjs";
 import { confirmed, notePlugins, openAdmin } from "../support/store-admin.mjs";
@@ -15,7 +16,7 @@ import { photo, photoProblem, quick, readCard, text } from "../support/storefron
 import { dollars, money } from "../support/storefront-text.mjs";
 
 // An error's first line without its full stop, since findings are joined into one sentence.
-const firstLine = error => String(error?.message ?? error).split("\n")[0].replace(/\.$/, "");
+const reason = error => firstLine(error).replace(/\.$/, "");
 // Before this release Commerce read every product to draw each product screen, so with more than a
 // handful of products the owner couldn't save one; adding the catalog there would break the store admin.
 const COMMERCE_FOR_CATALOGS = "0.3.0-beta.4";
@@ -235,7 +236,6 @@ test("Full catalog", { tag: "@running" }, journey(async ({ page }) => {
     await step(content, "The catalog's categories are published", async () => {
       const added = [];
       for (const { title } of plan) {
-        await paceStore(PAGE_ROOM);
         let view = await publishedLink(content, title, "categories");
         if (!view) {
           if (!canAdd) throw tooOld(commerce, `the category "${title}"`);
@@ -266,7 +266,7 @@ test("Full catalog", { tag: "@running" }, journey(async ({ page }) => {
         shop = await readShop(shopper, names, { mayBeEmpty: true });
         for (const [title, path] of categoryPaths) shelves.set(title, await readCategory(shopper, path, names));
       } catch (error) {
-        throw new Error(`Nothing was added, because the test couldn't read what the store shows: ${firstLine(error)}.`);
+        throw new Error(`Nothing was added, because the test couldn't read what the store shows: ${reason(error)}.`);
       }
       const shelved = product => shelves.get(product.category).has(product.name);
       const lacking = products.filter(product => {
@@ -296,7 +296,7 @@ test("Full catalog", { tag: "@running" }, journey(async ({ page }) => {
           await uploadPhotos(content, photos.map(product => ({ fileName: product.photo, label: product.name })), UPLOADS_ROOM).catch(error => {
             // An upload that failed before the library listed its files may have taken none of them.
             for (const name of error.missed ?? photos.map(product => product.photo)) missed.add(name);
-            problems.push(`uploading the photos of ${short(photos.map(product => product.name)).join(", ")} failed (${firstLine(error)}); each photo that didn't go up is uploaded again with its product`);
+            problems.push(`uploading the photos of ${short(photos.map(product => product.name)).join(", ")} failed (${reason(error)}); each photo that didn't go up is uploaded again with its product`);
           });
         }
         for (const product of batch) {
@@ -306,7 +306,7 @@ test("Full catalog", { tag: "@running" }, journey(async ({ page }) => {
           const state = { inCommerce, uploaded: !inCommerce && !missed.has(product.photo), card: shop.found.get(product.name)?.[0], shelved: shelved(product) };
           const did = [];
           const failed = await completeProduct(page, content, product, state, did).then(() => null, error => error);
-          if (failed) problems.push(`"${product.name}"${did.length ? ` (${did.join(", ")})` : ""}: ${firstLine(failed)}`);
+          if (failed) problems.push(`"${product.name}"${did.length ? ` (${did.join(", ")})` : ""}: ${reason(failed)}`);
           else if (did.includes("added")) added.push(product.name);
           else if (did.length) completed.push(`${product.name} (${did.join(", ")})`);
           else whole.push(product.name);
@@ -337,7 +337,7 @@ test("Full catalog", { tag: "@running" }, journey(async ({ page }) => {
       const pages = new Map([...shopFound].filter(([, [card]]) => card.href).map(([name, [card]]) => [name, destination(card.href)]));
       for (const category of plan) {
         const path = categoryPaths.get(category.title);
-        const found = await readCategory(shopper, path, names).catch(error => { problems.push(firstLine(error)); });
+        const found = await readCategory(shopper, path, names).catch(error => { problems.push(reason(error)); });
         if (!found) continue;
         problems.push(...listProblems(found, category.products, path, pages));
         // The other categories' products don't belong here.
@@ -362,8 +362,9 @@ test("Full catalog", { tag: "@running" }, journey(async ({ page }) => {
         // A link to another site is followed there, where the request filter or the store check stops it.
         const target = destination(href);
         const failed = await openShopperPage(shopper, target).then(() => "", error => {
-          const line = firstLine(error);
-          return line.startsWith(target) ? line : `${target} didn't open (${line})`;
+          // The reason loses the address's query, as every first line in the proof does.
+          const line = reason(error);
+          return line.startsWith(withoutQueries(target)) ? line : `${target} didn't open (${line})`;
         });
         if (failed) problems.push(failed);
         else problems.push(...(await productPageProblems(shopper, product)).map(problem => `${target} ${problem}`));

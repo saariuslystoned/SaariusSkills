@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { get, newPage, test, expect, shopperPage, closeShopper } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
+import { firstLine } from "../support/errors.mjs";
 import { PAGE_ROOM, paceStore } from "../support/pace.mjs";
 import {
   addCategory, addProduct, addProductPage, archive, findProduct, onProduct, openProduct, publishedLink, setPrice, setWeight, shownProductId, trash, uploadPhoto,
@@ -12,7 +13,6 @@ import { journey, step } from "../support/steps.mjs";
 import { photo, photoProblem, quick, readCard, text } from "../support/storefront-page.mjs";
 import { dollars, money } from "../support/storefront-text.mjs";
 
-const firstLine = error => String(error?.message ?? error).split("\n")[0];
 // How long the store gets to show a change the owner just made.
 const CATCH_UP_MS = 60_000;
 
