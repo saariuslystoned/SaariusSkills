@@ -593,8 +593,39 @@ def get_decision(ledger: dict[str, Any], decision_id: str) -> dict[str, Any]:
         raise LedgerError(f"unknown decision: {decision_id}") from exc
 
 
-def output(ledger: dict[str, Any]) -> None:
-    print(json.dumps(ledger, indent=2, sort_keys=True))
+def output(
+    ledger: dict[str, Any],
+    *,
+    store: Store | None = None,
+    args: argparse.Namespace | None = None,
+    decision_id: str | None = None,
+    affected_count: int | None = None,
+) -> None:
+    if args is None or args.output == "full":
+        print(json.dumps(ledger, indent=2, sort_keys=True))
+        return
+
+    receipt: dict[str, Any] = {
+        "command": args.command,
+        "track": {
+            "id": ledger["track_id"],
+            "status": ledger["status"],
+        },
+        "updated_at": ledger["updated_at"],
+        "durable_paths": {
+            "ledger": str(store.ledger_path),
+            "events": str(store.events_path),
+        },
+    }
+    if decision_id is not None:
+        decision = get_decision(ledger, decision_id)
+        receipt["decision"] = {
+            "id": decision["id"],
+            "status": decision["status"],
+        }
+    if affected_count is not None:
+        receipt["affected_decision_count"] = affected_count
+    print(json.dumps(receipt, sort_keys=True))
 
 
 def validate_rollover_successor_ledger(
@@ -684,7 +715,7 @@ def command_init(store: Store, args: argparse.Namespace) -> None:
     store.initialize_dirs()
     store.write_projection(ledger)
     store.replace_events("track_initialized", {"track_id": ledger["track_id"]})
-    output(ledger)
+    output(ledger, store=store, args=args)
 
 
 def command_new(store: Store, args: argparse.Namespace) -> None:
@@ -804,7 +835,7 @@ def command_new(store: Store, args: argparse.Namespace) -> None:
         },
     )
     store.clear_rollover_state()
-    output(ledger)
+    output(ledger, store=store, args=args)
 
 
 def command_focus(store: Store, args: argparse.Namespace) -> None:
@@ -823,7 +854,7 @@ def command_focus(store: Store, args: argparse.Namespace) -> None:
         "focus_started",
         {"domain": args.domain, "cadence": args.cadence},
     )
-    output(ledger)
+    output(ledger, store=store, args=args)
 
 
 def command_confirm(store: Store, args: argparse.Namespace) -> None:
@@ -837,7 +868,7 @@ def command_confirm(store: Store, args: argparse.Namespace) -> None:
     focus["summary"] = require_text(args.summary, "summary")
     focus["confirmed_at"] = utc_now()
     store.persist(ledger, "shared_understanding_confirmed", {"summary": args.summary})
-    output(ledger)
+    output(ledger, store=store, args=args)
 
 
 def command_propose(store: Store, args: argparse.Namespace) -> None:
@@ -884,7 +915,7 @@ def command_propose(store: Store, args: argparse.Namespace) -> None:
         }
     )
     store.persist(ledger, "decision_proposed", {"decision_id": decision_id})
-    output(ledger)
+    output(ledger, store=store, args=args, decision_id=decision_id)
 
 
 def command_lock(store: Store, args: argparse.Namespace) -> None:
@@ -900,7 +931,7 @@ def command_lock(store: Store, args: argparse.Namespace) -> None:
         changes["rationale"] = args.rationale.strip()
     transition(decision, "locked", "user accepted the scoped decision", changes)
     store.persist(ledger, "decision_locked", {"decision_id": decision["id"]})
-    output(ledger)
+    output(ledger, store=store, args=args, decision_id=decision["id"])
 
 
 def command_implement(store: Store, args: argparse.Namespace) -> None:
@@ -928,7 +959,7 @@ def command_implement(store: Store, args: argparse.Namespace) -> None:
         },
     )
     store.persist(ledger, "decision_implemented", {"decision_id": decision["id"]})
-    output(ledger)
+    output(ledger, store=store, args=args, decision_id=decision["id"])
 
 
 def command_verify(store: Store, args: argparse.Namespace) -> None:
@@ -950,7 +981,7 @@ def command_verify(store: Store, args: argparse.Namespace) -> None:
         {"verification_ref": require_text(args.ref, "verification ref")},
     )
     store.persist(ledger, "decision_verified", {"decision_id": decision["id"]})
-    output(ledger)
+    output(ledger, store=store, args=args, decision_id=decision["id"])
 
 
 def command_review(store: Store, args: argparse.Namespace) -> None:
@@ -1000,7 +1031,7 @@ def command_review(store: Store, args: argparse.Namespace) -> None:
         "decision_reviewed",
         {"decision_id": decision["id"], **copy.deepcopy(review_record)},
     )
-    output(ledger)
+    output(ledger, store=store, args=args, decision_id=decision["id"])
 
 
 def command_reopen(store: Store, args: argparse.Namespace) -> None:
@@ -1030,7 +1061,13 @@ def command_reopen(store: Store, args: argparse.Namespace) -> None:
         "decision_reopened",
         {"decision_id": decision["id"], "affected": affected, "reason": reason},
     )
-    output(ledger)
+    output(
+        ledger,
+        store=store,
+        args=args,
+        decision_id=decision["id"],
+        affected_count=len(affected),
+    )
 
 
 def command_supersede(store: Store, args: argparse.Namespace) -> None:
@@ -1059,7 +1096,13 @@ def command_supersede(store: Store, args: argparse.Namespace) -> None:
             "affected": affected,
         },
     )
-    output(ledger)
+    output(
+        ledger,
+        store=store,
+        args=args,
+        decision_id=decision["id"],
+        affected_count=len(affected),
+    )
 
 
 def command_defer(store: Store, args: argparse.Namespace) -> None:
@@ -1076,7 +1119,7 @@ def command_defer(store: Store, args: argparse.Namespace) -> None:
         {"deferred_reason": reason},
     )
     store.persist(ledger, "decision_deferred", {"decision_id": decision["id"]})
-    output(ledger)
+    output(ledger, store=store, args=args, decision_id=decision["id"])
 
 
 def command_recommend(store: Store, args: argparse.Namespace) -> None:
@@ -1095,7 +1138,7 @@ def command_recommend(store: Store, args: argparse.Namespace) -> None:
     if ledger.get("current_focus"):
         ledger["current_focus"]["status"] = "inspected"
     store.persist(ledger, "next_grill_recommended", ledger["recommendation"])
-    output(ledger)
+    output(ledger, store=store, args=args)
 
 
 def command_pause(store: Store, args: argparse.Namespace) -> None:
@@ -1114,7 +1157,7 @@ def command_pause(store: Store, args: argparse.Namespace) -> None:
     ledger["status"] = "paused"
     ledger["pause"] = pause_record
     store.persist(ledger, "track_paused", copy.deepcopy(pause_record))
-    output(ledger)
+    output(ledger, store=store, args=args)
 
 
 def command_resume(store: Store, args: argparse.Namespace) -> None:
@@ -1127,7 +1170,7 @@ def command_resume(store: Store, args: argparse.Namespace) -> None:
     ledger["status"] = "active"
     ledger["last_activation"] = {"mechanism": mechanism, "at": utc_now()}
     store.persist(ledger, "track_resumed", {"activation": mechanism})
-    output(ledger)
+    output(ledger, store=store, args=args)
 
 
 def command_close(store: Store, args: argparse.Namespace) -> None:
@@ -1178,7 +1221,16 @@ def command_close(store: Store, args: argparse.Namespace) -> None:
         ],
     }
     store.persist(ledger, "track_closed", copy.deepcopy(ledger["closeout"]))
-    output(ledger)
+    output(ledger, store=store, args=args)
+
+
+def add_output_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--output",
+        choices=("full", "summary"),
+        default="full",
+        help="output full ledger (default) or a bounded JSON receipt",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1194,6 +1246,7 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--activation", default="implicit")
     init.add_argument("--title", required=True)
     init.add_argument("--track-id")
+    add_output_option(init)
     init.set_defaults(handler=command_init)
 
     new = subparsers.add_parser(
@@ -1202,6 +1255,7 @@ def build_parser() -> argparse.ArgumentParser:
     new.add_argument("--activation", default="implicit")
     new.add_argument("--title", required=True)
     new.add_argument("--track-id")
+    add_output_option(new)
     new.set_defaults(handler=command_new)
 
     show = subparsers.add_parser("show", help="print the current ledger")
@@ -1219,12 +1273,14 @@ def build_parser() -> argparse.ArgumentParser:
     focus.add_argument("--domain", required=True)
     focus.add_argument("--cadence", choices=sorted(CADENCES), required=True)
     focus.add_argument("--summary", default="")
+    add_output_option(focus)
     focus.set_defaults(handler=command_focus)
 
     confirm = subparsers.add_parser(
         "confirm", help="record explicit shared-understanding confirmation"
     )
     confirm.add_argument("--summary", required=True)
+    add_output_option(confirm)
     confirm.set_defaults(handler=command_confirm)
 
     propose = subparsers.add_parser("propose", help="record a proposed decision")
@@ -1236,12 +1292,14 @@ def build_parser() -> argparse.ArgumentParser:
     propose.add_argument("--context-ref")
     propose.add_argument("--baseline-ref")
     propose.add_argument("--candidate-ref", action="append", default=[])
+    add_output_option(propose)
     propose.set_defaults(handler=command_propose)
 
     lock = subparsers.add_parser("lock", help="lock a proposed or reopened decision")
     lock.add_argument("--id", required=True)
     lock.add_argument("--choice")
     lock.add_argument("--rationale")
+    add_output_option(lock)
     lock.set_defaults(handler=command_lock)
 
     implement = subparsers.add_parser(
@@ -1249,11 +1307,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     implement.add_argument("--id", required=True)
     implement.add_argument("--ref", required=True)
+    add_output_option(implement)
     implement.set_defaults(handler=command_implement)
 
     verify = subparsers.add_parser("verify", help="record cumulative verification")
     verify.add_argument("--id", required=True)
     verify.add_argument("--ref", required=True)
+    add_output_option(verify)
     verify.set_defaults(handler=command_verify)
 
     review = subparsers.add_parser(
@@ -1269,12 +1329,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
     )
+    add_output_option(review)
     review.set_defaults(handler=command_review)
 
     reopen = subparsers.add_parser("reopen", help="reopen a prior decision")
     reopen.add_argument("--activation", default="implicit")
     reopen.add_argument("--id", required=True)
     reopen.add_argument("--reason", required=True)
+    add_output_option(reopen)
     reopen.set_defaults(handler=command_reopen)
 
     supersede = subparsers.add_parser(
@@ -1283,11 +1345,13 @@ def build_parser() -> argparse.ArgumentParser:
     supersede.add_argument("--id", required=True)
     supersede.add_argument("--by", required=True)
     supersede.add_argument("--reason", required=True)
+    add_output_option(supersede)
     supersede.set_defaults(handler=command_supersede)
 
     defer = subparsers.add_parser("defer", help="defer a decision with risk")
     defer.add_argument("--id", required=True)
     defer.add_argument("--reason", required=True)
+    add_output_option(defer)
     defer.set_defaults(handler=command_defer)
 
     recommend = subparsers.add_parser(
@@ -1296,16 +1360,19 @@ def build_parser() -> argparse.ArgumentParser:
     recommend.add_argument("--recommended", required=True)
     recommend.add_argument("--alternative", action="append", default=[])
     recommend.add_argument("--reason", required=True)
+    add_output_option(recommend)
     recommend.set_defaults(handler=command_recommend)
 
     pause = subparsers.add_parser("pause", help="pause a track")
     pause.add_argument("--reason", required=True)
     pause.add_argument("--next-safe-action", required=True)
     pause.add_argument("--artifact-ref", action="append", default=[])
+    add_output_option(pause)
     pause.set_defaults(handler=command_pause)
 
     resume = subparsers.add_parser("resume", help="resume a paused track")
     resume.add_argument("--activation", default="implicit")
+    add_output_option(resume)
     resume.set_defaults(handler=command_resume)
 
     close = subparsers.add_parser("close", help="close after user confirmation")
@@ -1313,6 +1380,7 @@ def build_parser() -> argparse.ArgumentParser:
     close.add_argument("--reason", required=True)
     close.add_argument("--summary", required=True)
     close.add_argument("--proof-ref", action="append", default=[])
+    add_output_option(close)
     close.set_defaults(handler=command_close)
 
     reconcile = subparsers.add_parser("reconcile", help="plan or explicitly apply a same-repository fork join")

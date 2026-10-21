@@ -103,6 +103,13 @@ python3 scripts/grilltrack_ledger.py --project <project-root> show
 python3 scripts/grilltrack_ledger.py --project <project-root> validate
 ```
 
+Ordinary lifecycle transitions accept opt-in `--output summary` for a bounded
+JSON receipt containing current track/decision status, update time, and the
+durable ledger/event paths. Full ledger output remains the default; use
+`show` when a deliberate full-state read is needed. The existing `--summary`
+inputs are unchanged, and `show`, `validate`, and reconciliation do not accept
+the selector.
+
 Use `new` after a closed track. It preserves the prior ledger and event log
 under `.grilltrack/archive/<track-id>/`, links the successor, and starts clean
 active state. Never overwrite or delete a closed track to continue.
