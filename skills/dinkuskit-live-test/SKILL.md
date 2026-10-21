@@ -1,6 +1,6 @@
 ---
 name: dinkuskit-live-test
-description: Run the saved DinkusKit live test journeys (Buy and ship - Stripe TEST order, Commerce order, Pitney Bowes sandbox label in Ship, Completed; Storefront - homepage, product list, product page, category page; Cart - add, change quantity, remove, cart total; Manage products - add a product with a photo, page in a category, new price and name, archive and restore; Full catalog - a standing catalog of several categories of products, each with its own price, photo and page, shown whole on the Shop list, category pages and product pages; Mark as completed - the owner and an agent each complete a paid TEST order without a label; Problems - declined, insufficient-funds and failed bank check test cards turned down with no order, leaving Stripe for the cart and coming back, paying once) and hand back their proof. Use when the owner says "run the test", asks to prove a DinkusKit release or plugin update works on a live store, asks for one journey, or wants a stuck TEST order finished.
+description: Run the saved DinkusKit live test journeys (Buy and ship - Stripe TEST order, Commerce order, Pitney Bowes sandbox label in Ship, Completed; Storefront - homepage, product list, product page, category page; Cart - add, change quantity, remove, cart total; Manage products - add a product with a photo, page in a category, new price and name, archive and restore; Full catalog - a standing catalog of several categories of products, each with its own price, photo and page, shown whole on the Shop list, category pages and product pages; Mark as completed - the owner and an agent each complete a paid TEST order without a label; Problems - declined, insufficient-funds and failed bank check test cards turned down with no order, leaving Stripe for the cart and coming back, paying once) and hand back their proof. Use when the owner says "run the test", asks to prove a DinkusKit release or plugin update works on a live store, asks for one journey, or wants a stuck TEST order finished. Beta Registry listings are proved on beta.sm0ky.dev by Live journeys before a real Registry release. Payments is the reference procedure.
 ---
 
 # DinkusKit live test
@@ -31,11 +31,60 @@ leaves Stripe for the cart and finds the way back to the same checkout, pays
 once with the test card, and the owner completes that one order.
 
 Each journey has a stage. `@running` journeys run on every `npm test` and must all
-pass on the beta store before a final release. A new journey starts as `@next` and
-moves to `@running` once it has passed on the test store. The
+pass on the beta store, beta.sm0ky.dev, before a real Registry release. A new
+journey starts as `@next` and moves to `@running` once it has passed there. The
 [runner README](runner/README.md) lists the journeys and their stages. Buy a
 label in the store admin, the Ship plugin's journey, became `@running` after it
 first passed on the beta store (20 Oct).
+
+## Release a plugin
+
+The reference procedure is
+[payments `RELEASING.md`](https://github.com/dinkuskit/payments/blob/main/RELEASING.md),
+steps 1 to 5. The locked decision is `release-beta-cut-071` in
+[dinkuskit `docs/plans/release-process.md`](https://github.com/dinkuskit/dinkuskit/blob/main/docs/plans/release-process.md).
+Do not publish by hand, and do not hand-push a tag. Do not use `npm view` as the
+release check. The release check is the Registry listing.
+
+Payments, Commerce and Ship all run that procedure with the same **Release**
+workflow (`.github/workflows/release.yml`), which has two actions, `cut-beta` and
+`promote`. `emdash-release.yml` has no button of its own. None of the three uses
+Changesets pre mode any more.
+
+1. Every pull request to `main` adds a changeset. Merging it does not publish.
+2. **Cut beta.** On the plugin's repository, press **Run workflow** on **Release** with
+   `action: cut-beta`. That publishes `dinkus-<plugin>-beta` at `X.Y.Z-beta.N`
+   from `main`, then presses **Live journeys** in this repository with `beta` set
+   to `dinkus-<plugin>-beta X.Y.Z-beta.N`. The press uses the `LIVE_JOURNEYS_TOKEN`
+   secret. Without that secret the beta is still published, and the same workflow
+   can be pressed by hand with the same `beta`.
+3. **Proof** is this repository's **Live journeys** workflow, on
+   **https://beta.sm0ky.dev** only. It first runs **Update the store**
+   (`npm run update-store`, tag `@update`). That moves each DinkusKit beta plugin
+   the store already runs to the newest Registry beta, in place, the way the
+   admin's **Update** button does. A run a release started waits up to 15 minutes
+   for the Registry to offer the named beta, then installs that one. It stops if
+   an update asks for new permissions, opens routes to visitors who are not signed
+   in, or changes agent tools. The owner then updates that plugin by hand from
+   **Plugins** and presses the workflow again with the same `beta`. It does not
+   install a plugin the store is not already running (that is the `@next` journey
+   Install the Registry plugins), and it does not switch a
+   plugin between its beta listing and its release listing. After the update
+   passes, the workflow runs every `@running` journey, headless. One run uses the
+   store at a time. The run page shows pass or fail, the plugin versions tested,
+   and why an update stopped. Screenshots go to the private R2 bucket. The
+   `proof_ref` is that run's address followed by `(X.Y.Z-beta.N @running pass)`.
+4. **Promote.** After that recorded pass, press **Run workflow** on **Release**
+   with `action: promote`, `beta_version` set to `X.Y.Z-beta.N`, and that
+   `proof_ref`. If `main` has moved since the beta was cut, the gate refuses it.
+   Cut a new beta first. Promote opens the `ci: release vX.Y.Z` pull request. It
+   does not publish.
+5. On that pull request, run `@clawsweeper review`. Payments' `RELEASING.md` says
+   Ryan's merge of that reviewed pull request publishes `dinkus-<plugin>` at
+   `X.Y.Z`. This runner does not merge it and does not publish it.
+
+A pass on any other store is not this gate. After a Live journeys pass on
+beta.sm0ky.dev, no Mac runs journeys on that store.
 
 The test runs unattended. DinkusKit.com and the Cloudflare Access login in front
 of the store admin (or of the whole test store) both sign in with emailed links or
@@ -98,6 +147,10 @@ still has deployed now. For other test stores, use the local steps below.
      order, buys and prints a Pitney Bowes sandbox label for it on the store
      admin's Shipping page, and cancels the label once Commerce has completed the
      order.
+     Install the Registry plugins (`install-plugins`) installs a named DinkusKit
+     beta the beta store does not already run, `dinkus-ship-beta` `0.1.0-beta.1`
+     unless `DINKUS_E2E_INSTALL` names others, and leaves one the store already
+     runs as it is. It does not type a store key.
    - `npm run finish` finishes a Buy and ship order that already exists. Set
      `DINKUS_E2E_ORDER=1001` to pick one, or leave it unset to pick the only TEST
      order still waiting for a label.
@@ -125,19 +178,17 @@ still has deployed now. For other test stores, use the local steps below.
 
 ## For a new plugin release
 
-For beta.sm0ky.dev, use the existing-run route in [Run the test](#run-the-test).
-The local release steps below apply to other test stores.
+For beta.sm0ky.dev, use the existing-run route in [Run the test](#run-the-test)
+and follow [Release a plugin](#release-a-plugin). The proof's "plugins" line is
+the versions that run tested. Hand those back with the verdict. A real Registry
+release waits on promote and the reviewed merge. This runner does not do either.
 
-1. Make sure the test store runs the release. The proof lists the store's plugins
-   and their versions under "plugins". If it shows the old version, update the
-   plugin from the store admin's Plugins page, then run the test again.
-2. Run every `@running` journey with `npm test` on the store that runs the
-   release, with that store's settings file:
-   `DINKUS_E2E_ENV_FILE=<that store's settings file> npm test`. On a store whose
-   Commerce can't rename and archive a product, Manage products stops at its first
-   step; on one older than 0.3.0-beta.4, Full catalog adds nothing.
-3. Hand back the verdict with the plugin versions it covered, so the owner knows
-   which release passed.
+On a store the Live journeys workflow is not running, `npm test` still runs every
+`@running` journey with that store's settings file:
+`DINKUS_E2E_ENV_FILE=<that store's settings file> npm test`. That pass is not the
+release gate. On a store whose Commerce can't rename and archive a product,
+Manage products stops at its first step; on one older than 0.3.0-beta.4, Full
+catalog adds nothing. See the runner README's "Run on GitHub".
 
 ## Rules
 

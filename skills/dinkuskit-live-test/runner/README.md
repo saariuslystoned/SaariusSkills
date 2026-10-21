@@ -14,6 +14,12 @@ journeys plan:
 | [Mark as completed](tests/mark-completed.spec.mjs) | `@running` | The owner marks a paid TEST order completed in Commerce Orders, typing a carrier and tracking number, and an agent completes another through Commerce's orders API, sending neither; both end Completed |
 | [Problems](tests/problems.spec.mjs) | `@running` | A shopper's checkout going wrong: Stripe turns down a declined card, a card without enough funds and a card that fails the bank's security check, each with a clear message and no order; the shopper leaves Stripe for the cart, finds the way back to the same checkout and pays once with the test card, and the owner completes that one order |
 | [Buy a label in the store admin](tests/store-admin-label.spec.mjs) | `@running` | The owner ships a paid Stripe TEST order from the store admin's Shipping page, which the Ship plugin draws from hosted Ship: See prices, Buy label at the quoted price and Print label, then, once Commerce has completed the order, Print label again and Cancel label, with the order staying Completed |
+| [Install the Registry plugins](tests/install-plugins.spec.mjs) | `@next` | A DinkusKit beta the beta store does not already run is installed there (`dinkus-ship-beta` `0.1.0-beta.1` unless `DINKUS_E2E_INSTALL` names others), through the store's Registry verify and install routes, and Plugins lists it. A beta the store already runs is left as it is |
+| [DinkusKit.com account and connect the store](tests/connect-dinkuskit.spec.mjs) | `@next` | The owner's DinkusKit.com account shows the beta store connected, or, when the account says to connect it, Payments status is used to approve Payments for that store only. The store key is never opened |
+| [Commerce settings](tests/commerce-settings.spec.mjs) | `@next` | Commerce Settings shows Checkout settings and an empty Store key, with the Set up Commerce descriptions. The key is never typed |
+| [Payments status](tests/payments-status.spec.mjs) | `@next` | On the beta store, dinkus-payments-beta's Payments status shows a connected Stripe test account, or walks Connect, Authorize Payments at DinkusKit, and Approve payments. Deny, Reconnect, and Stripe setup are not pressed |
+| [Ship settings](tests/ship-settings.spec.mjs) | `@next` | Ship's settings show Store ID matching the store's site id and an empty Store key. The key is never typed, and no label is bought |
+| [One product with a category](tests/onboarding-product.spec.mjs) | `@next` | The owner adds one product with a price, a weight, a photo, and a published page in a new category. Archive is only the tidy afterward, not the story |
 
 `npm test` runs every `@running` journey. A new journey starts as `@next` and
 moves to `@running` once it has passed on the test store. Manage products needs
@@ -23,6 +29,13 @@ older Commerce, Manage products stops before adding anything and Full catalog
 adds nothing, each saying why. Buy a label in the store admin needs the Ship
 plugin installed and connected, as dinkus-ship-beta is on the beta store, where
 it first passed on 20 Oct.
+
+How a beta becomes that release is [Release a plugin](../SKILL.md#release-a-plugin).
+Payments, Commerce and Ship each press `cut-beta`, then this workflow, then
+`promote`. This runner proves. It does not
+publish. **Update the store** does not install a plugin the store is not already
+running. [Install the Registry plugins](tests/install-plugins.spec.mjs) does that,
+and only on beta.sm0ky.dev. It never types a store key.
 
 It runs in a visible Chrome window with its own saved profile
 (`~/.dinkus-e2e/profile`), so sign-ins carry over between runs. DinkusKit.com
@@ -99,7 +112,7 @@ for long: a step whose page stops answering fails within a minute or two.
 ```sh
 npm ci
 npm test                      # every @running journey; Buy and ship goes from checkout to Completed
-npm run journey -- storefront # one journey, by its file name (storefront, cart, manage-products, full-catalog, mark-completed, problems, buy-and-ship, store-admin-label)
+npm run journey -- storefront # one journey, by its file name (storefront, cart, manage-products, full-catalog, mark-completed, problems, buy-and-ship, store-admin-label, install-plugins, connect-dinkuskit, commerce-settings, payments-status, ship-settings, onboarding-product)
 npm run finish                # Buy and ship from an existing order (DINKUS_E2E_ORDER=1001, or the only unfinished TEST order)
 npm run unit                  # the runner's own offline checks
 npm run update-store          # beta.sm0ky.dev only: update its DinkusKit beta plugins to the newest betas

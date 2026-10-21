@@ -31,6 +31,11 @@ link for the store owner, and Cloudflare Access's one-time PIN for the store adm
 
 ## The store
 
+The beta store a Registry release is proved on is **https://beta.sm0ky.dev**.
+**Live journeys** updates the beta plugins already installed there. It is not a
+second site, and it is not a base EmDash install. See
+[Release a plugin](../SKILL.md#release-a-plugin).
+
 - An EmDash store with Commerce and Payments installed from the Registry, Stripe
   connected in TEST mode, and at least one physical product with a weight. To
   name the product, set `DINKUS_E2E_PRODUCT_PATH` to its page.
