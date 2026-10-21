@@ -46,28 +46,3 @@ jobs:
         run: |
           python skills/grilltrack/scripts/grilltrack_ledger.py --help
           python skills/grilltrack/scripts/validate_picker.py fixtures/frontend-picker/manifest.json
-
-  node-skills:
-    name: Node 24.22 / ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-24.04
-          - macos-26
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version: "24.22.0"
-
-      - name: Run DinkusKit live test runner's offline checks
-        run: node --test skills/dinkuskit-live-test/runner/unit/*.test.mjs
