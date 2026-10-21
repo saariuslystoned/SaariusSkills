@@ -1395,6 +1395,15 @@ def build_parser() -> argparse.ArgumentParser:
         reconcile_command(store, args, sys.modules[__name__])
     reconcile.set_defaults(handler=reconcile_handler)
 
+    link = subparsers.add_parser("history-link", help="plan or explicitly retain a committed canonical history witness")
+    link.add_argument("--anchor-ref", required=True)
+    link.add_argument("--witness-ref", required=True)
+    link.add_argument("--apply", metavar="PLAN_SHA256")
+    def history_link_handler(store, args):
+        from grilltrack_reconcile import history_link_command
+        history_link_command(store, args, sys.modules[__name__])
+    link.set_defaults(handler=history_link_handler)
+
     return parser
 
 
