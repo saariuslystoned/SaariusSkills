@@ -84,6 +84,10 @@ test("an address in a failure keeps no query or fragment, and a print link keeps
   assert.equal(withoutQueries('<a href="/account/connect?connection_id=synthetic">Authorize</a> went to "/cdn-cgi/access/callback?code=synthetic"'),
     '<a href="/account/connect">Authorize</a> went to "/cdn-cgi/access/callback"');
   assert.equal(withoutQueries("Print label opened https://ship.dinkuskit.com/print/synthetic-print-token."), "Print label opened https://ship.dinkuskit.com/print/");
+  assert.equal(withoutQueries("socket wss://ship.dinkuskit.com/ws?token=synthetic failed"), "socket wss://ship.dinkuskit.com/ws failed");
+  // An address can start after any mark; what follows its query up to the next space goes with it.
+  assert.equal(withoutQueries("went to [/cdn-cgi/access/callback?code=synthetic] and `/x?code=synthetic` then :/y?code=synthetic"),
+    "went to [/cdn-cgi/access/callback and `/x then :/y");
   // Words with a slash aren't addresses.
   assert.equal(withoutQueries("Processing/Completed? and/or?"), "Processing/Completed? and/or?");
 });
@@ -121,6 +125,12 @@ test("an error that can't change gives way to a copy of the same kind, without w
   assert.deepEqual(kept.missed, ["photo.png"]);
   assert.equal("matcherResult" in kept, false);
   nothingSynthetic(kept, "the copy");
+  // A message set after the error was made is one of the error's own properties.
+  const late = new Error();
+  late.message = `Stripe showed a captcha.\nCall log:\n  - navigating to "${LINK}"`;
+  const lateKept = forProof(Object.freeze(late));
+  assert.equal(lateKept.message, "Stripe showed a captcha.");
+  nothingSynthetic(lateKept, "the copy of an error whose message was set later");
 });
 
 // Read as text: this offline check runs without Playwright installed.

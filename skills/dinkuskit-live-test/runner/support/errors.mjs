@@ -1,11 +1,11 @@
 /**
  * Text with each address's query and fragment cut off, where sign-in links, connect addresses and
- * Ship's sign-in code carry their secret, whether the address is whole or starts at the site's root
- * (as a link's markup gives it), and with the token cut from a Ship print link, which carries it in
- * the path.
+ * Ship's sign-in code carry their secret, whether the address is whole (with any scheme) or starts at
+ * the site's root (as a link's markup gives it), and with the token cut from a Ship print link, which
+ * carries it in the path. What follows a query up to the next space or quote goes with it.
  */
 export const withoutQueries = text => String(text)
-  .replace(/(https?:\/\/[^\s"'<>?#]+|(?<![^\s"'(=])\/[^\s"'<>?#]*)[?#][^\s"'<>]*/g, "$1")
+  .replace(/([a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s"'<>?#]+|(?<![\w/.-])\/[^\s"'<>?#]*)[?#][^\s"'<>]*/g, "$1")
   .replace(/(\/print\/)[^\s"'<>?#]+/g, "$1");
 
 /**
@@ -40,7 +40,8 @@ export function forProof(error) {
     delete error.cause;
     return error;
   } catch {
+    // A message set after the error was made is one of its own properties, so it's set again here.
     const { matcherResult, cause, ...own } = error;
-    return Object.assign(Object.setPrototypeOf(new Error(kept), Object.getPrototypeOf(error)), own, { name: error.name, stack });
+    return Object.assign(Object.setPrototypeOf(new Error(kept), Object.getPrototypeOf(error)), own, { name: error.name, message: kept, stack });
   }
 }

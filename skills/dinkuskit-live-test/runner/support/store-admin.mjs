@@ -1,7 +1,6 @@
 import { get } from "./browser.mjs";
 import { config } from "./env.mjs";
 import { firstLine } from "./errors.mjs";
-import { PAGE_ROOM, paceStore } from "./pace.mjs";
 import { note } from "./proof.mjs";
 import { openStoreAdmin } from "./signin.mjs";
 import { describePlugins } from "./store-plugins.mjs";
@@ -9,13 +8,8 @@ import { text } from "./storefront-page.mjs";
 
 const SIGN_IN_ONCE = "Run once with DINKUS_E2E_ADMIN_SIGNIN=wait and sign in by hand.";
 
-/**
- * Opens a page of the store admin, signing in to its Access app with a one-time PIN when it asks. An
- * admin page sends many store requests as it opens (EmDash's and the plugins' calls, the photos it
- * lists), so it first waits its turn, as a store page does.
- */
+/** Opens a page of the store admin, signing in to its Access app with a one-time PIN when it asks. */
 export async function openAdmin(page, url) {
-  await paceStore(PAGE_ROOM);
   if (!await openStoreAdmin(page, url, { waitForPerson: config.adminSignIn === "wait" })) {
     throw new Error("The store admin needs a sign-in the test can't make: its Access app offers no one-time PIN and the saved profile has no sign-in. Turn on One-time PIN in the Access app; the request filter blocks other sign-in providers such as Google.");
   }

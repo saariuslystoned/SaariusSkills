@@ -1,6 +1,7 @@
 import { config } from "./env.mjs";
 import { firstLine, withoutQueries } from "./errors.mjs";
 import { mailBaseline, waitForMail } from "./mail.mjs";
+import { PAGE_ROOM, paceStore } from "./pace.mjs";
 
 const HUMAN_WAIT_MS = 10 * 60 * 1000;
 const at = (page, base) => page.url().startsWith(base);
@@ -50,9 +51,12 @@ async function signInToDinkusKit(page) {
  * Access offers a one-time PIN, the test asks for one and reads it from the test
  * inbox. Otherwise (Google only) the saved profile has to carry a sign-in a person
  * made once. Returns false when a sign-in is needed and nobody can make it:
- * `waitForPerson` is off, or the window is hidden.
+ * `waitForPerson` is off, or the window is hidden. An admin page sends many store
+ * requests as it opens (EmDash's and the plugins' calls, the photos it lists), so
+ * it first waits its turn, as a store page does.
  */
 export async function openStoreAdmin(page, url, { waitForPerson = true } = {}) {
+  await paceStore(PAGE_ROOM);
   await page.goto(url);
   await page.waitForLoadState("domcontentloaded");
   if (at(page, config.store)) return true;

@@ -1,12 +1,12 @@
 import { newPage, test, expect, shopperPage, closeShopper } from "../support/browser.mjs";
 import { catalogPlan } from "../support/catalog.mjs";
 import { config } from "../support/env.mjs";
-import { firstLine } from "../support/errors.mjs";
+import { firstLine, withoutQueries } from "../support/errors.mjs";
 import {
   addCategory, addProduct, addProductPage, choosePhoto, finishProductPage, listedProducts, openProduct, productPageEntry, publish, publishedLink, setPrice,
   setWeight, shownProductId, uploadPhotos,
 } from "../support/products-admin.mjs";
-import { PAGE_ROOM, PHOTO_ROOM, STORE_BUDGET, paceStore } from "../support/pace.mjs";
+import { PHOTO_ROOM, STORE_BUDGET, paceStore } from "../support/pace.mjs";
 import { note } from "../support/proof.mjs";
 import { openShopperPage } from "../support/shopper.mjs";
 import { confirmed, notePlugins, openAdmin } from "../support/store-admin.mjs";
@@ -236,7 +236,6 @@ test("Full catalog", { tag: "@running" }, journey(async ({ page }) => {
     await step(content, "The catalog's categories are published", async () => {
       const added = [];
       for (const { title } of plan) {
-        await paceStore(PAGE_ROOM);
         let view = await publishedLink(content, title, "categories");
         if (!view) {
           if (!canAdd) throw tooOld(commerce, `the category "${title}"`);
@@ -363,8 +362,9 @@ test("Full catalog", { tag: "@running" }, journey(async ({ page }) => {
         // A link to another site is followed there, where the request filter or the store check stops it.
         const target = destination(href);
         const failed = await openShopperPage(shopper, target).then(() => "", error => {
+          // The reason loses the address's query, as every first line in the proof does.
           const line = reason(error);
-          return line.startsWith(target) ? line : `${target} didn't open (${line})`;
+          return line.startsWith(withoutQueries(target)) ? line : `${target} didn't open (${line})`;
         });
         if (failed) problems.push(failed);
         else problems.push(...(await productPageProblems(shopper, product)).map(problem => `${target} ${problem}`));
