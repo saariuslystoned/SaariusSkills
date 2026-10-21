@@ -9,19 +9,22 @@ Encode these rules in `.stitch/DESIGN.md` before generating screens:
 - **Atmosphere Axes:**
   - **Density:** 1–3 (Gallery Airy) · 4–7 (Balanced Storefront) · 8–10 (Cockpit Dense; use monospace for numbers).
   - **Variance:** 1–3 (Symmetric Grid) · 4–7 (Offset Asymmetric) · 8–10 (Editorial Asymmetric).
-- **Color Calibration:**
-  - Maximum 1 primary accent color (saturation < 80%).
+- **Color Calibration & Multi-Preset Tokens:**
+  - Maximum 1 primary accent color per preset (saturation < 80%).
   - Ban "AI Purple/Blue Neon" gradients and outer button glows.
-  - Never use pure `#000000`; use warm off-black, charcoal, or deep ink (`#141413`, `#18181B`).
-  - Give every color a semantic name + hex code + functional role.
+  - Never use pure `#000000`; use warm off-black, charcoal, or deep ink (`#101827`, `#0F1F18`, `#111318`).
+  - Give every color a semantic name + hex code + functional role, and map the top 2–3 Stitch palette candidates into `@layer base` presets in `src/styles/tokens.css` using `light-dark(<light>, <dark>)`.
+- **Tactile Stamp & Vault Contrast Hierarchy:**
+  - Pair warm paper/chalk surfaces (`#F4F1EA` canvas, `#FCFBF8` cards with `1.5px–2px` dark ink borders and `3px–5px` solid offset shadows) with inverted dark architectural vaults (`#101827` with `6px–7px` accent offset shadows) on hero, cart summary, checkout manifest, order receipt, account rail, policy summary, and search command surfaces.
 - **Typography:**
-  - Pair a distinctive display face (`Instrument Serif`, `Fraunces`, `Plus Jakarta Sans`, `Space Grotesk`, `Outfit`, `Syne`) with a high-legibility body font and a clean monospace face (`JetBrains Mono`, `IBM Plex Mono`) for SKUs, versions, and provenance metadata.
+  - Pair a distinctive display face (`Fraunces`, `Instrument Serif`, `Plus Jakarta Sans`, `Space Grotesk`, `Outfit`, `Syne`) with a high-legibility body font and a clean monospace face (`JetBrains Mono`, `IBM Plex Mono`, `Space Mono`) for prices, SKUs, versions, and provenance metadata (`font-variant-numeric: tabular-nums`).
   - Scale headlines with `clamp()`; keep body copy 60–70ch max width.
 - **Banned AI Tells:**
   - No emojis in UI chrome.
   - No fabricated metrics (`99.98% SLA`, `10k+ customers`) or `LABEL // 2026` filler tags.
   - No invented cart/checkout/buy buttons when the slice contract forbids them.
-  - No horizontal overflow on narrow mobile viewports (`< 768px`).
+  - No duplicated theme/preset switchers in both header and footer (keep theme and color-coded preset pills strictly in the footer colophon).
+  - No horizontal overflow on narrow mobile viewports (`320px–767px`).
 
 ## 2. Prompt Enhancement Pipeline (`generate-design`)
 
@@ -34,20 +37,20 @@ When calling `generate_screen_from_text`:
   **PLATFORM:** Web, Desktop-first with clean mobile single-column collapse
 
   **PAGE STRUCTURE:**
-  1. **Header & Collection Nav:** [Brand title, category links]
+  1. **Header & Collection Nav:** [Brand title, category links, rounded search pill]
   2. **Home Opener / Hero:** [Editorial headline, subtext, primary & secondary anchor CTAs]
   3. **Merchant Shop & Catalog Grid:** [Product cards with status badges, Regular/Sale price hierarchy]
   4. **Availability & Provenance Rail:** [Compact live status summaries with collapsible native details for SKU/version/authority]
-  5. **Footer:** [Minimal provenance and navigation links]
+  5. **Shared Footer & WidgetArea:** [Brand provenance card, footer_shop & footer_policies menus, core:search widget card, bottom colophon with Theme & color-coded Preset pills]
   ```
-- When calling `edit_screens` for targeted polish, hex codes and explicit visual adjustments **are** allowed: name the exact section, component, and visual change.
+- When calling `edit_screens` or uploading deterministic HTML via `stitch_upload_file` (`screens:batchCreate`) for single-variable or tiebreaker rounds, explicit hex codes, CSS custom properties, and layout adjustments **are** used so locked variables stay 100% constant.
 
 ## 3. `update_design_system` Theme Schema
 
 When calling `update_design_system` directly via `stitch-mcp`:
 - Required `theme` fields:
   - `colorMode`: `"LIGHT"` | `"DARK"`
-  - `headlineFont`: e.g. `"INSTRUMENT_SERIF"`, `"FRAUNCES"`, `"PLUS_JAKARTA_SANS"`, `"SPACE_GROTESK"`, `"OUTFIT"`, `"DM_SANS"`, `"INTER"`
+  - `headlineFont`: e.g. `"FRAUNCES"`, `"INSTRUMENT_SERIF"`, `"PLUS_JAKARTA_SANS"`, `"SPACE_GROTESK"`, `"OUTFIT"`, `"DM_SANS"`, `"INTER"`
   - `bodyFont`: same enum options
   - `roundness`: `"ROUND_FOUR"` | `"ROUND_EIGHT"` | `"ROUND_TWELVE"` | `"ROUND_FULL"`
   - `customColor`: `#RRGGBB` seed hex

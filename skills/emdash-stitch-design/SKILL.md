@@ -1,6 +1,6 @@
 ---
 name: emdash-stitch-design
-description: Design and upgrade EmDash Astro sites with Google Stitch MCP (`stitch-mcp`) and GrillTrack. Use for `code-to-design` snapshots, `taste-design` `DESIGN.md` systems, 5-candidate GrillTrack visual variants, and Astro/EmDash translation preserving `FEATURE_MAP.md` hooks.
+description: Design and upgrade EmDash Astro sites with Google Stitch MCP (`stitch-mcp`) and GrillTrack. Use for `code-to-design` snapshots, `taste-design` `DESIGN.md` systems, 5-candidate GrillTrack visual variants, tiebreaker hybrids, upstream EmDash `tokens.css`/`theme.css` multi-preset theming, and Astro/EmDash translation preserving `FEATURE_MAP.md` hooks.
 ---
 
 # EmDash Stitch Design
@@ -15,31 +15,36 @@ Pair GrillTrack's product/visual decision loop with Google Stitch's native MCP (
    - Synthesize a semantic `.stitch/DESIGN.md` following [references/taste-and-prompts.md](references/taste-and-prompts.md).
 
 2. **Snapshot the Verified Real Page into Stitch (`code-to-design`):**
-   - Start or build the real EmDash Astro project and capture self-contained rendered HTML for the target route (e.g., `/`, `/collections/[slug]`, `/products/[slug]`, `/shop/[id]`).
+   - Start or build the real EmDash Astro project and capture self-contained rendered HTML for the target route (e.g., `/`, `/categories/[slug]`, `/products/[id]`, `/cart`).
    - Check `stitch_status` on the `stitch-mcp` server.
    - Create or select the Stitch project (`list_projects` / `create_project`).
    - Upload `.stitch/DESIGN.md` and the rendered route HTML using `stitch_upload_file` (which posts directly to `screens:batchCreate` in-process so base64 never hits LLM output token limits), then sync the project design system via `create_design_system_from_design_md` or `update_design_system`.
 
-3. **Generate Materially Distinct Candidates (`generate_variants` / `generate_screen_from_text` / Deterministic HTML Upload):**
-   - Grill one visual variable or one core page at a time so the user never has to evaluate compounded changes:
-     1. **Global `design.md` Foundations:** Layout Architecture → Color Scheme (holding chosen layout constant) → Typography Role System (holding chosen layout + palette constant).
-     2. **Core Page Templates:** Homepage (`/`) → Single Product Page (`/products/[id]`) → Single Category Page (`/categories/[slug]`) → Cart & Checkout Flow (`/cart`, `/checkout/success`).
-   - When holding locked variables constant (e.g., applying 5 color palettes to a locked layout, or 5 font pairings to a locked layout + palette), upload deterministic HTML variants via `stitch_upload_file` (`screens:batchCreate`) so Stitch renders pixel-accurate `=w2560` screenshots in ~2s without mutating locked DOM structure.
-   - Download each candidate's HTML and full-resolution `=w2560` screenshot via `stitch_download_screen` into `.stitch/designs/` (or `runs/` when ignored by repo hygiene).
+3. **Walk the Complete Storefront Surface Checklist (One Variable / Surface at a Time):**
+   - Never compound multiple visual variables in one round, and **never jump into codebase implementation or long test runs until every storefront surface on the checklist is visually locked** (unless the user explicitly requests a checkpoint PR):
+     1. **Global Foundations (`design.md` + `tokens.css`):** Homepage Layout Architecture (`/`) → Color Palette & Curated Presets (holding chosen layout constant) → Typography Role System (holding chosen layout + palette constant).
+     2. **Core Storefront Pages:** Product Detail Page (`/products/[id]`) → Category Collection Page (`/categories/[slug]`) → Guest Cart (`/cart`) → Checkout (`/checkout` or cart checkout stage) → Order Confirmation (`/checkout/success`) → Shopper Account (`/account`, showing both Signed-In and Signed-Out states) → Store Policies (`/shipping` & `/returns`, standardized against Shopify/WooCommerce/BigCommerce/Google Merchant Center).
+     3. **Global Chrome & Discovery:** Shared Global Footer (`StoreFooter.astro` with `<WidgetArea name="footer" />` + footer-only Theme/Preset switcher) → Header Search Bar & Live Search Page (`/search` with `<LiveSearch />`).
+   - When holding locked variables constant, upload deterministic HTML variants via `stitch_upload_file` (`screens:batchCreate`) so Stitch renders pixel-accurate `=w2560` screenshots in ~2s without mutating locked DOM structure.
+   - **Tiebreaker & Hybrid Rounds:** When the user is torn between two candidates (e.g., likes Layout A's frame with Candidate B's cards or search pill bar), immediately generate a 2–3 screen **Tiebreaker / Hybrid** round in real page context so the user can compare the exact combination before locking.
 
 4. **Handle Unbuilt Code / Plugin Gaps Without Losing UI Momentum:**
-   - If the user requests a UI control, interaction, or workflow during the design grill that is not yet supported by the underlying EmDash site code or companion plugin (for example, per-variant quantity steppers or multi-variant batch add on a Product Detail Page):
+   - If the user requests a UI control, interaction, or workflow during the design grill that is not yet supported by the underlying EmDash site code or companion plugin (for example, per-variant quantity steppers, multi-variant batch add on a PDP, or structured policy highlight fields):
      1. **File an issue immediately** (`gh issue create --label smoky-agent`) on the relevant repository documenting the gap and desired contract (creating the `smoky-agent` label first if missing).
      2. **Mock the feature cleanly in the Stitch design** so the visual system and layout hierarchy account for the real UX.
      3. **Keep moving on the frontend/UI design grill**—never get sidetracked implementing backend or plugin feature additions mid-design.
 
-5. **Translate the Chosen Candidate into EmDash / Astro (`emdash-sites` + `building-emdash-site`):**
+5. **Align with Upstream EmDash Theming & All 3 Composition Primitives:**
    - Read [references/grilltrack-visual-cycle.md](references/grilltrack-visual-cycle.md) before modifying Astro/EmDash components.
-   - Extract CSS custom properties, typography scales, spacing tokens, and structural grid layout from the winning Stitch HTML into the site's Astro layout/feature styles (e.g., `src/features/store-shell/`).
-   - **Never copy raw Stitch static DOM over dynamic EmDash bindings:**
-     - Keep `output: "server"` and live EmDash queries (`getEmDashCollection`, `getEmDashEntry`).
-     - Render CMS media with `<Image image={...} />` from `"emdash/ui"`, rich content with `<Blocks />` / `<PortableText />`, and Dinkus Blocks through their documented classes and theme tokens.
-     - Preserve every `data-*` attribute, `id` anchor, keyboard-operable `<details>` disclosure, and 404/empty-state contract required by `FEATURE_MAP.md`.
+   - **Upstream EmDash Theming (`src/styles/tokens.css` + `src/styles/theme.css`):**
+     - Define all design tokens inside `@layer base` in `src/styles/tokens.css` using CSS `light-dark(<light>, <dark>)`, and ship a blank unlayered `src/styles/theme.css` (`:root {}` with adopter comments) imported after `tokens.css`.
+     - Retain **2–3 curated Stitch palette presets** inside `@layer base` (`:root, :root[data-preset="..."]` plus alternate `:root[data-preset="..."]` blocks).
+     - Ship a cookie-persisted (`dinkus_theme`, `dinkus_preset`) `Light` / `Dark` / `System` switcher and (on `proof`/playground) **color-coded preset pills** (styled with each preset's palette fill, border, stamp shadow, and dual-tone swatch dot) strictly in the footer colophon—never duplicated in the header—and restored inline in `<head>` before first paint.
+   - **All 3 EmDash Composition Primitives (`blocks`, `sections`, `widgetAreas`):**
+     - `blocks`: Keep `pages.layout` blocks (`home_opener`, `rich_text`, `query_card`) on `/`.
+     - `sections`: Seed a reusable Portable Text section (e.g., `policy-support-note`) rendered via `getSection()` + `<PortableText />` on `/shipping` and `/returns` while preserving any legacy migration section (`home-opener`).
+     - `widgetAreas`: Mount a shared `StoreFooter.astro` (`getSiteSettingsWithCacheHint()`, `footer_shop`, `footer_policies`) across all public routes rendering `<WidgetArea name="footer" />` with all 3 EmDash widget types (`content`, `menu`, `component: core:search`), paired with `"search"` in collection `supports` + `"searchable": true` fields and `/search` using `<LiveSearch>` from `"emdash/ui/search"`.
 
-6. **Prove on Desktop and Mobile:**
-   - Run the repository's canonical verification gate (e.g., `bin/verify-web full` or `pnpm verify`) across desktop Chromium and mobile viewports before closeout.
+6. **Prove on Desktop and Mobile & Archive to `dinkus-pr-assets`:**
+   - Run `bin/verify-web quick` and `bin/verify-web full` (`pnpm verify`) across desktop Chromium and mobile viewports before closeout.
+   - Archive the locked Stitch `.html` source files, `=w2560` `.png` screenshots, `.stitch/DESIGN.md`, `design.md`, and `tokens.css`/`theme.css` into `dinkuskit/dinkus-pr-assets` (`<repo>-stitch-<pr>/`) so future implementation and review agents have both visual and HTML/CSS reference truth.
