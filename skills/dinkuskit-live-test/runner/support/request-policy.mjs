@@ -1,4 +1,4 @@
-import { withoutCallLog } from "./errors.mjs";
+import { forProof } from "./errors.mjs";
 
 /** The selected store and the services its canonical journeys use, never sibling stores. */
 const PRIVATE_HEADERS = /^(authorization|proxy-authorization|cookie|cf-access-client-id|cf-access-client-secret|x-api-key|x-emdash-key|x-commerce-guest-capability)$/i;
@@ -224,7 +224,7 @@ export async function filteredGet(client, address, settings, options = {}) {
       response = await client.get(url, { ...options, headers, maxRedirects: 0 });
     } catch (error) {
       // The request carries the browser's cookies, and Playwright's call log for a failure lists them.
-      throw withoutCallLog(error);
+      throw forProof(error);
     }
     const location = response.headers().location;
     if (![301, 302, 303, 307, 308].includes(response.status()) || !location) return response;

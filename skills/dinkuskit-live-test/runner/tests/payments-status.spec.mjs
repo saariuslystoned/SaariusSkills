@@ -9,10 +9,8 @@ import { notePlugins } from "../support/store-admin.mjs";
 import { BETA_STORE } from "../support/store-updates.mjs";
 import { journey, step } from "../support/steps.mjs";
 
-// The connect address is a bearer for that approval, and Playwright's trace would keep it, so this
-// journey keeps no trace. Its step screenshots are the Payments status page, which does not show the address.
-test.use({ trace: "off" });
-
+// The connect address is a bearer for that approval. The step screenshots are the Payments status page,
+// which does not show the address, and the journey leaves a blank page for Playwright's failure notes.
 test.afterEach(async ({ page }) => {
   await page.goto("about:blank").catch(() => {});
 });

@@ -1,15 +1,19 @@
+/** Text with each address's query and fragment cut off, where sign-in links, connect addresses and Ship's sign-in code carry their secret. */
+export const withoutQueries = text => String(text).replace(/(https?:\/\/[^\s"'<>?#]+)[?#][^\s"'<>]*/g, "$1");
+
 /**
- * The error without the call log Playwright adds to its own. For a request the test sends itself the
- * log lists every header sent and received, the store's Cloudflare Access and DinkusKit.com sign-in
- * cookies among them; for a page load or a wait, the addresses the page went to; for a click, the
- * page's markup. A failure's proof (console.log, Playwright's report, error-context.md) prints the
- * error whole, so the run keeps only what Playwright says went wrong. Returns the same error, or,
- * when its message can't be changed, a plain one with the shorter message.
+ * The error as the proof may keep it. Playwright ends its own errors with a call log: for a request
+ * the test sends itself, every header sent and received, the store's Cloudflare Access and
+ * DinkusKit.com sign-in cookies among them; for a page load or a wait, the addresses the page went
+ * to; for a click, the page's markup. A failure's proof (console.log, Playwright's report,
+ * error-context.md, report.json) prints the error, so it keeps what went wrong without the call log,
+ * and each address in it without its query. Returns the same error, or, when its message can't be
+ * changed, a plain one with the shorter message.
  */
-export function withoutCallLog(error) {
+export function forProof(error) {
   const message = error?.message;
   if (typeof message !== "string") return error;
-  const kept = message.replace(/\n+Call log:\n[\s\S]*$/, "");
+  const kept = withoutQueries(message.replace(/\n+Call log:\n[\s\S]*$/, ""));
   if (kept === message) return error;
   try {
     error.message = kept;
@@ -18,10 +22,4 @@ export function withoutCallLog(error) {
   } catch {
     return new Error(kept);
   }
-}
-
-/** An error's first line, each address in it cut to its site: for an emailed sign-in link, the address is the sign-in. */
-export function siteOnlyReason(error) {
-  return String(error?.message ?? error).split("\n")[0]
-    .replace(/https?:\/\/[^\s"'<>]+/g, address => { try { return new URL(address).origin; } catch { return "an address"; } });
 }

@@ -11,11 +11,8 @@ import { journey, step } from "../support/steps.mjs";
 // EmDash draws this form from admin.settingsSchema (packages/admin/src/components/PluginSettings.tsx).
 // Plugins lists an enabled plugin's Settings link to /plugins-manager/$pluginId/settings
 // (PluginManager.tsx). The secret field is a password input whose value stays empty. This journey
-// never types, saves, or clears a setting, and it never buys a label.
-
-// A trace would keep the settings response, so this journey keeps none, as Commerce settings does.
-test.use({ trace: "off" });
-
+// never types, saves, or clears a setting, and it never buys a label. It leaves a blank page for
+// Playwright's failure notes, as Commerce settings does.
 test.afterEach(async ({ page }) => {
   await page.goto("about:blank").catch(() => {});
 });

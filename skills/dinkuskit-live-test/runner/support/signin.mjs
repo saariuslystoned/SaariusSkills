@@ -1,11 +1,9 @@
 import { config } from "./env.mjs";
-import { siteOnlyReason } from "./errors.mjs";
+import { forProof, withoutQueries } from "./errors.mjs";
 import { mailBaseline, waitForMail } from "./mail.mjs";
 
 const HUMAN_WAIT_MS = 10 * 60 * 1000;
 const at = (page, base) => page.url().startsWith(base);
-// A page's address without its query, where a sign-in link keeps its token and Ship's sign-in its code.
-const withoutQuery = page => page.url().replace(/[?#].*$/, "");
 
 /**
  * Opens a Ship page, signing in with DinkusKit.com when Ship asks. Ship sends
@@ -27,7 +25,7 @@ export async function openShip(page, path) {
     if (/could not (sign in|confirm the sign-in)/i.test(text)) { await page.waitForTimeout(60_000); continue; }
     if (page.url().startsWith(target)) return;
   }
-  throw new Error(`Could not open ${target} signed in; last page ${withoutQuery(page)}.`);
+  throw new Error(`Could not open ${target} signed in; last page ${withoutQueries(page.url())}.`);
 }
 
 /** The magic-link sign-in on dinkuskit.com. The link opens in this same browser so Ship's sign-in cookie is still there. */
@@ -39,8 +37,8 @@ async function signInToDinkusKit(page) {
   await page.waitForLoadState("domcontentloaded");
   const link = await waitForMail("dinkuskit", baseline);
   if (link) {
-    // The link signs in whoever opens it, so a failure to open it names only its site.
-    await page.goto(link).catch(error => { throw new Error(`The sign-in link from DinkusKit.com's email didn't open: ${siteOnlyReason(error)}`); });
+    // The link signs in whoever opens it, so a failure to open it leaves out the link's token.
+    await page.goto(link).catch(error => { throw new Error(`The sign-in link from DinkusKit.com's email didn't open: ${forProof(error).message.split("\n")[0]}`); });
     return;
   }
   console.log(`\n>>> Open the "Sign in to DinkusKit" email for ${config.ownerEmail} and paste its link into this test's browser window.\n`);

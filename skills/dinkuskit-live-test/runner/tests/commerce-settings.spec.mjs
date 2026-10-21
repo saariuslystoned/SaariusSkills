@@ -5,11 +5,9 @@ import { note } from "../support/proof.mjs";
 import { notePlugins, openAdmin } from "../support/store-admin.mjs";
 import { journey, step } from "../support/steps.mjs";
 
-// Checkout settings is pasted setup text, and the Store key is write-only. A trace would keep the
-// settings response, so this journey keeps none. It never types, clears or saves either field.
-test.use({ trace: "off" });
-
-// Playwright's failure notes include the open page. Leave a blank one, as the label journey does.
+// Checkout settings is pasted setup text, and the Store key is write-only. This journey never types,
+// clears or saves either field. Playwright's failure notes include the open page. Leave a blank one,
+// as the label journey does.
 test.afterEach(async ({ page }) => {
   await page.goto("about:blank").catch(() => {});
 });

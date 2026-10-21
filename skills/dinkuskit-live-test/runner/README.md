@@ -466,9 +466,10 @@ and wipes it from the page when that sign-in fails, before Playwright writes
 down the page. The run keeps no Playwright trace, even for a failed journey: a
 trace holds every request's headers, the sign-in cookies for the store's
 Cloudflare Access and DinkusKit.com among them. For the same reason a failed
-step's error reaches the console and Playwright's report without Playwright's
-call log, which lists a request's headers, the addresses a page went to and the
-page's markup, and a sign-in link that won't open is named only by its site.
+step's error reaches the proof, the console and Playwright's report without
+Playwright's call log, which lists a request's headers, the addresses a page
+went to and the page's markup, and each address in it loses its query, where a
+sign-in link, a connect address or Ship's sign-in code carries its secret.
 
 On Linux, label rendering requires Poppler's `pdftoppm`; macOS uses Quick Look.
 A missing renderer, failed render or invalid picture fails the label-PDF step
