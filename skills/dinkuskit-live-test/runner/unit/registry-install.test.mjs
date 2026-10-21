@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { installBody, installRefusal, namedInstalls, planInstalls } from "../support/registry-install.mjs";
+import { consentsOf, installBody, installRefusal, namedInstalls, planInstalls } from "../support/registry-install.mjs";
 
 const list = items => ({ data: { items } });
 const ship = { id: "r_ship", source: "registry", registrySlug: "dinkus-ship-beta", version: "0.1.0-beta.0" };
 
-test("an empty install list is the Ship beta that listing-passed", () => {
-  assert.deepEqual(namedInstalls(""), [{ name: "dinkus-ship-beta", version: "0.1.0-beta.0" }]);
+test("an empty install list is the newest Ship beta", () => {
+  assert.deepEqual(namedInstalls(""), [{ name: "dinkus-ship-beta", version: "0.1.0-beta.1" }]);
   assert.deepEqual(namedInstalls(" dinkus-payments-beta 0.2.10-beta.1, dinkus-ship-beta@0.1.0-beta.0 "), [
     { name: "dinkus-payments-beta", version: "0.2.10-beta.1" },
     { name: "dinkus-ship-beta", version: "0.1.0-beta.0" },
@@ -28,6 +28,13 @@ test("a beta the store already runs is left alone, including one the owner switc
   ]);
 });
 
+test("a store running the release listing does not get the beta beside it", () => {
+  const release = { id: "r_ship_release", source: "registry", registrySlug: "dinkus-ship", version: "0.1.0" };
+  assert.deepEqual(planInstalls(list([release]), namedInstalls("dinkus-ship-beta 0.1.0-beta.1")), [
+    { name: "dinkus-ship-beta", version: "0.1.0-beta.1", install: false, id: "r_ship_release", installed: "0.1.0", listing: "dinkus-ship" },
+  ]);
+});
+
 test("the install body is what Accept & Install posts, and a verify answer without consent evidence is refused", () => {
   const body = installBody({ data: {
     publisherDid: "did:plc:ekk4pjmkh3k3ql2kfoex3qt4",
@@ -41,6 +48,8 @@ test("the install body is what Accept & Install posts, and a verify answer witho
   assert.equal(body.acknowledgedDeclaredAccess[0], "network:request");
   assert.equal(body.acknowledgedProfileCid, "bafyprofile");
   assert.equal(body.acknowledgedReleaseCid, "bafyrelease");
-  assert.throws(() => installBody({ data: { publisherDid: "did:plc:x", slug: "dinkus-ship-beta", version: "0.1.0-beta.0", capabilities: [] } }), /signed record ids/);
+  assert.equal(consentsOf(body), "permissions network:request; agent tools none; routes for visitors who aren't signed in none");
+  assert.throws(() => installBody({ data: { publisherDid: "did:plc:ekk4pjmkh3k3ql2kfoex3qt4", slug: "dinkus-ship-beta", version: "0.1.0-beta.0", capabilities: [] } }), /signed record ids/);
+  assert.throws(() => installBody({ data: { publisherDid: "did:plc:x", slug: "dinkus-ship-beta", version: "0.1.0-beta.0", capabilities: [], verification: { profileCid: "a", releaseCid: "b" } } }), /not DinkusKit's/);
   assert.match(installRefusal(409, { error: { code: "ALREADY_INSTALLED", message: "Installed" } }), /ALREADY_INSTALLED/);
 });

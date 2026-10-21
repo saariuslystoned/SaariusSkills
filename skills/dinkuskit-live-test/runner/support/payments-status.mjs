@@ -1,3 +1,4 @@
+import { APPROVE_PAYMENTS, AUTHORIZE_LINK, consentReading } from "./connect-dinkuskit.mjs";
 import { config } from "./env.mjs";
 import { mailBaseline, waitForMail } from "./mail.mjs";
 import { PAGE_ROOM, paceStore } from "./pace.mjs";
@@ -15,7 +16,7 @@ const STATUS_PATH = /^\/_emdash\/admin\/plugins\/[^/]+\/status$/;
 const CONNECTION_ID = /^[A-Za-z0-9_-]{1,200}$/;
 const SECRET = /sk_(?:test|live)_[0-9A-Za-z]+|rk_(?:test|live)_[0-9A-Za-z]+|whsec_[0-9A-Za-z]+|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/;
 
-export const AUTHORIZE_LINK = "Authorize Payments at DinkusKit";
+export { AUTHORIZE_LINK };
 export const CONNECT_LINE = "Connect your DinkusKit account to check payment setup.";
 const BANNERS = ["Not ready to sell", "Connected: Stripe test mode", "Payment status not checked"];
 const PRESSABLE = ["Connect", "Sign in again", "Continue", "Check connection"];
@@ -153,7 +154,8 @@ export async function authorizeLink(page) {
 }
 
 /**
- * Opens Authorize Payments at DinkusKit and presses Approve payments. Deny is never pressed.
+ * Opens Authorize Payments at DinkusKit and presses Approve payments, only when the page asks to
+ * connect this store to Payments. Deny is never pressed.
  * A signed-out account is signed in with the test inbox first; the connect page sends that
  * sign-in to /account with no way back, so the same connect address is opened again after.
  * The address is not written down.
@@ -176,7 +178,9 @@ export async function approvePayments(page, href) {
     await heading.waitFor({ timeout: 30_000 }).catch(async () => {
       await failClosed(consent, "DinkusKit did not show Connect this store?.");
     });
-    const approve = consent.getByRole("button", { name: "Approve payments", exact: true });
+    const reading = consentReading(await consent.locator("main").innerText(), config.store);
+    if (!reading.ok) await failClosed(consent, reading.reason);
+    const approve = consent.getByRole("button", { name: APPROVE_PAYMENTS, exact: true });
     if (!await approve.count()) {
       const said = (await consent.locator("body").innerText()).split("\n").map(line => line.trim()).find(Boolean) ?? "";
       await failClosed(consent, said || "DinkusKit's connect page has no Approve payments button.");

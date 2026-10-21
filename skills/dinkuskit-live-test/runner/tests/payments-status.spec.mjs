@@ -1,4 +1,4 @@
-import { test, expect } from "../support/browser.mjs";
+import { test } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
 import { note } from "../support/proof.mjs";
 import {
@@ -6,6 +6,7 @@ import {
 } from "../support/payments-status.mjs";
 import { pluginVersion } from "../support/store-plugins.mjs";
 import { notePlugins } from "../support/store-admin.mjs";
+import { BETA_STORE } from "../support/store-updates.mjs";
 import { journey, step } from "../support/steps.mjs";
 
 // The connect address is a bearer for that approval, and Playwright's trace would keep it, so this
@@ -20,7 +21,10 @@ test.afterEach(async ({ page }) => {
 // presses Connect, approves payments at DinkusKit, and comes back. A page that already shows
 // Connected: Stripe test mode is left as it is: Reconnect and Set up or resume Stripe stay unpressed.
 test("Payments status", { tag: "@next" }, journey(async ({ page }) => {
-  expect(config.store, `Set DINKUS_E2E_STORE to the store's address (in ${config.settingsFile})`).not.toBe("");
+  // Connect and Approve payments change which DinkusKit account the store's Payments answers to.
+  if (config.store !== BETA_STORE.store || config.siteId !== BETA_STORE.siteId) {
+    throw new Error(`Only the beta store, ${BETA_STORE.store} (site ${BETA_STORE.siteId}), gets Payments connected; this run is set to ${config.store || "no store"} (site ${config.siteId || "not set"}).`);
+  }
   let statusUrl;
 
   await step(page, "The Payments status page opens in the store admin", async () => {

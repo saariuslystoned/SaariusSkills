@@ -148,7 +148,7 @@ still has deployed now. For other test stores, use the local steps below.
      admin's Shipping page, and cancels the label once Commerce has completed the
      order.
      Install the Registry plugins (`install-plugins`) installs a named DinkusKit
-     beta the beta store does not already run, `dinkus-ship-beta` `0.1.0-beta.0`
+     beta the beta store does not already run, `dinkus-ship-beta` `0.1.0-beta.1`
      unless `DINKUS_E2E_INSTALL` names others, and leaves one the store already
      runs as it is. It does not type a store key.
    - `npm run finish` finishes a Buy and ship order that already exists. Set

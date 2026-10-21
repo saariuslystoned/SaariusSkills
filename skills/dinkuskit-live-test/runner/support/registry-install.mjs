@@ -1,47 +1,44 @@
-import { versionAtLeast } from "./store-plugins.mjs";
+import { namedBeta } from "./store-updates.mjs";
 
 // The publisher on the Payments and Ship manifests. A listing from anyone else is not this journey.
 export const PUBLISHER_DID = "did:plc:ekk4pjmkh3k3ql2kfoex3qt4";
 
-// Same shape as a beta listing in store-updates.mjs. A release listing is never installed here.
-const BETA_LISTING = /^dinkus-[a-z0-9-]+-beta$/;
-
-// What this journey installs when DINKUS_E2E_INSTALL is unset: the Ship beta that listing-passed.
-const SHIP_BETA = "dinkus-ship-beta 0.1.0-beta.0";
+// What this journey installs when DINKUS_E2E_INSTALL is unset: the newest Ship beta.
+const SHIP_BETA = "dinkus-ship-beta 0.1.0-beta.1";
 
 /**
- * The betas to install, from "dinkus-ship-beta 0.1.0-beta.0" or several separated by commas.
- * An empty value is the Ship beta above.
+ * The betas to install, from "dinkus-ship-beta 0.1.0-beta.1" or several separated by commas.
+ * An empty value is the Ship beta above. Each is named the way Update the store names one.
  */
 export function namedInstalls(text) {
   const value = String(text ?? "").trim() || SHIP_BETA;
-  return value.split(",").map(part => {
-    const item = part.trim();
-    const [, name, version] = item.match(/^(\S+)[ @](\S+)$/) ?? [];
-    if (!BETA_LISTING.test(name ?? "") || !versionAtLeast(version, "0.0.0-0")) {
-      throw new Error(`"${item}" doesn't name a DinkusKit beta as "dinkus-<plugin>-beta <version>".`);
-    }
-    return { name, version };
-  });
+  return value.split(",").map(part => namedBeta(part));
 }
 
 /**
  * Which of `wanted` the store does not already run, from EmDash's plugin list. One the store
  * already runs is left as it is, whichever version that is. This journey does not update or
  * downgrade. A plugin the owner switched off still counts as present, so it is not installed twice.
+ * The release listing (dinkus-ship for dinkus-ship-beta) is the same plugin, so a store running it
+ * does not get the beta beside it.
  */
 export function planInstalls(list, wanted) {
   const items = list?.data?.items ?? [];
   return wanted.map(plugin => {
-    const found = items.find(item => item.source === "registry" && item.registrySlug === plugin.name);
+    const release = plugin.name.replace(/-beta$/, "");
+    const found = items.find(item => item.source === "registry" && item.registrySlug === plugin.name)
+      ?? items.find(item => item.source === "registry" && item.registrySlug === release);
     if (!found) return { ...plugin, install: true };
-    return { ...plugin, install: false, id: found.id, installed: found.version };
+    const kept = { ...plugin, install: false, id: found.id, installed: found.version };
+    return found.registrySlug === plugin.name ? kept : { ...kept, listing: found.registrySlug };
   });
 }
 
 /**
  * The body Accept & Install posts, from the verify route's answer. Verify is what the Install
  * button posts first. The fields are the permissions and signed-record ids the consent dialog shows.
+ * A listing from another publisher is refused. What the body accepts is returned in `consents`
+ * so the journey writes it in the proof, the way the consent dialog shows it to the owner.
  */
 export function installBody(verified) {
   const data = verified?.data ?? verified;
@@ -49,6 +46,7 @@ export function installBody(verified) {
   if (typeof data?.publisherDid !== "string" || typeof data?.slug !== "string" || typeof data?.version !== "string") {
     throw new Error("Verify didn't name the plugin.");
   }
+  if (data.publisherDid !== PUBLISHER_DID) throw new Error(`Verify named publisher ${data.publisherDid}, not DinkusKit's. Nothing was installed.`);
   if (!Array.isArray(data.capabilities)) throw new Error("Verify didn't list the permissions the consent dialog shows.");
   if (typeof verification?.profileCid !== "string" || typeof verification?.releaseCid !== "string") {
     throw new Error("Verify didn't return the signed record ids the consent dialog shows.");
@@ -63,6 +61,12 @@ export function installBody(verified) {
     acknowledgedProfileCid: verification.profileCid,
     acknowledgedReleaseCid: verification.releaseCid,
   };
+}
+
+/** The permissions, agent tools and signed-out routes an install body accepts, for the proof. */
+export function consentsOf(body) {
+  const list = items => items.length ? items.join(", ") : "none";
+  return `permissions ${list(body.acknowledgedDeclaredAccess)}; agent tools ${list(body.acknowledgedMcpTools)}; routes for visitors who aren't signed in ${list(body.acknowledgedPublicRoutes)}`;
 }
 
 /** Why EmDash refused verify or install, from its HTTP status and error body. */

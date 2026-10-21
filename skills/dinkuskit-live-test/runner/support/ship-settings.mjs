@@ -3,7 +3,9 @@
 // siteId is "Store ID", a string. storeKey is "Store key", a secret: the form's password
 // field stays empty, and the server never sends the stored key back.
 
-export const SHIP_PLUGIN_NAME = "Ship";
+// The release listing is "Ship"; the beta listing, which the beta store runs, is "Ship Beta"
+// (dinkuskit/ship scripts/release-flow.mjs BETA_PLUGIN_NAME).
+export const SHIP_PLUGIN_NAME = /^Ship( Beta)?$/;
 export const STORE_ID_LABEL = "Store ID";
 export const STORE_KEY_LABEL = "Store key";
 

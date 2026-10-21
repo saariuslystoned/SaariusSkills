@@ -1,3 +1,5 @@
+import { pluginSettingsPath } from "./ship-settings.mjs";
+
 // Commerce's settings form is EmDash's auto-generated one (admin.settingsSchema in
 // dinkuskit/commerce emdash-plugin.jsonc), not the plugin's own Commerce Settings page.
 // Labels and descriptions are that schema: both are pasted from the Set up Commerce box.
@@ -14,11 +16,6 @@ export const STORE_KEY = {
 
 // The release listing and the beta listing are the same plugin. A store runs one of them.
 const COMMERCE_SLUG = /^dinkus-commerce(-beta)?$/;
-
-/** EmDash admin route for the auto-generated form: /plugins-manager/$pluginId/settings. */
-export function commerceSettingsPath(id) {
-  return `/_emdash/admin/plugins-manager/${encodeURIComponent(id)}/settings`;
-}
 
 /**
  * The Commerce plugin whose Settings control Plugins shows, from EmDash's plugin list
@@ -44,5 +41,5 @@ export function commerceSettings(list) {
   if (plugin.hasSettings !== true) return { error: `Commerce (${named}) has no settings form on Plugins.` };
   if (typeof plugin.id !== "string" || plugin.id === "") return { error: `Commerce (${named}) is listed without an id, so its settings page can't be opened.` };
   if (typeof plugin.name !== "string" || plugin.name === "") return { error: `Commerce (${named}) is listed without a name, so its card can't be picked out on Plugins.` };
-  return { id: plugin.id, name: plugin.name, slug, version, path: commerceSettingsPath(plugin.id) };
+  return { id: plugin.id, name: plugin.name, slug, version, path: pluginSettingsPath(plugin.id) };
 }

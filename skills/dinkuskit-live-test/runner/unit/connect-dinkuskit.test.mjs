@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  accountReading, betaPaymentsStatusLinks, consentReading, CONNECT_INSTRUCTION, isDinkusConnectLink, isSignInLink,
+  accountReading, betaPaymentsStatusLinks, consentReading, CONNECT_INSTRUCTION, isSignInLink,
 } from "../support/connect-dinkuskit.mjs";
 
 const STORE = "https://beta.sm0ky.dev";
@@ -52,12 +52,7 @@ test("Approve stays unpressed unless the page is this store's Payments consent",
   assert.match(consentReading(`${ready}\nThis connection is no longer waiting for consent.`, STORE).reason, /no longer waiting/);
 });
 
-test("the authorize link is only this account's connect page, with one connection id", () => {
-  assert.equal(isDinkusConnectLink(`${ACCOUNT}/account/connect?connection_id=c1`, ACCOUNT), true);
-  assert.equal(isDinkusConnectLink(`${ACCOUNT}/account/connect?connection_id=c1&next=/account/sites`, ACCOUNT), false);
-  assert.equal(isDinkusConnectLink(`${ACCOUNT}/account/sites?connection_id=c1`, ACCOUNT), false);
-  assert.equal(isDinkusConnectLink("https://other.example/account/connect?connection_id=c1", ACCOUNT), false);
-  assert.equal(isDinkusConnectLink(`${ACCOUNT}/account/connect`, ACCOUNT), false);
+test("a DinkusKit sign-in link is told apart from the account page", () => {
   assert.equal(isSignInLink(`${ACCOUNT}/api/auth/magic-link/verify?token=secret`), true);
   assert.equal(isSignInLink(`${ACCOUNT}/account`), false);
 });

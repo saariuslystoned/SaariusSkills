@@ -2,7 +2,7 @@ import { test } from "../support/browser.mjs";
 import { config } from "../support/env.mjs";
 import { countStoreRequest, paceStore } from "../support/pace.mjs";
 import { note } from "../support/proof.mjs";
-import { installBody, installRefusal, namedInstalls, planInstalls, PUBLISHER_DID } from "../support/registry-install.mjs";
+import { consentsOf, installBody, installRefusal, namedInstalls, planInstalls, PUBLISHER_DID } from "../support/registry-install.mjs";
 import { notePlugins, openAdmin } from "../support/store-admin.mjs";
 import { BETA_STORE } from "../support/store-updates.mjs";
 import { journey, step } from "../support/steps.mjs";
@@ -28,7 +28,7 @@ async function postApi(page, path, data) {
 
 const listed = plan => plan.map(plugin => plugin.install
   ? `${plugin.name} ${plugin.version} (not installed)`
-  : `${plugin.name} ${plugin.installed} (already running)`).join(", ");
+  : `${plugin.listing ?? plugin.name} ${plugin.installed} (already running)`).join(", ");
 
 // Installs a DinkusKit beta the beta store does not already run. Update the store cannot: it only
 // moves a plugin the store already runs. The Registry browse page loads its catalog from the
@@ -65,6 +65,7 @@ test("Install the Registry plugins", { tag: "@next" }, journey(async ({ page }) 
       if (body.slug !== plugin.name || body.version !== plugin.version) {
         throw new Error(`Verify named ${body.slug} ${body.version}, not ${plugin.name} ${plugin.version}.`);
       }
+      note(`registry install consents ${plugin.name}`, consentsOf(body));
       const installed = await postApi(page, "/registry/install", body);
       const id = installed?.data?.pluginId ?? installed?.pluginId;
       note("registry install id", id ? `${plugin.name} ${id}` : `${plugin.name} (id not in the answer)`);

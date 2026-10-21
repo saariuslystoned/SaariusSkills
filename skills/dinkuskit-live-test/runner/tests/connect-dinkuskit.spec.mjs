@@ -1,11 +1,11 @@
 import { test } from "../support/browser.mjs";
 import {
-  APPROVE_PAYMENTS, AUTHORIZE_LINK, PAYMENT_SETUP_HEADING, PAYMENTS_STATUS_LABEL,
-  accountReading, betaPaymentsStatusLinks, consentReading, isDinkusConnectLink, isSignInLink,
+  AUTHORIZE_LINK, PAYMENT_SETUP_HEADING, PAYMENTS_STATUS_LABEL, accountReading, betaPaymentsStatusLinks, isSignInLink,
 } from "../support/connect-dinkuskit.mjs";
 import { config } from "../support/env.mjs";
 import { mailBaseline, waitForMail } from "../support/mail.mjs";
 import { PAGE_ROOM, paceStore } from "../support/pace.mjs";
+import { approvePayments, authorizeHref as isConnectLink } from "../support/payments-status.mjs";
 import { openAdmin } from "../support/store-admin.mjs";
 import { BETA_STORE } from "../support/store-updates.mjs";
 import { journey, step } from "../support/steps.mjs";
@@ -18,6 +18,14 @@ const pause = page => page.waitForTimeout(FOLLOW);
 const accountUrl = () => `${config.account}/account`;
 const mainText = page => page.locator("main").innerText();
 const heading = page => page.getByRole("heading", { level: 1 }).first();
+
+// The connect address is a bearer for that approval and the sign-in link opens the account, and
+// Playwright's trace would keep both, so this journey keeps no trace, as Payments status does.
+test.use({ trace: "off" });
+
+test.afterEach(async ({ page }) => {
+  await page.goto("about:blank").catch(() => {});
+});
 
 /** Opens a mailed sign-in link and leaves that address before anything is recorded or pictured. */
 async function openSignInLink(page, link) {
@@ -134,40 +142,16 @@ test("DinkusKit.com account and connect the store", { tag: "@next" }, journey(as
     await authorize.waitFor({ timeout: 60_000 });
     await pause(page);
     authorizeHref = await authorize.getAttribute("href");
-    if (!isDinkusConnectLink(authorizeHref, config.account)) throw new Error("Authorize Payments at DinkusKit does not open this account's connect page. It was not followed.");
+    if (!isConnectLink(authorizeHref, config.account)) throw new Error("Authorize Payments at DinkusKit does not open this account's connect page. It was not followed.");
     return "Authorize Payments at DinkusKit is on the page";
-  });
-
-  await step(page, "DinkusKit.com asks to connect this store", async () => {
-    const authorize = page.getByRole("link", { name: AUTHORIZE_LINK, exact: true });
-    await pause(page);
-    const popup = page.waitForEvent("popup", { timeout: 8_000 }).catch(() => null);
-    await authorize.click();
-    const extra = await popup;
-    if (extra) await extra.close().catch(() => {});
-    await page.goto(authorizeHref, { waitUntil: "domcontentloaded" });
-    await page.getByRole("heading", { name: "Connect this store?", exact: true }).waitFor({ timeout: 60_000 });
-    await pause(page);
-    const consent = consentReading(await mainText(page), config.store);
-    if (!consent.ok) throw new Error(consent.reason);
-    await pause(page);
-    return `Connect this store? Site origin ${config.store}. Payments.`;
   });
 
   await step(page, "The owner approves this store on DinkusKit.com", async () => {
     await pause(page);
-    await page.getByRole("button", { name: APPROVE_PAYMENTS, exact: true }).click();
-    const alert = page.locator(".account-error");
-    const outcome = await Promise.race([
-      page.waitForURL(url => url.pathname !== "/account/connect", { timeout: 60_000 }).then(() => ({ ok: true }), () => {
-        throw new Error("DinkusKit.com did not leave the connect page.");
-      }),
-      alert.waitFor({ state: "visible", timeout: 60_000 }).then(async () => ({
-        ok: false,
-        reason: (await alert.innerText()).trim() || "This connection could not be approved.",
-      })).catch(() => new Promise(() => {})),
-    ]);
-    if (!outcome.ok) throw new Error(outcome.reason);
+    // Approve payments is pressed only on Connect this store? for this store and Payments, and the
+    // store's Payments status page is let load after it, since that load saves the connection.
+    await approvePayments(page, authorizeHref);
+    await pause(page);
     await page.goto(accountUrl(), { waitUntil: "domcontentloaded" });
     await page.getByRole("heading", { name: "Your store is connected", exact: true }).waitFor({ timeout: 60_000 });
     await pause(page);

@@ -55,18 +55,6 @@ export function consentReading(text, store) {
   return { ok: true };
 }
 
-/** Authorize Payments at DinkusKit must open this account's connect page and nothing else. */
-export function isDinkusConnectLink(href, account) {
-  let url;
-  try { url = new URL(href); } catch { return false; }
-  if (url.origin !== originOf(account)) return false;
-  if (url.pathname !== "/account/connect") return false;
-  const ids = url.searchParams.getAll("connection_id");
-  if (ids.length !== 1 || !ids[0]) return false;
-  if ([...url.searchParams.keys()].some(key => key !== "connection_id")) return false;
-  return !url.hash;
-}
-
 /** A DinkusKit.com magic-link address. The journey never records one. */
 export function isSignInLink(href) {
   try { return new URL(href).pathname.startsWith("/api/auth/magic-link/"); } catch { return false; }

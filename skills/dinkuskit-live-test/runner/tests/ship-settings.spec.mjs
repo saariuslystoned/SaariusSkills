@@ -13,6 +13,13 @@ import { journey, step } from "../support/steps.mjs";
 // (PluginManager.tsx). The secret field is a password input whose value stays empty. This journey
 // never types, saves, or clears a setting, and it never buys a label.
 
+// A trace would keep the settings response, so this journey keeps none, as Commerce settings does.
+test.use({ trace: "off" });
+
+test.afterEach(async ({ page }) => {
+  await page.goto("about:blank").catch(() => {});
+});
+
 test("Ship settings", { tag: "@next" }, journey(async ({ page }) => {
   expect(config.store, `Set DINKUS_E2E_STORE to the store's address (in ${config.settingsFile})`).not.toBe("");
   expect(config.siteId, `Set DINKUS_E2E_SITE_ID to the store's DinkusKit site id (in ${config.settingsFile})`).not.toBe("");
@@ -23,7 +30,7 @@ test("Ship settings", { tag: "@next" }, journey(async ({ page }) => {
     try {
       await paceStore(PAGE_ROOM);
       await openAdmin(page, `${config.store}/_emdash/admin/plugins-manager`);
-      const ship = page.getByRole("heading", { level: 3, name: SHIP_PLUGIN_NAME, exact: true });
+      const ship = page.getByRole("heading", { level: 3, name: SHIP_PLUGIN_NAME });
       const empty = page.getByRole("heading", { name: "No plugins configured", exact: true });
       const failed = page.getByText(/^Failed to load plugins/);
       await ship.or(empty).or(failed).first().waitFor({ timeout: 30_000 }).catch(() => {});
@@ -32,16 +39,17 @@ test("Ship settings", { tag: "@next" }, journey(async ({ page }) => {
       const shipCount = await ship.count();
       if (shipCount !== 1) {
         throw new Error(shipCount
-          ? `Plugins lists ${shipCount} plugins named ${SHIP_PLUGIN_NAME}; the test will not pick one.`
-          : `Plugins has no ${SHIP_PLUGIN_NAME} plugin. The test does not install one.`);
+          ? `Plugins lists ${shipCount} Ship plugins; the test will not pick one.`
+          : "Plugins has no Ship or Ship Beta plugin. The test does not install one.");
       }
       const opened = await shipSettingsLink(page);
       if (!opened) {
         throw new Error("Ship is listed, but no Settings control opens /_emdash/admin/plugins-manager/<plugin>/settings. The test does not enable the plugin or change its settings.");
       }
+      const shipName = (await ship.innerText()).trim();
       await opened.link.click();
       await page.locator("#plugin-settings-form").waitFor({ timeout: 30_000 });
-      await page.getByRole("heading", { name: `${SHIP_PLUGIN_NAME} Settings`, exact: true }).waitFor();
+      await page.getByRole("heading", { name: `${shipName} Settings`, exact: true }).waitFor();
       const pluginId = pluginIdFromSettingsUrl(page.url(), config.store);
       if (pluginId !== opened.pluginId) throw new Error("Ship's Settings control opened a different page than its own settings form.");
       note("ship settings plugin", pluginId);
@@ -89,7 +97,7 @@ async function shipSettingsLink(page) {
     const pluginId = pluginIdFromSettingsUrl(await link.getAttribute("href"), config.store);
     if (!pluginId) continue;
     const card = link.locator("xpath=ancestor::*[.//h3][1]");
-    const named = card.getByRole("heading", { level: 3, name: SHIP_PLUGIN_NAME, exact: true });
+    const named = card.getByRole("heading", { level: 3, name: SHIP_PLUGIN_NAME });
     if (await named.count() === 1) found.push({ link, pluginId });
   }
   if (found.length > 1) throw new Error(`Plugins has ${found.length} Ship settings links; the test will not pick one.`);
