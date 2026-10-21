@@ -29,7 +29,7 @@ Pair GrillTrack's product/visual decision loop with Google Stitch's native MCP (
 
 4. **Handle Unbuilt Code / Plugin Gaps Without Losing UI Momentum:**
    - If the user requests a UI control, interaction, or workflow during the design grill that is not yet supported by the underlying EmDash site code or companion plugin (for example, per-variant quantity steppers or multi-variant batch add on a Product Detail Page):
-     1. **File an issue immediately** (`gh issue create`) on the relevant repository documenting the gap and desired contract.
+     1. **File an issue immediately** (`gh issue create --label smoky-agent`) on the relevant repository documenting the gap and desired contract (creating the `smoky-agent` label first if missing).
      2. **Mock the feature cleanly in the Stitch design** so the visual system and layout hierarchy account for the real UX.
      3. **Keep moving on the frontend/UI design grill**—never get sidetracked implementing backend or plugin feature additions mid-design.
 

@@ -41,7 +41,7 @@ When `design.md` or the active GrillTrack track calls for comparing materially d
 
 When a visual review uncovers a missing capability in the EmDash storefront or a companion plugin (for example, missing PDP quantity selectors or multi-variant batch selection):
 
-1. **File an issue on the owning repository (`gh issue create`)** with the exact component path, current limitation, and requested behavior.
+1. **File an issue on the owning repository (`gh issue create --label smoky-agent`)** with the exact component path, current limitation, and requested behavior.
 2. **Mock the control or state directly in the Stitch screen** so the locked visual design and spacing accommodate the target UX.
 3. **Stay focused on the frontend/UI grill**—do not pause the visual design cycle to build plugin or backend features.
 
