@@ -1,0 +1,145 @@
+{
+  "tested_source": "8832bc315e923b12bb64a0ac41cc4953ad67707b",
+  "harness": "Grok ACP",
+  "model": "grok-4.7",
+  "kind": "simulated instruction-following evaluation; no external actions",
+  "assessment": "Six cases unambiguous; two required clarification. This is not product-performance evidence.",
+  "cases": [
+    {
+      "case": {
+        "id": "handoff_repeat",
+        "request": "Continue the product implementation while improving repeated handoff omissions.",
+        "evidence": "Two completed worker submissions omitted the exact source and unresolved checks. A sanitized replay exists with fixed acceptance checks. The product writer can continue independently. One separate worker and a bounded trial are available. No existing experiment targets this failure.",
+        "task": "Record the next action, execution owner/mode, and what evidence permits promotion."
+      },
+      "actual": {
+        "id": "handoff_repeat",
+        "selected_route": "harness2",
+        "action": "Record the refinement pending. Qualify the separate Harness\u00b2 runtime (advertised capability, permissions, exact source binding, cost and data limits, candidate isolation) before any dispatch. After qualification, freeze one sequential k=1 packet on the sanitized replay and delegate that single experiment. Continue product implementation now. Promotion waits on a real result.",
+        "owner_and_mode": "Product writer continues product delivery. The experiment has no writer until runtime qualification; then one isolated writer owns that trial. Runtime qualification stays with the separate integration owner.",
+        "evidence_needed": "Promotion needs the same target, hypothesis, acceptance identity, source revision, and benchmark/executor/mode/budget/seed; isolated candidate artifacts; passing hard checks and the fixed acceptance checks; and an authorized Jev decision_evaluate result of candidate-better on sanitized anonymized A/B evidence. Upstream adoption does not permit promotion. Merge, install, and rollout need separate authorization. Transfer to another task needs that task's own evidence.",
+        "disposition_if_applicable": "pending",
+        "concise_reason": "Repeated omitted source and checks are a reproducible handoff loss with fixed acceptance, no current experiment owns it, and a separate trial slot exists, so Harness\u00b2 is the route. This snapshot has no qualified runtime binding, so the truthful state is pending and the run is not emulated. Product delivery is independent and continues."
+      }
+    },
+    {
+      "case": {
+        "id": "blocked_protocol",
+        "request": "Finish the assigned handoff today.",
+        "evidence": "The current instruction template repeatedly strips required artifact identifiers, preventing acceptance. A fixed input reproduces the loss, an isolated replay is available, no parallel worker is available, and a bounded instruction change is within scope.",
+        "task": "Record the next action and whether product work should wait."
+      },
+      "actual": {
+        "id": "blocked_protocol",
+        "action": "Inline the in-scope instruction-template change so required artifact identifiers are kept, then finish the assigned handoff on the fixed replay. The handoff waits until that change is in place. Do not open a parallel Harness\u00b2 trial.",
+        "selected_route": "inline-harness-fix",
+        "owner_and_mode": "Current task owner is the single writer and applies the bounded template repair on the allow-listed instruction surface. No parallel worker is assigned.",
+        "evidence_needed": "The fixed input replay, the bounded template change, and a rerun that still contains the required artifact identifiers and meets acceptance.",
+        "disposition_if_applicable": "blocked",
+        "concise_reason": "The template strips artifact identifiers and blocks acceptance of today's handoff. No parallel worker is available, so a separate experiment cannot be dispatched. A blocking harness defect is the case for an inline repair, and the handoff waits on that repair."
+      }
+    },
+    {
+      "case": {
+        "id": "auth_expired",
+        "request": "The upload stopped. Improve the workflow so it can finish.",
+        "evidence": "The only failure is an expired service credential. No credential changes or alternative account are authorized. No instruction defect has been observed.",
+        "task": "Record the next action; do not perform external actions."
+      },
+      "actual": {
+        "id": "auth_expired",
+        "selected_route": "authority-gate",
+        "action": "Stop the upload and record it blocked on the expired service credential. Wait for the credential owner to authorize renewal. Perform no external action, account switch, or workflow experiment.",
+        "owner_and_mode": "Human credential owner holds the gate. The coordinator records the block and assigns no writer or experiment mode.",
+        "evidence_needed": "Human-authorized renewal of the same service credential. No instruction defect was observed.",
+        "disposition_if_applicable": "blocked",
+        "concise_reason": "The only failure is an expired credential, and no credential change or alternate account is authorized. Authority gates are outside Harness\u00b2."
+      }
+    },
+    {
+      "case": {
+        "id": "product_preference",
+        "request": "Build the shipping-policy page.",
+        "evidence": "The owner has not specified shipping regions or rates. Existing records contain no accepted values. A model could invent plausible defaults.",
+        "task": "Record the next action and whether refinement should select those values."
+      },
+      "actual": {
+        "id": "product_preference",
+        "selected_route": "owner-preference",
+        "action": "Ask the owner for shipping regions and rates, record the answer in the project brief, and build the page only after those values are accepted. Leave refinement unstarted.",
+        "owner_and_mode": "Product owner decides the missing preference. No experiment writer is assigned, and the model does not choose defaults.",
+        "evidence_needed": "Owner-accepted shipping regions and rates. Existing records contain no accepted values.",
+        "disposition_if_applicable": "blocked",
+        "concise_reason": "Shipping regions and rates are unresolved product preferences. Harness\u00b2 must not select them, and invented defaults are not acceptance evidence. Page implementation waits on the owner."
+      }
+    },
+    {
+      "case": {
+        "id": "duplicate_trial",
+        "request": "The same handoff omitted source again. Start improving it.",
+        "evidence": "Experiment exp-17 already owns this exact sanitized input, source revision and failure. Its worker is running in an isolated workspace; a result is not yet available. Product delivery is independent.",
+        "task": "Record the next action and ownership."
+      },
+      "actual": {
+        "id": "duplicate_trial",
+        "selected_route": "harness2-observe",
+        "action": "Leave exp-17 running and observe it to a terminal result. Continue independent product delivery. Do not start a second improvement run or treat missing output as a stopped writer.",
+        "owner_and_mode": "The exp-17 worker remains the one writer for this sanitized input, source revision, and failure in its isolated workspace. The product writer continues product delivery. The coordinator does not redispatch.",
+        "evidence_needed": "A terminal exp-17 result bound to the same experiment identity, including artifacts and checks. A new packet waits until that result exists and ownership is explicitly transferred.",
+        "disposition_if_applicable": "n/a",
+        "concise_reason": "exp-17 already owns this exact target, source revision, and failure, and its worker is still running. An active matching experiment is not dispatched again. Product delivery is independent and continues."
+      }
+    },
+    {
+      "case": {
+        "id": "vague_optimization",
+        "request": "This skill seems a bit wordy; optimize it.",
+        "evidence": "No failure, measurable outcome or replay has been identified. There is a useful approved product task ready.",
+        "task": "Record the next action without manufacturing a benchmark."
+      },
+      "actual": {
+        "id": "vague_optimization",
+        "selected_route": "product-delivery",
+        "action": "Do the ready approved product task. Leave the skill text unchanged and create no benchmark, replay, or refinement experiment.",
+        "owner_and_mode": "Product writer owns the approved product task. No refinement owner is assigned.",
+        "evidence_needed": "No refinement evidence applies. A later Harness\u00b2 route would need a concrete reproducible failure, measurable acceptance, and a sanitized replay.",
+        "disposition_if_applicable": "n/a",
+        "concise_reason": "A wording preference without a failure, measurable outcome, or replay does not qualify for Harness\u00b2. Approved product work is ready and is the next item."
+      }
+    },
+    {
+      "case": {
+        "id": "higher_judge_failed_check",
+        "request": "Promote the refined skill now.",
+        "evidence": "Jev preferred candidate B for concision. The candidate failed the fixed required-source check; the original passed. Other criteria are equal. Merge and installation are not authorized.",
+        "task": "Record the disposition and permissible next action."
+      },
+      "actual": {
+        "id": "higher_judge_failed_check",
+        "selected_route": "harness2-result",
+        "action": "Record the candidate rejected and keep the original in place. Perform no promotion, merge, install, or rollout.",
+        "owner_and_mode": "Coordinator records the result. No writer is authorized to edit an installed checkout or merge.",
+        "evidence_needed": "The fixed required-source check already failed for the candidate and passed for the original. Jev's concision preference does not replace that check. Any later candidate needs a passing required-source check and separate merge authorization.",
+        "disposition_if_applicable": "reject",
+        "concise_reason": "Jev cannot clear a hard failure or grant action authority. Candidate B failed the required-source check while the original passed, so the disposition is reject. Merge and installation are also unauthorized."
+      }
+    },
+    {
+      "case": {
+        "id": "judge_unavailable",
+        "request": "Finish the experiment report.",
+        "evidence": "All hard checks pass on both original and candidate. A real full-loop trial completed. The Jev call returned unavailable with no answers. No independent quality evidence distinguishes the candidates.",
+        "task": "Record the experiment result and any limitations without blocking unrelated product delivery."
+      },
+      "actual": {
+        "id": "judge_unavailable",
+        "selected_route": "harness2-result",
+        "action": "Finish the experiment report as inconclusive. Preserve the Jev unavailable provenance and the limitation that no independent quality evidence distinguishes the candidates. Continue unrelated product delivery. Do not promote either side from upstream adoption.",
+        "owner_and_mode": "Coordinator records the completed full-loop trial. No new experiment writer is assigned. Product delivery stays independently owned and unblocked.",
+        "evidence_needed": "Passing hard checks for both original and candidate, completed full-loop trial evidence, and Jev unavailable with no answers. A later authorized decision_evaluate result, or an explicitly labeled manual fallback, would be a separate evaluation. Unavailable is not a Jev judgment.",
+        "disposition_if_applicable": "inconclusive",
+        "concise_reason": "Hard checks passed on both sides and the trial completed, but Jev returned no decision and no other evidence distinguishes the candidates. Adoption is not improvement proof. Unrelated product delivery does not wait."
+      }
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Worktree Setup"
+  short_description: "Prepare isolated Git worktrees from verified sources."
+  default_prompt: "Use $smoky-worktree for the current bounded task, following repository instructions and any optional local binding."

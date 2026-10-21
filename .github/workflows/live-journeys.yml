@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       journeys:
-        description: Which journeys (a Playwright --grep; @running is all seven)
+        description: Which journeys (a Playwright --grep; @running runs every Running journey)
         default: "@running"
         required: true
       update_store:

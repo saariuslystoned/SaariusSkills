@@ -13,7 +13,7 @@ journeys plan:
 | [Full catalog](tests/full-catalog.spec.mjs) | `@running` | The store carries a catalog as big as a real shop's (3 categories of 8 products unless set otherwise), each product with its own price, weight, photo and page: the owner adds what's missing, the Shop list, every category page and every product page show the whole catalog, and the owner can still save a product with all of it in place |
 | [Mark as completed](tests/mark-completed.spec.mjs) | `@running` | The owner marks a paid TEST order completed in Commerce Orders, typing a carrier and tracking number, and an agent completes another through Commerce's orders API, sending neither; both end Completed |
 | [Problems](tests/problems.spec.mjs) | `@running` | A shopper's checkout going wrong: Stripe turns down a declined card, a card without enough funds and a card that fails the bank's security check, each with a clear message and no order; the shopper leaves Stripe for the cart, finds the way back to the same checkout and pays once with the test card, and the owner completes that one order |
-| [Buy a label in the store admin](tests/store-admin-label.spec.mjs) | `@next` | The owner ships a paid Stripe TEST order from the store admin's Shipping page, which the Ship plugin draws from hosted Ship: See prices, Buy label at the quoted price and Print label, then, once Commerce has completed the order, Print label again and Cancel label, with the order staying Completed |
+| [Buy a label in the store admin](tests/store-admin-label.spec.mjs) | `@running` | The owner ships a paid Stripe TEST order from the store admin's Shipping page, which the Ship plugin draws from hosted Ship: See prices, Buy label at the quoted price and Print label, then, once Commerce has completed the order, Print label again and Cancel label, with the order staying Completed |
 | [Install the Registry plugins](tests/install-plugins.spec.mjs) | `@next` | A DinkusKit beta the beta store does not already run is installed there (`dinkus-ship-beta` `0.1.0-beta.0` unless `DINKUS_E2E_INSTALL` names others), through the store's Registry verify and install routes, and Plugins lists it. A beta the store already runs is left as it is |
 | [DinkusKit.com account and connect the store](tests/connect-dinkuskit.spec.mjs) | `@next` | The owner's DinkusKit.com account shows the beta store connected, or, when the account says to connect it, Payments status is used to approve Payments for that store only. The store key is never opened |
 | [Commerce settings](tests/commerce-settings.spec.mjs) | `@next` | Commerce Settings shows Checkout settings and an empty Store key, with the Set up Commerce descriptions. The key is never typed |
@@ -26,15 +26,13 @@ moves to `@running` once it has passed on the test store. Manage products needs
 a Commerce release that can rename and archive a product, and Full catalog one
 whose product screens cope with a full catalog (0.3.0-beta.4 or later); on an
 older Commerce, Manage products stops before adding anything and Full catalog
-adds nothing, each saying why. Buy a label in the store admin stays `@next` until
-the Ship plugin is live: hosted Ship and DinkusKit.com deployed with the plugin's
-admin access, and a dinkus-ship-beta release with ship#45 installed on
-beta.sm0ky.dev with its Store ID and store key. It must pass there before that
-plugin's first real Registry release.
+adds nothing, each saying why. Buy a label in the store admin needs the Ship
+plugin installed and connected, as dinkus-ship-beta is on the beta store, where
+it first passed on 20 Oct.
 
 How a beta becomes that release is [Release a plugin](../SKILL.md#release-a-plugin).
-Payments is the reference (`cut-beta`, then this workflow, then `promote`). Ship
-is still the older Changesets pre-mode lane. This runner proves. It does not
+Payments, Commerce and Ship each press `cut-beta`, then this workflow, then
+`promote`. This runner proves. It does not
 publish. **Update the store** does not install a plugin the store is not already
 running. [Install the Registry plugins](tests/install-plugins.spec.mjs) does that,
 and only on beta.sm0ky.dev. It never types a store key.
@@ -199,10 +197,9 @@ cancelled, listed under Earlier labels. When a step before Cancel label stops
 the journey, the label stays bought: it's a sandbox label, so nothing was
 charged, and Commerce still completes the order with it. It needs the Ship
 plugin installed and connected (the store's Store ID and store key in its
-settings) and TEST sandbox labels on in Ship's Settings. It finds the Shipping
-page in the admin's menu; when the menu has more than one, set
-`DINKUS_E2E_SHIPPING_ADMIN`. While it is `@next`, it runs on the beta store when
-its name is typed in the journeys box of **Run workflow** (see "Run on GitHub").
+settings), and hosted Ship running on Pitney Bowes's sandbox, which is when Ship
+gives TEST orders sandbox labels. It finds the Shipping page in the admin's menu;
+when the menu has more than one, set `DINKUS_E2E_SHIPPING_ADMIN`.
 Print label's link shows the label to anyone who has it, for five minutes, so
 the test reads it with its own fetch and writes it in no note or error. For the
 same reason this journey keeps no Playwright trace, and it leaves a blank page
@@ -216,7 +213,7 @@ The machine's settings come from `~/.dinkus-e2e/env`; see
 
 The repository's **Live journeys** workflow (`.github/workflows/live-journeys.yml`) runs
 the same journeys on a GitHub runner against the beta test store, beta.sm0ky.dev, with
-no Mac. Press **Run workflow** on its Actions page; `@running` runs all seven. That store
+no Mac. Press **Run workflow** on its Actions page; `@running` runs every Running journey. That store
 belongs to the workflow alone. Runs go one at a time: a press while a run is going waits its
 turn, and a further press replaces the waiting one.
 
@@ -436,7 +433,7 @@ up to `DINKUS_E2E_COMPLETE_WAIT_SECONDS` twice, it gets twice that on top of the
 | A shopper places a Stripe TEST order | As in Buy and ship, a shopper pays for a physical product with the test card and Commerce records the payment |
 | Commerce Orders lists the order as Processing | Commerce Orders lists the order, TEST and Processing; opening it also sends Ship the paid orders it doesn't have yet |
 | The Shipping page lists the order with no label | The Shipping list shows "#N (TEST)" with "No label" (opening the Shipping page again every 15 seconds, for up to `DINKUS_E2E_COMPLETE_WAIT_SECONDS`), and Open shows the order's page |
-| The order's page offers a free sandbox label for the package's weight | The order's page says it's a TEST order, shows Ship to, Items, the items' weight and "No label", offers a free Pitney Bowes sandbox label as the label kind, and fills in the weight as the items' weight plus the chosen box's empty weight. When Ship's Settings turn TEST sandbox labels off, Ship offers a practice label and this step fails |
+| The order's page offers a free sandbox label for the package's weight | The order's page says it's a TEST order, shows Ship to, Items, the items' weight and "No label", offers a free Pitney Bowes sandbox label as the label kind, and fills in the weight as the items' weight plus the chosen box's empty weight. When hosted Ship isn't on Pitney Bowes's sandbox, it offers a practice label instead and this step fails |
 | See prices quotes USPS services for the package | The browser accepts the filled-in weight, See prices fills the Service list with Ship's prices, and one is for the service `DINKUS_E2E_SERVICE` names (Ground Advantage unless set). Before ship#45 the browser took only weights ending in .1 (1.1, 2.1 and so on), so with a weight such as 4 oz See prices did nothing |
 | Buy label buys the sandbox label at the quoted price | Buy label says "Label bought, $X.XX sandbox. Tracking ..." at the quoted price, and the order's page shows the label's service, its tracking number marked "test, not trackable", its postage as "sandbox price, nothing charged" and Status "Label bought" |
 | Print label opens the label's PDF from Ship | Print label opens Ship's print link in a new tab, and the link answers with the label's PDF, waiting up to two minutes while Ship fetches it from Pitney Bowes. Its first page draws as a picture of the label, shown in the browser for the step's screenshot |

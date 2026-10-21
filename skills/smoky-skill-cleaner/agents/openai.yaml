@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skill Auditor"
+  short_description: "Audit skill metadata and reference health."
+  default_prompt: "Use $smoky-skill-cleaner for the current bounded task, following repository instructions and any optional local binding."

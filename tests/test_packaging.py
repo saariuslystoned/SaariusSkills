@@ -14,6 +14,7 @@ GROK_SKILL = ROOT / "skills" / "grok-acp-delegation"
 MUSE_SKILL = ROOT / "skills" / "muse-acp-delegation"
 JEVSWEEPER_SKILL = ROOT / "skills" / "jevsweeper"
 DINKUSKIT_LIVE_TEST_SKILL = ROOT / "skills" / "dinkuskit-live-test"
+HARNESS2_SKILL = ROOT / "skills" / "harness2"
 
 
 class PackagingTests(unittest.TestCase):
@@ -46,6 +47,25 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("allow_implicit_invocation: true", metadata)
         self.assertIn("$emdash-commerce", metadata)
 
+    def test_harness2_skill_contract_and_metadata_are_packaged(self) -> None:
+        skill_path = HARNESS2_SKILL / "SKILL.md"
+        contract_path = HARNESS2_SKILL / "references" / "experiment-contract.md"
+        metadata_path = HARNESS2_SKILL / "agents" / "openai.yaml"
+        cursor = json.loads((ROOT / ".cursor-plugin" / "plugin.json").read_text())
+
+        self.assertTrue(skill_path.is_file())
+        self.assertTrue(contract_path.is_file())
+        self.assertTrue(metadata_path.is_file())
+        self.assertIn("./skills/harness2/", cursor["skills"])
+        metadata = metadata_path.read_text(encoding="utf-8")
+        self.assertIn("name: harness2", skill_path.read_text(encoding="utf-8"))
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("$harness2", metadata)
+        self.assertEqual(
+            (HARNESS2_SKILL / "LICENSE").read_bytes(),
+            (ROOT / "LICENSE").read_bytes(),
+        )
+
     def test_acp_entry_is_discoverable_on_packaged_hosts(self) -> None:
         entry = ROOT / "skills" / "acp-delegation"
         self.assertTrue((entry / "SKILL.md").is_file())
@@ -68,7 +88,10 @@ class PackagingTests(unittest.TestCase):
             (ROOT / "plugin.json").read_text(encoding="utf-8")
         )
         expected_root = {
+            "$schema": "https://antigravity.google/schemas/v1/plugin.json",
             "name": "saarius-skills",
+            "displayName": "Saarius Skills",
+            "version": "0.7.0",
             "description": "Experimental agent skills, progressive product-decision workflows, and local ACP delegation.",
         }
         market = json.loads(
@@ -78,7 +101,8 @@ class PackagingTests(unittest.TestCase):
         )
         self.assertEqual(root_plugin, expected_root)
         self.assertEqual(plugin["name"], "saarius-skills")
-        self.assertEqual(plugin["version"], "0.6.0")
+        self.assertEqual(plugin["version"], "0.7.0")
+        self.assertEqual(root_plugin["version"], plugin["version"])
         self.assertEqual(plugin["skills"], "./skills/")
         self.assertNotEqual(plugin, root_plugin)
         self.assertEqual(plugin["name"], root_plugin["name"])
@@ -304,12 +328,15 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(
             root_plugin,
             {
+                "$schema": "https://antigravity.google/schemas/v1/plugin.json",
                 "name": "saarius-skills",
+                "displayName": "Saarius Skills",
+                "version": "0.7.0",
                 "description": "Experimental agent skills, progressive product-decision workflows, and local ACP delegation.",
             },
         )
         self.assertEqual(codex["name"], "saarius-skills")
-        self.assertEqual(codex["version"], "0.6.0")
+        self.assertEqual(codex["version"], "0.7.0")
         self.assertEqual(codex["skills"], "./skills/")
         self.assertEqual(marketplace["name"], "saarius-skills")
         self.assertEqual(marketplace["plugins"][0]["source"]["path"], "./")

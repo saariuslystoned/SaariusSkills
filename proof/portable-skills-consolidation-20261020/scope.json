@@ -1,0 +1,17 @@
+{
+  "base": "fd44ea424e2d98915ca7a89c55beed382c0b4701",
+  "protected_source_changes": [],
+  "skill_ids": [
+    "smoky-skill-cleaner",
+    "smoky-behavior-validator",
+    "smoky-cli-creator",
+    "smoky-worktree",
+    "smoky-session-viewer",
+    "smoky-codex-coordinator",
+    "smoky-maintainer",
+    "smoky-portfolio-sweep"
+  ],
+  "main_plugin_version": "0.7.0",
+  "pstack_plugin_version_unchanged": "0.1.0",
+  "private_extraction_in_public_tree": false
+}

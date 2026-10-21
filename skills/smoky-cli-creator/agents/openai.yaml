@@ -1,0 +1,4 @@
+interface:
+  display_name: "CLI Design"
+  short_description: "Design predictable command-line interfaces."
+  default_prompt: "Use $smoky-cli-creator for the current bounded task, following repository instructions and any optional local binding."

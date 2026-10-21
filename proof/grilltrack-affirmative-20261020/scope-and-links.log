@@ -1,0 +1,5 @@
+PASS: changes stay within protocol, paired notices, and assigned proof.
+PASS: root skill and workflow contract are unchanged, preserving their visual and delivery boundaries.
+PASS: 4 local Markdown links resolve.
+PASS: proof contains no absolute user paths.
+PASS: git diff --check.

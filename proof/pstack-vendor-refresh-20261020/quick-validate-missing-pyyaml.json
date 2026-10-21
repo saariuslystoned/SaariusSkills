@@ -1,0 +1,62 @@
+[
+  {
+    "skill": "architect",
+    "exit_code": 1,
+    "output": "Traceback (most recent call last):\n  File \"/Users/bobbybones/.codex/skills/.system/skill-creator/scripts/quick_validate.py\", line 10, in <module>\n    import yaml\nModuleNotFoundError: No module named 'yaml'"
+  },
+  {
+    "skill": "automate-me",
+    "exit_code": 1,
+    "output": "Traceback (most recent call last):\n  File \"/Users/bobbybones/.codex/skills/.system/skill-creator/scripts/quick_validate.py\", line 10, in <module>\n    import yaml\nModuleNotFoundError: No module named 'yaml'"
+  },
+  {
+    "skill": "blast-radius",
+    "exit_code": 1,
+    "output": "Traceback (most recent call last):\n  File \"/Users/bobbybones/.codex/skills/.system/skill-creator/scripts/quick_validate.py\", line 10, in <module>\n    import yaml\nModuleNotFoundError: No module named 'yaml'"
+  },
+  {
+    "skill": "bobby-mode",
+    "exit_code": 1,
+    "output": "Traceback (most recent call last):\n  File \"/Users/bobbybones/.codex/skills/.system/skill-creator/scripts/quick_validate.py\", line 10, in <module>\n    import yaml\nModuleNotFoundError: No module named 'yaml'"
+  },
+  {
+    "skill": "create-verification-skill",
+    "exit_code": 1,
+    "output": "Traceback (most recent call last):\n  File \"/Users/bobbybones/.codex/skills/.system/skill-creator/scripts/quick_validate.py\", line 10, in <module>\n    import yaml\nModuleNotFoundError: No module named 'yaml'"
+  },
+  {
+    "skill": "how",
+    "exit_code": 1,
+    "output": "Traceback (most recent call last):\n  File \"/Users/bobbybones/.codex/skills/.system/skill-creator/scripts/quick_validate.py\", line 10, in <module>\n    import yaml\nModuleNotFoundError: No module named 'yaml'"
+  },
+  {
+    "skill": "maintain-verification-skill",
+    "exit_code": 1,
+    "output": "Traceback (most recent call last):\n  File \"/Users/bobbybones/.codex/skills/.system/skill-creator/scripts/quick_validate.py\", line 10, in <module>\n    import yaml\nModuleNotFoundError: No module named 'yaml'"
+  },
+  {
+    "skill": "pstack-playbooks",
+    "exit_code": 1,
+    "output": "Traceback (most recent call last):\n  File \"/Users/bobbybones/.codex/skills/.system/skill-creator/scripts/quick_validate.py\", line 10, in <module>\n    import yaml\nModuleNotFoundError: No module named 'yaml'"
+  },
+  {
+    "skill": "reflect",
+    "exit_code": 1,
+    "output": "Traceback (most recent call last):\n  File \"/Users/bobbybones/.codex/skills/.system/skill-creator/scripts/quick_validate.py\", line 10, in <module>\n    import yaml\nModuleNotFoundError: No module named 'yaml'"
+  },
+  {
+    "skill": "tdd",
+    "exit_code": 1,
+    "output": "Traceback (most recent call last):\n  File \"/Users/bobbybones/.codex/skills/.system/skill-creator/scripts/quick_validate.py\", line 10, in <module>\n    import yaml\nModuleNotFoundError: No module named 'yaml'"
+  },
+  {
+    "skill": "unslop",
+    "exit_code": 1,
+    "output": "Traceback (most recent call last):\n  File \"/Users/bobbybones/.codex/skills/.system/skill-creator/scripts/quick_validate.py\", line 10, in <module>\n    import yaml\nModuleNotFoundError: No module named 'yaml'"
+  },
+  {
+    "skill": "why",
+    "exit_code": 1,
+    "output": "Traceback (most recent call last):\n  File \"/Users/bobbybones/.codex/skills/.system/skill-creator/scripts/quick_validate.py\", line 10, in <module>\n    import yaml\nModuleNotFoundError: No module named 'yaml'"
+  }
+]

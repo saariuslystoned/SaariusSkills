@@ -1,0 +1,86 @@
+[
+  {
+    "skill": "architect",
+    "yaml_valid": true,
+    "name_matches": true,
+    "description_present": true,
+    "disable_model_invocation": true
+  },
+  {
+    "skill": "automate-me",
+    "yaml_valid": true,
+    "name_matches": true,
+    "description_present": true,
+    "disable_model_invocation": true
+  },
+  {
+    "skill": "blast-radius",
+    "yaml_valid": true,
+    "name_matches": true,
+    "description_present": true,
+    "disable_model_invocation": true
+  },
+  {
+    "skill": "bobby-mode",
+    "yaml_valid": true,
+    "name_matches": true,
+    "description_present": true,
+    "disable_model_invocation": null
+  },
+  {
+    "skill": "create-verification-skill",
+    "yaml_valid": true,
+    "name_matches": true,
+    "description_present": true,
+    "disable_model_invocation": true
+  },
+  {
+    "skill": "how",
+    "yaml_valid": true,
+    "name_matches": true,
+    "description_present": true,
+    "disable_model_invocation": true
+  },
+  {
+    "skill": "maintain-verification-skill",
+    "yaml_valid": true,
+    "name_matches": true,
+    "description_present": true,
+    "disable_model_invocation": true
+  },
+  {
+    "skill": "pstack-playbooks",
+    "yaml_valid": true,
+    "name_matches": true,
+    "description_present": true,
+    "disable_model_invocation": null
+  },
+  {
+    "skill": "reflect",
+    "yaml_valid": true,
+    "name_matches": true,
+    "description_present": true,
+    "disable_model_invocation": true
+  },
+  {
+    "skill": "tdd",
+    "yaml_valid": true,
+    "name_matches": true,
+    "description_present": true,
+    "disable_model_invocation": true
+  },
+  {
+    "skill": "unslop",
+    "yaml_valid": true,
+    "name_matches": true,
+    "description_present": true,
+    "disable_model_invocation": true
+  },
+  {
+    "skill": "why",
+    "yaml_valid": true,
+    "name_matches": true,
+    "description_present": true,
+    "disable_model_invocation": true
+  }
+]

@@ -1,0 +1,17 @@
+.................E....
+======================================================================
+ERROR: test_no_placeholders (test_packaging.PackagingTests.test_no_placeholders)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bobbybones/Developer/worktrees/SaariusSkills-codex-pstack-vendor-refresh-20261020/tests/test_packaging.py", line 175, in test_no_placeholders
+    text = path.read_text(encoding="utf-8")
+  File "/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py", line 788, in read_text
+    return f.read()
+           ~~~~~~^^
+  File "<frozen codecs>", line 325, in decode
+UnicodeDecodeError: 'utf-8' codec can't decode byte 0xcf in position 0: invalid continuation byte
+
+----------------------------------------------------------------------
+Ran 22 tests in 0.054s
+
+FAILED (errors=1)

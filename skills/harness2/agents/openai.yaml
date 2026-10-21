@@ -1,0 +1,6 @@
+interface:
+  display_name: "Harness²"
+  short_description: "Route one bounded harness refinement experiment."
+  default_prompt: "Use $harness2 to qualify and route one bounded Harness² experiment for the current workflow weakness."
+policy:
+  allow_implicit_invocation: true

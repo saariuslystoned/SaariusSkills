@@ -1,4 +1,7 @@
 {
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "saarius-skills",
+  "displayName": "Saarius Skills",
+  "version": "0.7.0",
   "description": "Experimental agent skills, progressive product-decision workflows, and local ACP delegation."
 }

@@ -1,0 +1,15 @@
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 3.131s
+
+OK
+PStack updated: 10 upstream + 2 custom skills; a9002db0fa9a279bfa2f0062703909bd82c1e296
+PStack packaged: 10 upstream + 2 custom skills; a9002db0fa9a279bfa2f0062703909bd82c1e296
+PStack updated: 10 upstream + 2 custom skills; a9002db0fa9a279bfa2f0062703909bd82c1e296
+PStack updated: 10 upstream + 2 custom skills; 9c487de1b5953ed9f5866459c08fed2e859706ad
+PStack check clean: 10 upstream + 2 custom skills; a66a8931c2dd71f1ed6abf6a52b1898a9f389ae4
+PStack updated: 10 upstream + 2 custom skills; 9c487de1b5953ed9f5866459c08fed2e859706ad
+PStack updated: 10 upstream + 2 custom skills; 5e5a67acbb95a8d1763f4560cbdb3b347e602abb
+PStack updated: 10 upstream + 2 custom skills; 33cfb6117d5c8c3586d845f47450b8fecf0903ea
+PStack check clean: 10 upstream + 2 custom skills; 33cfb6117d5c8c3586d845f47450b8fecf0903ea
+PStack updated: 10 upstream + 2 custom skills; 5e5a67acbb95a8d1763f4560cbdb3b347e602abb

@@ -34,9 +34,8 @@ Each journey has a stage. `@running` journeys run on every `npm test` and must a
 pass on the beta store, beta.sm0ky.dev, before a real Registry release. A new
 journey starts as `@next` and moves to `@running` once it has passed there. The
 [runner README](runner/README.md) lists the journeys and their stages. Buy a
-label in the store admin, the Ship plugin's journey, is `@next` until
-`dinkus-ship-beta` is on beta.sm0ky.dev, and must pass there before that
-plugin's first real Registry release.
+label in the store admin, the Ship plugin's journey, became `@running` after it
+first passed on the beta store (20 Oct).
 
 ## Release a plugin
 
@@ -47,23 +46,13 @@ steps 1 to 5. The locked decision is `release-beta-cut-071` in
 Do not publish by hand, and do not hand-push a tag. Do not use `npm view` as the
 release check. The release check is the Registry listing.
 
-Payments runs that procedure. Its **Release** workflow
-(`.github/workflows/release.yml`) has two actions, `cut-beta` and `promote`.
-`emdash-release.yml` has no button of its own.
-
-Ship does not run it yet. Ship's **Release** workflow is still Changesets pre
-mode: a merge to `main` opens a `ci: release` pull request, and while
-`.changeset/pre.json` is committed that pull request publishes `dinkus-ship-beta`
-only. See [ship `RELEASING.md`](https://github.com/dinkuskit/ship/blob/main/RELEASING.md).
-Ship leaves pre mode with `npx changeset pre exit` after Buy a label in the store
-admin has passed on the beta store. That is not the Payments `cut-beta` button.
-
-Commerce's copy of the Payments buttons is
-[commerce#145](https://github.com/dinkuskit/commerce/pull/145). Do not treat that
-pull request as merged until it is.
+Payments, Commerce and Ship all run that procedure with the same **Release**
+workflow (`.github/workflows/release.yml`), which has two actions, `cut-beta` and
+`promote`. `emdash-release.yml` has no button of its own. None of the three uses
+Changesets pre mode any more.
 
 1. Every pull request to `main` adds a changeset. Merging it does not publish.
-2. **Cut beta.** On Payments, press **Run workflow** on **Release** with
+2. **Cut beta.** On the plugin's repository, press **Run workflow** on **Release** with
    `action: cut-beta`. That publishes `dinkus-<plugin>-beta` at `X.Y.Z-beta.N`
    from `main`, then presses **Live journeys** in this repository with `beta` set
    to `dinkus-<plugin>-beta X.Y.Z-beta.N`. The press uses the `LIVE_JOURNEYS_TOKEN`
@@ -104,6 +93,29 @@ anything during a run. Read-only access to that inbox is the one standing
 authorization the test needs.
 
 ## Run the test
+
+Before local setup, choose the store. **beta.sm0ky.dev belongs to the GitHub
+Live journeys workflow alone**; see the [runner's GitHub route](runner/README.md#run-on-github).
+For beta release proof, first inspect existing runs for the requested beta.
+Bind the repository/workflow, beta store, requested beta, runner commit, and
+run ID plus attempt. Check that the workflow and journey source applies to the
+current required `@running` roster and that the selection covers it; once the
+run completes, compare its recorded results with that roster.
+
+- Reuse a completed full pass only when every required journey actually passed,
+  **Plugins tested** includes the requested plugin version, and its applicable
+  `PROOF.md`, `report.json`, browser screenshots, and required label evidence
+  can be inspected. A green subset, wrong version, or missing evidence is not
+  a full-release pass; name the gap.
+- If a matching run is queued or running, retain its exact run ID/attempt and
+  follow it with a supported completion notification or bounded wait. Do not
+  dispatch a duplicate or run a repeated CI polling loop.
+- Start a new run through that existing workflow only when no applicable run
+  exists or the owner requests a fresh rerun, under the existing action gates.
+  Do not run journeys on the beta store locally.
+
+Existing proof establishes what that run observed, not what a mutable store
+still has deployed now. For other test stores, use the local steps below.
 
 1. Work in this skill's [runner](runner/) folder. Run `npm ci` the first time. If
    the skill folder is read-only, copy `runner/` to `~/.dinkus-e2e/runner` and work
@@ -166,8 +178,9 @@ authorization the test needs.
 
 ## For a new plugin release
 
-Follow [Release a plugin](#release-a-plugin). The proof's "plugins" line is the
-versions that run tested. Hand those back with the verdict. A real Registry
+For beta.sm0ky.dev, use the existing-run route in [Run the test](#run-the-test)
+and follow [Release a plugin](#release-a-plugin). The proof's "plugins" line is
+the versions that run tested. Hand those back with the verdict. A real Registry
 release waits on promote and the reviewed merge. This runner does not do either.
 
 On a store the Live journeys workflow is not running, `npm test` still runs every

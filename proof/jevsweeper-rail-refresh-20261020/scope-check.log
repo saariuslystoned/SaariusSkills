@@ -1,0 +1,3 @@
+PASS: all changed paths remain within the assigned skill/proof ownership.
+PASS: packaging manifests, test implementation, and PStack files are unchanged.
+PASS: git diff --check.

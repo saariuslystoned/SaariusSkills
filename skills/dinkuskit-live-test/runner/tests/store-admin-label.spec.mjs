@@ -33,7 +33,7 @@ test.afterEach(async ({ page }) => {
 // from hosted Ship: see prices, buy a Pitney Bowes sandbox label, print it from Ship's 5-minute link,
 // let Commerce complete the order, print it again, then cancel the label. It gates the Ship plugin's
 // first final release.
-test("Buy a label in the store admin", { tag: "@next" }, journey(async ({ page }) => {
+test("Buy a label in the store admin", { tag: "@running" }, journey(async ({ page }) => {
   expect(config.store, `Set DINKUS_E2E_STORE to the store's address (in ${config.settingsFile})`).not.toBe("");
   const service = SERVICES[config.service];
   expect(service, `DINKUS_E2E_SERVICE reads "${config.service}"; set it to GA, PM or EM (in ${config.settingsFile})`).toBeTruthy();
@@ -92,8 +92,8 @@ test("Buy a label in the store admin", { tag: "@next" }, journey(async ({ page }
     if (label) throw new Error(`The order's page already shows a label, tracking ${label["Tracking number"]}.`);
     if (order.Status !== "No label") throw new Error(`The order's page says "${order.Status}", not "No label".`);
     if (!await main.getByText("TEST order", { exact: true }).count()) throw new Error("The order's page doesn't say it's a TEST order.");
-    // Ship offers only practice labels for TEST orders when its Settings turn sandbox labels off.
-    if (await chosen(page, "Label kind") !== SANDBOX_KIND) throw new Error(`The label form offers "${await chosen(page, "Label kind")}", not a free Pitney Bowes sandbox label; turn TEST sandbox labels on in Ship Settings.`);
+    // Hosted Ship gives TEST orders sandbox labels only while it runs on Pitney Bowes's sandbox; otherwise it offers practice labels.
+    if (await chosen(page, "Label kind") !== SANDBOX_KIND) throw new Error(`The label form offers "${await chosen(page, "Label kind")}", not a free Pitney Bowes sandbox label; hosted Ship isn't on Pitney Bowes's sandbox (or has no Pitney Bowes developer account set), so it offers TEST orders only practice labels.`);
     const box = await chosen(page, "Box");
     const weight = (await weightField(page).inputValue()).trim();
     const expected = expectedWeight(order["Items' weight"], box);
