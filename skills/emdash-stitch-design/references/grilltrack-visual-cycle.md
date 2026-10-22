@@ -49,7 +49,24 @@ Rather than prompting Stitch in a vacuum, start from the real verified EmDash ro
 2. **Controlled Single-Variable & Per-Surface Rounds (Deterministic HTML Upload + Asset Download):**
    - Once the core layout is chosen, use `stitch upload screen <file> --route <route> --title "<title>" --project <PROJECT_ID> --json` (or `stitch_upload_file`) and `stitch download screen <SCREEN_ID> --project <PROJECT_ID> --html --image --output <DIR>` (or `stitch_download_screen` with `width: 2560` for full-resolution FIFE PNGs) to generate 5 deterministic candidates for each subsequent variable and surface.
    - Use `stitch url project <PROJECT_ID> --json` / `stitch url screen <SCREEN_ID> --project <PROJECT_ID> --json` for canonical Stitch Canvas links, or `stitch serve -p <PROJECT_ID> --port 3000` to launch a local preview server.
-   - **Canvas 60,000px Horizontal Limit (~44 Screens):** Google Stitch's server-side `screens:batchCreate` auto-placer places screens in a single horizontal line at `+1380px` increments and stops attaching new `screenInstances` to the browser canvas once `max(x)` crosses `~60,000px` (~44 screens). `uploadFileToStitch` in `ai-shed` intentionally performs only atomic `screens:batchCreate` (never an automatic whole-list `PATCH` that could race with an open browser tab). If a multi-surface session exceeds 44 screens and needs canvas row-wrapping, perform a one-shot explicit `PATCH /v1/projects/{id}?updateMask=screenInstances` into wrapped rows (`y += 3000`) when the browser canvas is idle, then refresh the browser tab.
+   - **Canvas Layout: One Row per Surface (Re-flow After Each Round):**
+     - Stitch appends every new frame to a single horizontal row at `+1380px` steps. Once `max(x)` passes `~60,000px` (~44 screens), new `screenInstances` stop attaching. Variants of an uploaded screen with no device type also get 390 px placeholders that are later resized without moving their neighbours, so frames overlap ([stitch-sdk#383](https://github.com/google-labs-code/stitch-sdk/issues/383)). Placeholders can also stay labelled "Generating Screen..." after the screen is done.
+     - Keep one row per round or surface from the start, rows top to bottom in round order, at most ~10 frames per row (wrap long rounds within their surface).
+     - After each round, once **no generation is running**, re-flow with one `PATCH /v1/projects/{id}?updateMask=screenInstances`. Use an x step of `1380`, and set each row's y to the previous row's y plus its tallest frame plus `400`. The API key is enough.
+     - The mask replaces the whole list: GET the project first, keep a backup of `screenInstances`, and send **every** instance back, including non-screen ones. In the same PATCH, give stuck "Generating Screen..." frames their screen title, and give 390 px frames over DESKTOP screens their desktop size (half the screen's pixel width and height).
+     - Then ask the user to refresh the canvas tab; an open tab keeps its stale layout until reloaded.
+     - `uploadFileToStitch` in `ai-shed` still performs only atomic `screens:batchCreate`. Layout PATCHes are a separate, explicit step between rounds.
+
+## 2a. Desktop + Mobile Pairs and the Mobile Pass
+
+1. **Pairs at every decision:** Show each candidate's desktop render (full-width `=w2560` or `=w1440` PNG) beside the same screen at a 390 px viewport:
+   - Download its HTML with `stitch download screen <SCREEN_ID> --project <PROJECT_ID> --html --output <DIR>`.
+   - Render that file locally at `390×844` with headless Chrome or Playwright.
+   - This costs no Stitch credits. Check the nav collapse, hero type scale, grid density, cart and checkout controls, tap targets of at least 44 px, and no horizontal overflow (`scrollWidth <= clientWidth`).
+   - Optional, for the user's eye: a 390 px-wide copy of the candidate's canvas frame (an extra `screenInstances` entry for the same `sourceScreen`). Confirm the canvas accepts the added instance before relying on it.
+2. **Mobile pass after the desktop lock (optional):** When a surface's desktop direction locks, offer one mobile-specific round for what reflow can't fix: the nav pattern, a sticky add-to-cart, tap targets, and dense tables or ledgers.
+   - Use `stitch generate variant --device MOBILE` (or `edit_screen` with `device: MOBILE`) on the locked desktop screen, or targeted CSS for the breakpoint.
+   - Show it as a desktop + mobile pair, lock mobile separately, and record both locks in the GrillTrack ledger.
    - **When the user is torn between two candidates (e.g., Candidate 1 vs. Candidate 4, or Candidate 3's layout with Candidate 2's search bar):**
      - Do not force a blind choice. Immediately generate a **2–3 screen Tiebreaker / Hybrid round** combining the exact preferred elements and showing them in realistic page context (for example, rendering a footer candidate directly beneath the bottom of a storefront page canvas so surface contrast is obvious).
 
