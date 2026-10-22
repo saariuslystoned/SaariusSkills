@@ -80,7 +80,7 @@ When a visual review uncovers a missing capability in the EmDash storefront or a
 
 1. **File an issue on the owning repository (`gh issue create --label smoky-agent`)** with the exact component path, current limitation, and requested behavior.
 2. **Mock the control or state directly in the Stitch screen** so the locked visual design and spacing accommodate the target UX.
-3. **Stay focused on the frontend/UI grill**—never pause the visual design cycle to build plugin or backend features, and never start long verification builds until the user's visual grill rounds are complete.
+3. **Stay focused on the frontend/UI grill**—never pause the visual design cycle to build plugin or backend features. In a live grill, never start long verification builds until the user's visual grill rounds are complete; in a time- or budget-capped or unattended run, follow the build-as-you-go order in SKILL.md step 3 ("Choose When to Build").
 
 ## 4. Upstream EmDash Theming & Composition Architecture
 
