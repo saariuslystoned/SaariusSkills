@@ -2,40 +2,54 @@
 
 Use this playbook when running a visual design cycle on `template-store` or any EmDash Astro site.
 
-## 1. Uploading the Real Verified Page (`code-to-design`)
+## 1. Uploading the Real Verified Page (`stitch capture` + `stitch upload`)
 
 Rather than prompting Stitch in a vacuum, start from the real verified EmDash route so Stitch sees the exact content sections, product cards, availability summaries, and disclosures:
 
-1. Start the local Astro server or run a single-route HTML snapshot of the rendered page.
-2. Inline critical stylesheet rules into a temporary standalone HTML snapshot (e.g., `.stitch/snapshots/home.html`) so Stitch renders the current baseline accurately.
-3. Call `stitch_upload_file` (or `uploadFileToStitch` in `ai-shed/stitch-mcp/client.mjs`):
-   ```json
-   {
-     "projectId": "<PROJECT_ID>",
-     "filePath": "/abs/path/to/.stitch/snapshots/home.html",
-     "title": "/"
-   }
-   ```
-4. Upload `.stitch/DESIGN.md` with `stitch_upload_file`, inspect `get_project` to find the uploaded screen instance (`id` + `sourceScreen`), and call `create_design_system_from_design_md`.
+1. **Authenticate via macOS Keychain (`google-stitch`):**
+   - On Bobby's machines, `stitch` (`@google/stitch@0.12.0` managed via `mise`) and `stitch-mcp` (`ai-shed`) resolve `STITCH_API_KEY` from macOS Keychain (`security find-generic-password -s google-stitch -w`) without persisting plaintext keys on disk.
+   - In non-interactive subshells, prefix CLI invocations with:
+     ```bash
+     STITCH_API_KEY="$(security find-generic-password -s google-stitch -w)" stitch status --json
+     ```
+2. **Capture Self-Contained Route HTML (`stitch capture`):**
+   - Discover routes with `stitch capture routes`.
+   - Capture a live rendered route (waiting for dynamic DOM / islands to settle):
+     ```bash
+     stitch capture http://localhost:4321/cart --wait-for="[data-guest-cart-root]" -o .stitch/captures/cart.html --json
+     ```
+   - Or capture an open `chrome-devtools` tab after driving interactive UI state (without reloading the page):
+     ```bash
+     stitch capture --tab -o .stitch/captures/checkout-stage.html --json
+     ```
+3. **Upload `DESIGN.md` & Route Screen (`stitch upload` or `stitch_upload_file`):**
+   - Upload and apply `.stitch/DESIGN.md` as a Stitch Design System:
+     ```bash
+     stitch upload design .stitch/DESIGN.md --project <PROJECT_ID> --apply --json
+     ```
+   - Upload the captured route screen and bind it to its route in the manifest:
+     ```bash
+     stitch upload screen .stitch/captures/cart.html --route /cart --title "Guest Cart (/cart)" --project <PROJECT_ID> --json
+     ```
+   - (Or call `stitch_upload_file` via `stitch-mcp` in `ai-shed`.)
 
 ## 2. Generating 5 GrillTrack Candidates & Tiebreaker Hybrids
 
-1. **Initial Exploration (`generate_variants`):**
-   ```json
-   {
-     "projectId": "<PROJECT_ID>",
-     "selectedScreenIds": ["<BASELINE_SCREEN_ID>"],
-     "prompt": "Explore 5 materially distinct editorial and storefront visual directions for this neutral DinkusKit store starter...",
-     "variantOptions": {
-       "variantCount": 5,
-       "creativeRange": "EXPLORE",
-       "aspects": ["LAYOUT", "COLOR_SCHEME", "TEXT_FONT"]
-     }
-   }
+1. **Initial Exploration (`stitch generate variant` or MCP `generate_variants`):**
+   ```bash
+   stitch generate variant \
+     --project <PROJECT_ID> \
+     --screen <BASELINE_SCREEN_ID> \
+     --count 5 \
+     --creative-range EXPLORE \
+     --aspects LAYOUT,COLOR_SCHEME,TEXT_FONT \
+     --prompt "Explore 5 materially distinct editorial and storefront visual directions for this neutral DinkusKit store starter..." \
+     --json
    ```
-2. **Controlled Single-Variable & Per-Surface Rounds (Deterministic HTML Upload):**
-   - Once the core layout is chosen, use `stitch_upload_file` (`screens:batchCreate`) + `stitch_download_screen` (`width: 2560`) to generate 5 deterministic candidates for each subsequent variable and surface (Color Palette, Typography, PDP, Category, Cart, Checkout, Order Confirmation, Account, Policies, Footer, Search).
-   - **Canvas 60,000px Horizontal Limit & Row Wrapping:** Google Stitch's server-side `screens:batchCreate` auto-placer places screens in a single horizontal line at `+1380px` increments and silently stops attaching `screenInstances` to the browser canvas once `max(x)` crosses `~60,000px` (~44 screens). `uploadFileToStitch` (`ai-shed/stitch-mcp/client.mjs`) automatically detects omitted `screenInstances` and `PATCH`es `/v1/projects/{id}?updateMask=screenInstances` onto wrapped rows (`y += 3000`). Note: if a browser tab on `stitch.withgoogle.com` is already open during a batch `PATCH`, refresh the tab so its in-memory canvas state picks up the new rows instead of overwriting them on autosave.
+2. **Controlled Single-Variable & Per-Surface Rounds (Deterministic HTML Upload + Asset Download):**
+   - Once the core layout is chosen, use `stitch upload screen <file> --route <route> --title "<title>" --project <PROJECT_ID> --json` (or `stitch_upload_file`) and `stitch download screen <SCREEN_ID> --project <PROJECT_ID> --html --image --output <DIR>` (or `stitch_download_screen` with `width: 2560` for full-resolution FIFE PNGs) to generate 5 deterministic candidates for each subsequent variable and surface.
+   - Use `stitch url project <PROJECT_ID> --json` / `stitch url screen <SCREEN_ID> --project <PROJECT_ID> --json` for canonical Stitch Canvas links, or `stitch serve -p <PROJECT_ID> --port 3000` to launch a local preview server.
+   - **Canvas 60,000px Horizontal Limit (~44 Screens):** Google Stitch's server-side `screens:batchCreate` auto-placer places screens in a single horizontal line at `+1380px` increments and stops attaching new `screenInstances` to the browser canvas once `max(x)` crosses `~60,000px` (~44 screens). `uploadFileToStitch` in `ai-shed` intentionally performs only atomic `screens:batchCreate` (never an automatic whole-list `PATCH` that could race with an open browser tab). If a multi-surface session exceeds 44 screens and needs canvas row-wrapping, perform a one-shot explicit `PATCH /v1/projects/{id}?updateMask=screenInstances` into wrapped rows (`y += 3000`) when the browser canvas is idle, then refresh the browser tab.
    - **When the user is torn between two candidates (e.g., Candidate 1 vs. Candidate 4, or Candidate 3's layout with Candidate 2's search bar):**
      - Do not force a blind choice. Immediately generate a **2–3 screen Tiebreaker / Hybrid round** combining the exact preferred elements and showing them in realistic page context (for example, rendering a footer candidate directly beneath the bottom of a storefront page canvas so surface contrast is obvious).
 

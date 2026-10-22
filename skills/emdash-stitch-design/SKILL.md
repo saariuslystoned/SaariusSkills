@@ -1,31 +1,33 @@
 ---
 name: emdash-stitch-design
-description: Design and upgrade EmDash Astro sites with Google Stitch MCP (`stitch-mcp`) and GrillTrack. Use for `code-to-design` snapshots, `taste-design` `DESIGN.md` systems, 5-candidate GrillTrack visual variants, tiebreaker hybrids, upstream EmDash `tokens.css`/`theme.css` theming (plus optional playground preset switchers), and Astro/EmDash translation preserving `FEATURE_MAP.md` hooks.
+description: Design and upgrade EmDash Astro sites with the official Google Stitch CLI (`@google/stitch`), `ai-shed` Stitch MCP (`stitch-mcp`), and GrillTrack. Use for `stitch capture` route snapshots, `DESIGN.md` systems (`stitch upload design --apply`), 5-candidate GrillTrack visual variants, tiebreaker hybrids, upstream EmDash `tokens.css`/`theme.css` theming (plus optional playground preset switchers), and Astro/EmDash translation preserving `FEATURE_MAP.md` hooks.
 ---
 
 # EmDash Stitch Design
 
-Pair GrillTrack's product/visual decision loop with Google Stitch's native MCP (`https://stitch.googleapis.com/mcp` via `ai-shed`'s `stitch-mcp` server) to design and upgrade EmDash Astro websites without losing server-rendered CMS contracts or `FEATURE_MAP.md` verification hooks.
+Pair GrillTrack's product/visual decision loop with the official **Google Stitch CLI (`@google/stitch`)** and `ai-shed`'s **`stitch-mcp` server** (`https://stitch.googleapis.com/mcp`, backed by macOS Keychain `google-stitch`) to design and upgrade EmDash Astro websites without losing server-rendered CMS contracts or `FEATURE_MAP.md` verification hooks.
 
-## Core Loop: GrillTrack ↔ Stitch ↔ EmDash
+## Core Loop: GrillTrack ↔ Stitch CLI / MCP ↔ EmDash
 
 1. **Grill & Lock Visual Intent (`grilltrack` + `design.md`):**
    - Before generating screens, read the target repo's `design.md`, `FEATURE_MAP.md`, and `.grilltrack/ledger.json`.
    - Use GrillTrack to lock the atmosphere, density, variance, typography posture, and non-goals (e.g., no invented checkout/cart controls on catalog-only slices).
    - Synthesize a semantic `.stitch/DESIGN.md` following [references/taste-and-prompts.md](references/taste-and-prompts.md).
 
-2. **Snapshot the Verified Real Page into Stitch (`code-to-design`):**
-   - Start or build the real EmDash Astro project and capture self-contained rendered HTML for the target route (e.g., `/`, `/categories/[slug]`, `/products/[id]`, `/cart`).
-   - Check `stitch_status` on the `stitch-mcp` server.
-   - Create or select the Stitch project (`list_projects` / `create_project`).
-   - Upload `.stitch/DESIGN.md` and the rendered route HTML using `stitch_upload_file` (which posts directly to `screens:batchCreate` in-process so base64 never hits LLM output token limits), then sync the project design system via `create_design_system_from_design_md` or `update_design_system`.
+2. **Snapshot the Verified Real Page into Stitch (`stitch capture` + `stitch upload`):**
+   - Check auth readiness via `stitch_status` (MCP) or `STITCH_API_KEY="$(security find-generic-password -s google-stitch -w)" stitch status --json` (CLI).
+   - Discover routes with `stitch capture routes`, then start the real EmDash Astro server and capture self-contained rendered HTML for the target route using the official CLI:
+     - Live URL capture: `stitch capture http://localhost:4321/cart --wait-for="[data-guest-cart-root]" -o .stitch/captures/cart.html --json`
+     - Interactive Chrome DevTools tab capture (without reloading): `stitch capture --tab -o .stitch/captures/cart.html --json`
+   - Create or select the Stitch project (`stitch find projects --json` / `stitch create project --title "<title>" --json` or MCP `list_projects` / `create_project`).
+   - Upload and apply `.stitch/DESIGN.md` as a first-class Stitch Design System via `stitch upload design .stitch/DESIGN.md --project <project-id> --apply --json`, and upload the captured route HTML via `stitch upload screen .stitch/captures/cart.html --route /cart --title "Cart" --project <project-id> --json` (or `stitch_upload_file` via MCP).
 
 3. **Walk the Complete Storefront Surface Checklist (One Variable / Surface at a Time):**
    - Never compound multiple visual variables in one round, and **never jump into codebase implementation or long test runs until every storefront surface on the checklist is visually locked** (unless the user explicitly requests a checkpoint PR):
      1. **Global Foundations (`design.md` + `tokens.css`):** Homepage Layout Architecture (`/`) → Color Palette (holding chosen layout constant) → Typography Role System (holding chosen layout + palette constant).
      2. **Core Storefront Pages:** Product Detail Page (`/products/[id]`) → Category Collection Page (`/categories/[slug]`) → Guest Cart (`/cart`) → Checkout (`/checkout` or cart checkout stage) → Order Confirmation (`/checkout/success`) → Shopper Account (`/account`, showing both Signed-In and Signed-Out states) → Store Policies (`/shipping` & `/returns`, standardized against Shopify/WooCommerce/BigCommerce/Google Merchant Center).
      3. **Global Chrome & Discovery:** Shared Global Footer (`StoreFooter.astro` with `<WidgetArea name="footer" />` + footer-only Theme toggle and, if a starter/playground showcase, Preset switcher) → Header Search Bar & Live Search Page (`/search` with `<LiveSearch />`).
-   - When holding locked variables constant, upload deterministic HTML variants via `stitch_upload_file` (`screens:batchCreate`) so Stitch renders pixel-accurate `=w2560` screenshots in ~2s without mutating locked DOM structure.
+   - When holding locked variables constant, upload deterministic HTML variants via `stitch upload screen <file> --route <route> --title "<title>" --project <id> --json` or `stitch_upload_file` (`screens:batchCreate`) so Stitch renders pixel-accurate screenshots in ~2s without mutating locked DOM structure, and download artifacts with `stitch download screen <screen-id> --project <id> --html --image --output <dir>` (or `stitch_download_screen` with `width: 2560`). Use `stitch url project <id> --json` or `stitch serve -p <id>` when sharing or previewing screens locally.
    - **Tiebreaker & Hybrid Rounds:** When the user is torn between two candidates (e.g., likes Layout A's frame with Candidate B's cards or search pill bar), immediately generate a 2–3 screen **Tiebreaker / Hybrid** round in real page context so the user can compare the exact combination before locking.
 
 4. **Handle Unbuilt Code / Plugin Gaps Without Losing UI Momentum:**
