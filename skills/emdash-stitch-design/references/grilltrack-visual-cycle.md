@@ -49,11 +49,15 @@ Rather than prompting Stitch in a vacuum, start from the real verified EmDash ro
 2. **Controlled Single-Variable & Per-Surface Rounds (Deterministic HTML Upload + Asset Download):**
    - Once the core layout is chosen, use `stitch upload screen <file> --route <route> --title "<title>" --project <PROJECT_ID> --json` (or `stitch_upload_file`) and `stitch download screen <SCREEN_ID> --project <PROJECT_ID> --html --image --output <DIR>` (or `stitch_download_screen` with `width: 2560` for full-resolution FIFE PNGs) to generate 5 deterministic candidates for each subsequent variable and surface.
    - Use `stitch url project <PROJECT_ID> --json` / `stitch url screen <SCREEN_ID> --project <PROJECT_ID> --json` for canonical Stitch Canvas links, or `stitch serve -p <PROJECT_ID> --port 3000` to launch a local preview server.
-   - **Canvas Layout: One Row per Surface (Re-flow After Each Round):**
+   - **Canvas Layout: A Named Group per Round or Surface (Re-flow After Each Round):**
      - Stitch appends every new frame to a single horizontal row at `+1380px` steps. Once `max(x)` passes `~60,000px` (~44 screens), new `screenInstances` stop attaching. Variants of an uploaded screen with no device type also get 390 px placeholders that are later resized without moving their neighbours, so frames overlap ([stitch-sdk#383](https://github.com/google-labs-code/stitch-sdk/issues/383)). Placeholders can also stay labelled "Generating Screen..." after the screen is done.
      - Keep one row per round or surface from the start, rows top to bottom in round order, at most ~10 frames per row (wrap long rounds within their surface).
      - After each round, once **no generation is running**, re-flow with one `PATCH /v1/projects/{id}?updateMask=screenInstances`. Use an x step of `1380`, and set each row's y to the previous row's y plus its tallest frame plus `400`. The API key is enough.
      - The mask replaces the whole list: GET the project first, keep a backup of `screenInstances`, and send **every** instance back, including non-screen ones. In the same PATCH, give stuck "Generating Screen..." frames their screen title, and give 390 px frames over DESKTOP screens their desktop size (half the screen's pixel width and height).
+     - Wrap each row in a named group in the same PATCH. Add one instance with `type: "GROUP_INSTANCE"`, a new 32-character hex `id`, `label` and `groupName` set to the row's name, and `x`/`y`/`width`/`height` enclosing the row's frames plus about `120px` of padding. Give each member frame the same `groupId` and `groupName`.
+     - Name rows by round or surface and their variable: `R1 · Layout`, `R2 · Palette`, `R3 · Type`, `S1 · Product page`, `S3 · Cart`. When a round locks, add the winner to its name (`R2 · Palette, locked P3`).
+     - Record the group IDs you create (for example in `.stitch/canvas-groups.json`). On each re-flow, update their bounds and members, and send back unchanged every group you did not create.
+     - Checked 2026-10-22: the API stores these groups, and the Stitch canvas draws each group with its name.
      - Then ask the user to refresh the canvas tab; an open tab keeps its stale layout until reloaded.
      - `uploadFileToStitch` in `ai-shed` still performs only atomic `screens:batchCreate`. Layout PATCHes are a separate, explicit step between rounds.
 
