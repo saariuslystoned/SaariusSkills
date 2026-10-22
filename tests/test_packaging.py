@@ -20,7 +20,7 @@ HARNESS2_SKILL = ROOT / "skills" / "harness2"
 class PackagingTests(unittest.TestCase):
     def test_emdash_skills_discoverable_with_licenses(self) -> None:
         upstream = ("building-emdash-site", "creating-plugins", "emdash-cli", "upgrading-emdash")
-        names = ("emdash-sites", "emdash-commerce", "emdash-ci-deploy", *upstream)
+        names = ("emdash-sites", "emdash-commerce", "emdash-ci-deploy", "emdash-surface-fx", *upstream)
         cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
         codex = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())
         self.assertEqual(codex["skills"], "./skills/")
@@ -31,6 +31,50 @@ class PackagingTests(unittest.TestCase):
                 self.assertEqual((ROOT / "skills" / name / "LICENSE").read_bytes(),
                                  (ROOT / "vendor/emdash-skills/LICENSE").read_bytes())
                 self.assertTrue((ROOT / "skills" / name / "UPSTREAM.md").is_file())
+
+    def test_emdash_surface_fx_resources_are_packaged(self) -> None:
+        import re
+
+        skill = ROOT / "skills" / "emdash-surface-fx"
+        self.assertTrue((skill / "SKILL.md").is_file())
+        self.assertTrue((skill / "LICENSE").is_file())
+        self.assertTrue((skill / "agents" / "openai.yaml").is_file())
+        self.assertTrue((skill / "references" / "teknium-catalog-and-astro-recipes.md").is_file())
+        showcase = skill / "assets" / "examples" / "dinkuskit-surface-fx-showcase.html"
+        self.assertTrue(showcase.is_file())
+        showcase_text = showcase.read_text(encoding="utf-8")
+        self.assertIn('<script src="../ephemera.js"></script>', showcase_text)
+        self.assertNotIn("emdash-motion-studio/assets/tactile-audio.js", showcase_text)
+        self.assertIsNone(re.search(r"\bany\b", showcase_text))
+
+        for sfx_eng in ("dither.js", "viewport-pool.js", "surface-micro.js", "ephemera.js"):
+            p = skill / "assets" / sfx_eng
+            self.assertTrue(p.is_file(), sfx_eng)
+            self.assertIsNone(re.search(r"\bany\b", p.read_text(encoding="utf-8")), sfx_eng)
+
+        surface_micro_text = (skill / "assets" / "surface-micro.js").read_text(encoding="utf-8")
+        self.assertIn("data-rough-path", surface_micro_text)
+        self.assertIn("getTotalLength", surface_micro_text)
+
+        ephemera_text = (skill / "assets" / "ephemera.js").read_text(encoding="utf-8")
+        self.assertIn("function mountReceipt(", ephemera_text)
+        self.assertIn("function renderBarcodeSvg(", ephemera_text)
+        self.assertIn("function mountRubberStamp(", ephemera_text)
+
+        sfx_meta = (skill / "agents" / "openai.yaml").read_text(encoding="utf-8")
+        self.assertIn("allow_implicit_invocation: true", sfx_meta)
+        self.assertIn("$emdash-surface-fx", sfx_meta)
+
+        skill_text = (skill / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("High-Leverage Website Placement Guide (Strong Defaults + Open Experimentation)", skill_text)
+        self.assertIn("purely reveals the coupon code + copies it to clipboard", skill_text)
+        self.assertIn("mountHoverTilt", skill_text)
+        self.assertIn("@chenglou/pretext", skill_text)
+        self.assertIn("editorial lookbooks / magazine-style story pages", skill_text)
+        self.assertIn("assets/ephemera.js", skill_text)
+
+        ref_text = (skill / "references" / "teknium-catalog-and-astro-recipes.md").read_text(encoding="utf-8")
+        self.assertIn("assets/ephemera.js", ref_text)
 
     def test_emdash_ci_deploy_resources_are_packaged(self) -> None:
         skill = ROOT / "skills" / "emdash-ci-deploy"

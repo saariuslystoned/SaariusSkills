@@ -100,3 +100,12 @@ in `vendor/emdash-skills/LICENSE` and each packaged upstream skill.
 The vendor mirror is verbatim; packaged `creating-plugins` examples include
 reviewed handler-context and email-transport corrections.
 `emdash-sites` is separately maintained guidance, not an upstream skill.
+
+## `dithercn` and `@chenglou/pretext` (`emdash-surface-fx`)
+
+- **`dithercn`**: <https://dithercn.dev> — License: MIT. `skills/emdash-surface-fx/assets/dither.js` provides a clean-room vanilla WebGL1 / 2D Canvas / SVG port of Bayer 4x4 and 8x8 ordered dithering patterns, CSS mask helpers, and `tokens.css` (`light-dark()`) color resolution for Astro and EmDash storefronts.
+- **`@chenglou/pretext`**: <https://github.com/chenglou/pretext> — License: MIT, Copyright (c) Cheng Lou. Referenced for zero-DOM canvas-measured obstacle text layout (`prepare`, `layoutNextLine`) alongside the standalone helper in `skills/emdash-surface-fx/assets/surface-micro.js`.
+- **Teknium WebDev Catalog**: <https://webdev.teknium.io> — Referenced for the 16-family surface and micro-interaction taxonomy in `skills/emdash-surface-fx/references/teknium-catalog-and-astro-recipes.md`.
+
+The full MIT license and copyright notices for `emdash-surface-fx` are preserved in `skills/emdash-surface-fx/LICENSE`.
+
