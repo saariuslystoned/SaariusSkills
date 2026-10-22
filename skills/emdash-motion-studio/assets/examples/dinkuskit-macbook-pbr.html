@@ -361,17 +361,9 @@
 
   <!-- Vendored Three.js r128 loader with multi-depth path fallback for standalone + verify_motion.py -->
   <script src="../vendor/three.min.js"></script>
-  <script>
-    if (!window.THREE) {
-      document.write('<script src="../../../skills/emdash-motion-studio/assets/vendor/three.min.js"><\/script>');
-    }
-    if (!window.THREE) {
-      document.write('<script src="../../../../skills/emdash-motion-studio/assets/vendor/three.min.js"><\/script>');
-    }
-    if (!window.THREE) {
-      document.write('<script src="/skills/emdash-motion-studio/assets/vendor/three.min.js"><\/script>');
-    }
-  </script>
+  <script>if (!window.THREE && document.readyState === 'loading') document.write('<script src="../../../skills/emdash-motion-studio/assets/vendor/three.min.js"><\/script>');</script>
+  <script>if (!window.THREE && document.readyState === 'loading') document.write('<script src="../../../../skills/emdash-motion-studio/assets/vendor/three.min.js"><\/script>');</script>
+  <script>if (!window.THREE && document.readyState === 'loading') document.write('<script src="/skills/emdash-motion-studio/assets/vendor/three.min.js"><\/script>');</script>
   <script>
   // Engine marker for build.py compatibility: function mountChoreo(
   (() => {

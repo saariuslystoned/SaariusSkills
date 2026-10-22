@@ -177,8 +177,8 @@ def _resolve_engine_path(eng: str) -> Path | None:
     return None
 
 
-def inline_engines(page: str, src_path: Path) -> tuple[str, list[str]]:
-    """Inline core.js, multiplane.js, choreo.js, tactile-audio.js, or surface-fx script tags into page."""
+def inline_engines(page: str, src_path: Path, inline_vendor: bool = False) -> tuple[str, list[str]]:
+    """Inline core.js, multiplane.js, choreo.js, tactile-audio.js, surface-fx, or vendor/three.min.js script tags."""
     inlined: list[str] = []
     for eng in ENGINES:
         pattern = re.compile(
@@ -193,6 +193,27 @@ def inline_engines(page: str, src_path: Path) -> tuple[str, list[str]]:
             eng_code = eng_path.read_text(encoding="utf-8")
             page = page[: match.start()] + "<script>\n" + eng_code + "\n</script>" + page[match.end() :]
             inlined.append(eng)
+
+    if inline_vendor:
+        three_pattern = re.compile(
+            r'<script\s+src=["\'][^"\']*three\.min\.js["\']\s*>\s*</script>',
+            re.IGNORECASE,
+        )
+        three_match = three_pattern.search(page)
+        if three_match:
+            three_path = ASSETS_DIR / "vendor" / "three.min.js"
+            if not three_path.is_file():
+                sys.exit(f"error: vendor asset three.min.js not found for {src_path}")
+            three_code = three_path.read_text(encoding="utf-8")
+            page = (
+                page[: three_match.start()]
+                + "<script>\n"
+                + three_code
+                + "\n</script>"
+                + page[three_match.end() :]
+            )
+            inlined.append("three.min.js")
+
     if not inlined:
         # Check if already inlined
         for eng, marker in (
@@ -203,6 +224,7 @@ def inline_engines(page: str, src_path: Path) -> tuple[str, list[str]]:
             ("dither.js", "function mountDitherShader("),
             ("viewport-pool.js", "function createViewportPool("),
             ("surface-micro.js", "function mountHoverTilt("),
+            ("three.min.js", "THREE.WebGLRenderer"),
         ):
             if marker in page:
                 inlined.append(eng)
@@ -211,6 +233,17 @@ def inline_engines(page: str, src_path: Path) -> tuple[str, list[str]]:
             f"error: no <script src=\"core.js|multiplane.js|choreo.js|tactile-audio.js\"></script> found in {src_path}"
         )
     return page, inlined
+
+
+def extract_body_markup(page: str) -> str:
+    """Extract non-script, non-style HTML markup inside <body>...</body> for .astro component output."""
+    body_match = re.search(r"<body(?:\s+[^>]*)?>(.*?)</body>", page, flags=re.DOTALL | re.IGNORECASE)
+    if not body_match:
+        return ""
+    inner = body_match.group(1)
+    inner = re.sub(r"<script(?:\s+[^>]*)?>.*?</script>", "", inner, flags=re.DOTALL | re.IGNORECASE)
+    inner = re.sub(r"<style(?:\s+[^>]*)?>.*?</style>", "", inner, flags=re.DOTALL | re.IGNORECASE)
+    return inner.strip()
 
 
 def sanitize_dinkuskit_astro(astro_code: str, strict: bool = False) -> str:
@@ -245,7 +278,8 @@ def build_html(page: str, inlined: list[str], chrome: str | None) -> str:
 
 
 def build_astro(raw_page: str, src_path: Path, default_chrome: str, strict_no_any: bool = False) -> str:
-    page, inlined = inline_engines(raw_page, src_path)
+    page, inlined = inline_engines(raw_page, src_path, inline_vendor=False)
+    body_markup = extract_body_markup(page)
     scripts = re.findall(r"<script(?:\s+[^>]*)?>(.*?)</script>", page, flags=re.DOTALL | re.IGNORECASE)
     styles = re.findall(r"<style(?:\s+[^>]*)?>(.*?)</style>", page, flags=re.DOTALL | re.IGNORECASE)
     combined_js = "\n\n".join(s.strip() for s in scripts if s.strip())
@@ -262,6 +296,7 @@ def build_astro(raw_page: str, src_path: Path, default_chrome: str, strict_no_an
         else ""
     )
     core_post = CF_ASTRO_LGD_JS if "core.js" in inlined else ""
+    stage_inner = f"\n{body_markup}\n" if body_markup else ""
 
     astro_out = f"""---
 /**
@@ -290,7 +325,7 @@ const {{
   data-chrome={{chrome}}
   data-palette={{palette}}
   style={{height ? `--motion-max-h:${{height}}` : undefined}}
-></div>
+>{stage_inner}</div>
 
 <style is:global>
   .emdash-motion-stage {{
@@ -372,7 +407,7 @@ def main() -> None:
         astro_code = build_astro(raw_page, src_path, default_chrome, strict_no_any=args.strict_no_any)
         out_path.write_text(astro_code, encoding="utf-8")
     else:
-        page, inlined = inline_engines(raw_page, src_path)
+        page, inlined = inline_engines(raw_page, src_path, inline_vendor=not args.strict_no_any)
         built = build_html(page, inlined, args.chrome)
         if args.strict_no_any:
             built = sanitize_dinkuskit_astro(built, strict=True)

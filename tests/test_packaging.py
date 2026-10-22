@@ -183,6 +183,7 @@ class PackagingTests(unittest.TestCase):
             out_fw_html = tmp_dir / "dinkuskit-macbook-frameworks.out.html"
             out_fw_astro = tmp_dir / "DinkusKitMacbookFrameworks.astro"
             out_sfx_astro = tmp_dir / "DinkusKitSurfaceFxShowcase.astro"
+            out_pbr_html = tmp_dir / "dinkuskit-macbook-pbr.out.html"
             subprocess.run(
                 ["python3", str(skill / "scripts" / "build.py"), str(skill / "assets" / "examples" / "toaster.html"), str(out_html)],
                 check=True,
@@ -215,6 +216,10 @@ class PackagingTests(unittest.TestCase):
                 ["python3", str(skill / "scripts" / "build.py"), str(surface_skill / "assets" / "examples" / "dinkuskit-surface-fx-showcase.html"), str(out_sfx_astro), "--astro", "--strict-no-any"],
                 check=True,
             )
+            subprocess.run(
+                ["python3", str(skill / "scripts" / "build.py"), str(skill / "assets" / "examples" / "dinkuskit-macbook-pbr.html"), str(out_pbr_html)],
+                check=True,
+            )
             html_body = out_html.read_text(encoding="utf-8")
             astro_body = out_astro.read_text(encoding="utf-8")
             mp_astro_body = out_mp_astro.read_text(encoding="utf-8")
@@ -223,12 +228,15 @@ class PackagingTests(unittest.TestCase):
             fw_html_body = out_fw_html.read_text(encoding="utf-8")
             fw_astro_body = out_fw_astro.read_text(encoding="utf-8")
             sfx_astro_body = out_sfx_astro.read_text(encoding="utf-8")
+            pbr_html_body = out_pbr_html.read_text(encoding="utf-8")
             self.assertIsNone(re.search(r"\bany\b", dk_astro_body))
             self.assertIsNone(re.search(r"\bany\b", sfx_astro_body))
             self.assertIn("function mountDitherShader(", sfx_astro_body)
             self.assertIn("function mountReceipt(", sfx_astro_body)
             self.assertIn("data-rough-path", sfx_astro_body)
             self.assertIn("getTotalLength", sfx_astro_body)
+            self.assertIn('id="sfx-hero-shader"', sfx_astro_body)
+            self.assertIn('id="sfx-receipt-mount"', sfx_astro_body)
             self.assertIn("function mountFigure(", html_body)
             self.assertNotIn('<script src="core.js"></script>', html_body)
             self.assertIn("data-motion-stage", astro_body)
@@ -240,6 +248,8 @@ class PackagingTests(unittest.TestCase):
             self.assertIn("function mountChoreo(", ch_astro_body)
             self.assertIn("function mountFigure(", dk_astro_body)
             self.assertIn("THREE.WebGLRenderer", (skill / "assets" / "examples" / "dinkuskit-macbook-pbr.html").read_text(encoding="utf-8"))
+            self.assertNotIn('<script src="../vendor/three.min.js"></script>', pbr_html_body)
+            self.assertIn("THREE.WebGLRenderer", pbr_html_body)
             self.assertIn("function createMicroFoley(", fw_html_body)
             self.assertIn("color-scheme: light;", fw_html_body)
             for cid in (

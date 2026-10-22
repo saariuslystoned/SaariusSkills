@@ -274,23 +274,24 @@ def verify_target(src_file: Path, out_dir: Path, chrome_bin: str, mode_override:
     # Build standalone HTML if not already inlined
     built_html = target_dir / f"{stem}.built.html"
     if re.search(
-        r'<script\s+src=["\'](?:\.\.?/|assets/|(?:\.\./)+emdash-[a-z-]+/assets/)?(?:core|multiplane|choreo|tactile-audio|ephemera|dither|viewport-pool|surface-micro)\.js["\']',
+        r'<script\s+src=["\'][^"\']*(?:core|multiplane|choreo|tactile-audio|ephemera|dither|viewport-pool|surface-micro|three\.min)\.js["\']',
         raw,
         re.I,
     ):
         subprocess.run([sys.executable, str(BUILD_PY), str(src_file), str(built_html)], check=True)
     else:
-        three_vendor = (HERE.parent / "assets" / "vendor" / "three.min.js").resolve()
-        if "three.min.js" in raw and three_vendor.is_file():
-            patched = re.sub(
-                r'<script\s+src=["\'][^"\']*three\.min\.js["\']\s*>\s*</script>',
-                f'<script src="file://{three_vendor}"></script>',
-                raw,
-                count=1,
-            )
-            built_html.write_text(patched, encoding="utf-8")
-        else:
-            shutil.copyfile(src_file, built_html)
+        shutil.copyfile(src_file, built_html)
+
+    built_text = built_html.read_text(encoding="utf-8")
+    three_vendor = (HERE.parent / "assets" / "vendor" / "three.min.js").resolve()
+    if re.search(r'<script\s+src=["\'][^"\']*three\.min\.js["\']', built_text, re.I) and three_vendor.is_file():
+        patched = re.sub(
+            r'<script\s+src=["\'][^"\']*three\.min\.js["\']\s*>\s*</script>',
+            f'<script src="file://{three_vendor}"></script>',
+            built_text,
+            count=1,
+        )
+        built_html.write_text(patched, encoding="utf-8")
 
     meta_probes = extract_meta_probes(raw)
     if meta_probes:
