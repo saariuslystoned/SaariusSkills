@@ -31,9 +31,13 @@ compares relevant ecommerce platforms before major Commerce or companion-plugin
 decisions in GrillTrack, preserving existing locks and skipping routine fixes.
 [EmDash CI Deploy](skills/emdash-ci-deploy/SKILL.md) covers deployment pipelines,
 isolated targets and verification of the deployed commit while preserving owner
-approval gates. All seven use the same plugin installation paths
-below; see [EmDash packaging](docs/emdash-skills.md) for the upstream pin,
-standalone installation and version-specific corrections.
+approval gates. [EmDash Surface FX](skills/emdash-surface-fx/SKILL.md) adds
+page-level Bayer/halftone shaders (`dithercn` port), viewport GPU pooling,
+Pretext obstacle text layout, Ephemera receipts/rubber stamps, NumberFlow
+counters, RoughNotation ink callouts, and Tier 1/2/3 DinkusKit storefront
+guardrails. All use the same plugin installation paths below; see
+[EmDash packaging](docs/emdash-skills.md) for the upstream pin, standalone
+installation and version-specific corrections.
 
 [DinkusKit Live Test](skills/dinkuskit-live-test/SKILL.md) points agents at
 [dinkuskit/live-journeys](https://github.com/dinkuskit/live-journeys), which holds
