@@ -12,18 +12,20 @@ Encode these rules in `.stitch/DESIGN.md` before generating screens:
 - **Color Calibration & Optional Playground Presets:**
   - Maximum 1 primary accent color per palette (saturation < 80%).
   - Ban "AI Purple/Blue Neon" gradients and outer button glows.
-  - Never use pure `#000000`; use warm off-black, charcoal, or deep ink (`#101827`, `#0F1F18`, `#111318`).
+  - Never use pure `#000000`; use a warm off-black, charcoal, or deep ink chosen for this site's palette.
   - Give every color a semantic name + hex code + functional role, and map the locked Stitch palette into `@layer base` in `src/styles/tokens.css` using `light-dark(<light>, <dark>)`. (Circumstantially on starter templates, demo playgrounds, or staging sites built to preview multiple colorways for prospects, also retain 2–3 runner-up Stitch palettes as `:root[data-preset="..."]` blocks.)
-- **Tactile Stamp & Vault Contrast Hierarchy:**
-  - Pair warm paper/chalk surfaces (`#F4F1EA` canvas, `#FCFBF8` cards with `1.5px–2px` dark ink borders and `3px–5px` solid offset shadows) with inverted dark architectural vaults (`#101827` with `6px–7px` accent offset shadows) on hero, cart summary, checkout manifest, order receipt, account rail, policy summary, and search command surfaces.
+- **Surfaces, Borders, and Shadows Come From This Site's Lock:**
+  - Derive surface tones, border weights, corner radii, and shadow style from the palette and atmosphere locked for this site, and grill them with candidates like any other variable.
+  - Record locked values (hex codes, sizes, offsets) only in the project's `.stitch/DESIGN.md`, `design.md`, and `src/styles/tokens.css`. This reference holds rules, never another site's locked values: carrying one build's palette or surface system into the next site makes every site look the same.
 - **Typography:**
-  - Pair a distinctive display face (`Fraunces`, `Instrument Serif`, `Plus Jakarta Sans`, `Space Grotesk`, `Outfit`, `Syne`) with a high-legibility body font and a clean monospace face (`JetBrains Mono`, `IBM Plex Mono`, `Space Mono`) for prices, SKUs, versions, and provenance metadata (`font-variant-numeric: tabular-nums`).
+  - Lock the type pairing in its own round: a distinctive display face with a high-legibility body face, plus a monospace face only where the site's content benefits from one (for example SKUs, versions, or tabular figures with `font-variant-numeric: tabular-nums`). Choose faces for this site's atmosphere, not from a fixed shortlist.
+  - Name only faces the build can serve. If builds run offline or the font provider cannot reach its source, use locally shipped font files or an explicit system stack, and record what actually renders.
   - Scale headlines with `clamp()`; keep body copy 60–70ch max width.
 - **Banned AI Tells:**
   - No emojis in UI chrome.
   - No fabricated metrics (`99.98% SLA`, `10k+ customers`) or `LABEL // 2026` filler tags.
   - No invented cart/checkout/buy buttons when the slice contract forbids them.
-  - No duplicated theme/preset switchers in both header and footer (keep appearance toggles—and any circumstantial playground/staging color-coded preset pills—strictly in the footer colophon).
+  - No duplicated theme/preset switchers in both header and footer. Where a switcher lives is a grill decision for this site.
   - No horizontal overflow on narrow mobile viewports (`320px–767px`).
 
 ## 2. Prompt Enhancement Pipeline (`generate-design`)
@@ -34,15 +36,15 @@ When calling `generate_screen_from_text`:
   ```markdown
   [Overall purpose and user intent of the page]
 
-  **PLATFORM:** Web, Desktop-first with clean mobile single-column collapse
+  **PLATFORM:** Web, [desktop-first or mobile-first], [how the layout collapses on narrow screens]
 
   **PAGE STRUCTURE:**
-  1. **Header & Collection Nav:** [Brand title, category links, rounded search pill]
-  2. **Home Opener / Hero:** [Editorial headline, subtext, primary & secondary anchor CTAs]
-  3. **Merchant Shop & Catalog Grid:** [Product cards with status badges, Regular/Sale price hierarchy]
-  4. **Availability & Provenance Rail:** [Compact live status summaries with collapsible native details for SKU/version/authority]
-  5. **Shared Footer & WidgetArea:** [Brand provenance card, footer_shop & footer_policies menus, core:search widget card, bottom colophon with Theme & color-coded Preset pills]
+  1. **[First section of the captured page]:** [What it holds on the real page]
+  2. **[Next section]:** [Its real content and purpose]
+  3. **[...]:** [...]
+  N. **[Closing section, e.g. the footer]:** [Its real content]
   ```
+- Build the section list from the captured route's own sections, in page order. Do not add sections, controls, or chrome the page does not have.
 - When calling `edit_screens` or uploading deterministic HTML via `stitch_upload_file` (`screens:batchCreate`) for single-variable or tiebreaker rounds, explicit hex codes, CSS custom properties, and layout adjustments **are** used so locked variables stay 100% constant.
 
 ## 3. `update_design_system` Theme Schema

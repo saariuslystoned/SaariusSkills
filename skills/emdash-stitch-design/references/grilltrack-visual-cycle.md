@@ -1,22 +1,22 @@
 # GrillTrack Visual Cycle & EmDash Translation
 
-Use this playbook when running a visual design cycle on `template-store` or any EmDash Astro site.
+Use this playbook when running a visual design cycle on any EmDash Astro site. Every visual value comes from the site's own grill locks; examples here show method, not a look to reuse.
 
 ## 1. Uploading the Real Verified Page (`stitch capture` + `stitch upload`)
 
 Rather than prompting Stitch in a vacuum, start from the real verified EmDash route so Stitch sees the exact content sections, product cards, availability summaries, and disclosures:
 
-1. **Authenticate via macOS Keychain (`google-stitch`):**
-   - On Bobby's machines, `stitch` (`@google/stitch@0.12.0` managed via `mise`) and `stitch-mcp` (`ai-shed`) resolve `STITCH_API_KEY` from macOS Keychain (`security find-generic-password -s google-stitch -w`) without persisting plaintext keys on disk.
+1. **Authenticate (macOS Keychain service `google-stitch`):**
+   - If the API key is stored in the macOS Keychain (service `google-stitch`), `stitch` (`@google/stitch@0.12.0`, for example managed via `mise`) and `stitch-mcp` (`ai-shed`) resolve `STITCH_API_KEY` from it (`security find-generic-password -s google-stitch -w`) without persisting plaintext keys on disk.
    - In non-interactive subshells, prefix CLI invocations with:
      ```bash
      STITCH_API_KEY="$(security find-generic-password -s google-stitch -w)" stitch status --json
      ```
 2. **Capture Self-Contained Route HTML (`stitch capture`):**
    - Discover routes with `stitch capture routes`.
-   - Capture a live rendered route (waiting for dynamic DOM / islands to settle):
+   - Capture a live rendered route, waiting for a selector that appears once dynamic DOM / islands settle:
      ```bash
-     stitch capture http://localhost:4321/cart --wait-for="[data-guest-cart-root]" -o .stitch/captures/cart.html --json
+     stitch capture http://localhost:4321/cart --wait-for="<ready-selector>" -o .stitch/captures/cart.html --json
      ```
    - Or capture an open `chrome-devtools` tab after driving interactive UI state (without reloading the page):
      ```bash
@@ -43,7 +43,7 @@ Rather than prompting Stitch in a vacuum, start from the real verified EmDash ro
      --count 5 \
      --creative-range EXPLORE \
      --aspects LAYOUT,COLOR_SCHEME,TEXT_FONT \
-     --prompt "Explore 5 materially distinct editorial and storefront visual directions for this neutral DinkusKit store starter..." \
+     --prompt "Explore 5 materially distinct visual directions for <the site and its audience in one line>..." \
      --json
    ```
 2. **Controlled Single-Variable & Per-Surface Rounds (Deterministic HTML Upload + Asset Download):**
@@ -67,7 +67,7 @@ Rather than prompting Stitch in a vacuum, start from the real verified EmDash ro
 2. **Mobile pass after the desktop lock (optional):** When a surface's desktop direction locks, offer one mobile-specific round for what reflow can't fix: the nav pattern, a sticky add-to-cart, tap targets, and dense tables or ledgers.
    - Use `stitch generate variant --device MOBILE` (or `edit_screen` with `device: MOBILE`) on the locked desktop screen, or targeted CSS for the breakpoint.
    - Show it as a desktop + mobile pair, lock mobile separately, and record both locks in the GrillTrack ledger.
-   - **When the user is torn between two candidates (e.g., Candidate 1 vs. Candidate 4, or Candidate 3's layout with Candidate 2's search bar):**
+   - **When the user is torn between two candidates (e.g., two whole candidates, or one candidate's layout with another's component):**
      - Do not force a blind choice. Immediately generate a **2–3 screen Tiebreaker / Hybrid round** combining the exact preferred elements and showing them in realistic page context (for example, rendering a footer candidate directly beneath the bottom of a storefront page canvas so surface contrast is obvious).
 
 ## 3. Handling Unbuilt Code or Plugin Features Discovered During Design
@@ -86,26 +86,23 @@ When translating locked Stitch designs into an EmDash starter or storefront:
   - Place all design tokens inside `@layer base` in `src/styles/tokens.css` using CSS `light-dark(<light>, <dark>)` with `color-scheme: light dark` controlled by `:root[data-theme="light"|"dark"|"system"]`.
   - Ship a blank unlayered `src/styles/theme.css` (`:root {}`) imported immediately after `tokens.css` so DevToolbar live previews and adopter overrides win without `!important`.
   - **Production Storefront vs. Starter / Playground Showcase:**
-    - A real live store chooses **one** locked palette in `src/styles/tokens.css` (and may expose a `Light`/`Dark`/`System` appearance toggle in the footer colophon).
-    - **Circumstantial (Starter Templates / Demo Playgrounds / Prospect Staging Sites only):** When showcasing a template or staging site across multiple color formats to prospects (such as `template-store`), retain **2–3 curated Stitch presets** in `@layer base` (e.g. `:root, :root[data-preset="aizome"]`, `:root[data-preset="forest"]`, `:root[data-preset="cobalt"]`) and mount cookie-persisted (`dinkus_theme`, `dinkus_preset`) **color-coded preset pills** (each styled with its own palette swatch, fill, border, and offset shadow) **strictly in the footer colophon** (never duplicated in the header), restored inline in `StoreHeader.astro` before first paint.
-- **Exercise All 3 EmDash Composition Primitives:**
-  1. `blocks`: `pages.layout` (`home_opener`, `rich_text`, `query_card`) on `/`.
-  2. `sections`: Reusable Portable Text section (`getSection("<slug>")` + `<PortableText />`) on `/shipping` and `/returns`, keeping legacy sections (`home-opener`) in `seed/seed.json` for migration test compatibility.
-  3. `widgetAreas`: Shared `StoreFooter.astro` mounted across all public routes (`/`, `/categories/[slug]`, `/products/[id]`, `/cart`, `/checkout/success`, `/account`, `/shipping`, `/returns`, `/search`) using `getSiteSettingsWithCacheHint()`, `footer_shop` / `footer_policies` menus, and `<WidgetArea name="footer" />` containing all 3 widget types (`content`, `menu`, `component: core:search`).
+    - A real live store chooses **one** locked palette in `src/styles/tokens.css` (and may expose a `Light`/`Dark`/`System` appearance toggle).
+    - **Circumstantial (Starter Templates / Demo Playgrounds / Prospect Staging Sites only):** When a template or staging site shows prospects several colorways, retain **2–3 curated Stitch presets** in `@layer base` (`:root, :root[data-preset="<default>"]` plus a `:root[data-preset="<name>"]` block per alternate, named for this site's palettes). Persist the visitor's theme and preset choice (for example in a cookie) and restore it inline before first paint so the page does not flash. The switcher's look and placement are grill decisions for that site; never duplicate it in both header and footer.
+- **EmDash Composition Primitives (`blocks`, `sections`, `widgetAreas`):**
+  1. Use the site's existing page-layout blocks, reusable sections, and widget areas. Keep their names and seeded content, including legacy sections that migrations or tests still read.
+  2. Add a primitive only where owners need to edit that content in the CMS: a `pages.layout` block for an owner-arranged page, a Portable Text section (`getSection("<slug>")` + `<PortableText />`) for copy reused across pages, or a widget area (`<WidgetArea name="<area>" />`) for an owner-managed region.
+  3. Render shared chrome (header, footer) on every public route, and read its links and settings through EmDash (the site's own menus, `getSiteSettingsWithCacheHint()`) rather than hard-coding them. In `_emdash_menu_items`, custom links use the `custom_url` column.
+  4. EmDash search needs `"search"` in the collection's `supports`, `"searchable": true` fields, and `<LiveSearch>` from `"emdash/ui/search"`.
 
-## 5. EmDash / DinkusKit Verification Guardrails
+## 5. Repository Invariants Before Verification
 
-Before running `bin/verify-web quick` or `bin/verify-web full`, verify these repository-specific invariants:
+Before running the repo's verification (DinkusKit storefronts: `bin/verify-web quick` / `bin/verify-web full`), read the repo's own contracts and keep what they pin:
 
-- **Zero `\bany\b` tokens in `src/`:** `scripts/check-features.mjs` scans `src/**/*.{astro,mjs,ts}` with `/\bany\b/u`. Never use the word `any` in TypeScript types, comments, or UI prose inside `src/`.
-- **Preserve `FEATURE_MAP.md` & E2E Selectors:**
-  - Keep all `data-*` attributes intact (`data-store-header`, `data-store-main-nav`, `data-guest-cart-nav`, `data-store-footer`, `data-footer-shop-nav`, `data-footer-policies-nav`, `data-widget-area="footer"`, `data-policy-support-section`, `data-search-result={hit.slug ?? hit.id}`).
-  - In `_emdash_menu_items`, custom links use the `custom_url` column.
-  - Preserve exact light-mode RGB values on primary action tokens if asserted by existing E2E tests (e.g. `--dinkus-action-color: #fffefb`, `--dinkus-action-background: #172033` for `.home-opener__primary`).
-  - Avoid `$N`, two-letter uppercase words (`\b[A-Z]{2}\b`), or `\d+ days` in unconfigured `/shipping` fallback/section prose (`structured-data-policy-feed.spec.ts`).
-  - Avoid duplicate accessible link names in footer menus that collide with unscoped Playwright locators (e.g. label the footer `/cart` link `"Shopping bag"` so `getByRole("link", { name: /Cart/ })` resolves uniquely to the header cart link).
-  - Hide wide desktop header search pills below `48rem` so `320px` mobile viewports pass horizontal-overflow checks (`document.documentElement.scrollWidth <= document.documentElement.clientWidth`).
+- **Where invariants live:** the repo's `AGENTS.md`, `FEATURE_MAP.md`, and `design.md`, its lint and feature-check scripts, and its unit and browser tests.
+- **What to preserve:** `data-*` hooks and selectors that tests and `FEATURE_MAP.md` rely on; values tests assert exactly (colors, text, accessible names); copy rules that checks enforce; and words or tokens that source scans ban.
+- **What a redesign commonly breaks:** accessible names that unscoped test locators now match twice, and wide header elements that overflow narrow mobile viewports (`document.documentElement.scrollWidth <= document.documentElement.clientWidth`).
+- When the locked design conflicts with a pinned value, keep the pinned value and record the conflict for the owner; never edit the test to make the design pass.
 
-## 6. Archiving Locked Reference Bundles to `dinkus-pr-assets`
+## 6. Archiving Locked Reference Bundles
 
-At closeout, copy each locked surface's self-contained `.html` source and `=w2560` `.png` screenshot—along with `.stitch/DESIGN.md`, `design.md`, `src/styles/tokens.css`, and `src/styles/theme.css`—into `dinkuskit/dinkus-pr-assets` (`<repo>-stitch-<pr>/`) with a SHA-256 manifest table in `README.md` so coding and review agents can reference both the visual renders and exact Stitch HTML/CSS code.
+At closeout, copy each locked surface's self-contained `.html` source and `=w2560` `.png` screenshot—along with `.stitch/DESIGN.md`, `design.md`, `src/styles/tokens.css`, and `src/styles/theme.css`—into the project's design-asset archive (DinkusKit: `dinkuskit/dinkus-pr-assets`, `<repo>-stitch-<pr>/`) with a SHA-256 manifest table in `README.md` so coding and review agents can reference both the visual renders and exact Stitch HTML/CSS code.
