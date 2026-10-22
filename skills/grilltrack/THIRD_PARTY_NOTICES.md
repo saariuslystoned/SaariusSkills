@@ -109,3 +109,22 @@ reviewed handler-context and email-transport corrections.
 
 The full MIT license and copyright notices for `emdash-surface-fx` are preserved in `skills/emdash-surface-fx/LICENSE`.
 
+## Colorfigures & Three.js (`emdash-motion-studio` Mode A1 & Mode A2 engines & reference examples)
+
+Source: <https://april-zhu.com/colorfigures> and <https://threejs.org>
+
+License: MIT.
+- Copyright (c) 2026 April Zhu (Colorfigures: colour, hand-drawn style, 3D props, template, examples)
+- Copyright (c) 2026 April Zhu (iso-glow, on which Colorfigures is based)
+- Copyright (c) 2026 Tolga Cohce (iso-figure, on which iso-glow is based)
+- Copyright (c) 2010-2026 Three.js Authors (`skills/emdash-motion-studio/assets/vendor/three.min.js`)
+- Inspired by and preserving attribution to Ryan's Anatomy (interactive cutaway mechanics & callout patterns)
+
+The full MIT license and copyright notices are preserved in
+`skills/emdash-motion-studio/LICENSE`. `emdash-motion-studio` adapts `core.js`
+and `build.py` for scoped container mounting, EmDash `tokens.css` (`light-dark()`)
+binding, storefront chrome modes, `.astro` component output, and deterministic
+`?t=` headless Chrome verification alongside Mode A2 (`three.min.js`), Mode B (`multiplane.js`), and
+Mode C (`choreo.js`).
+
+

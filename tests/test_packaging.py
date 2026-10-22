@@ -20,7 +20,14 @@ HARNESS2_SKILL = ROOT / "skills" / "harness2"
 class PackagingTests(unittest.TestCase):
     def test_emdash_skills_discoverable_with_licenses(self) -> None:
         upstream = ("building-emdash-site", "creating-plugins", "emdash-cli", "upgrading-emdash")
-        names = ("emdash-sites", "emdash-commerce", "emdash-ci-deploy", "emdash-surface-fx", *upstream)
+        names = (
+            "emdash-sites",
+            "emdash-commerce",
+            "emdash-ci-deploy",
+            "emdash-motion-studio",
+            "emdash-surface-fx",
+            *upstream,
+        )
         cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
         codex = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())
         self.assertEqual(codex["skills"], "./skills/")
@@ -75,6 +82,175 @@ class PackagingTests(unittest.TestCase):
 
         ref_text = (skill / "references" / "teknium-catalog-and-astro-recipes.md").read_text(encoding="utf-8")
         self.assertIn("assets/ephemera.js", ref_text)
+
+    def test_emdash_motion_studio_resources_and_builder_are_packaged(self) -> None:
+        import re
+        import subprocess
+        import tempfile
+
+        skill = ROOT / "skills" / "emdash-motion-studio"
+        surface_skill = ROOT / "skills" / "emdash-surface-fx"
+        self.assertTrue((skill / "SKILL.md").is_file())
+        self.assertTrue((skill / "LICENSE").is_file())
+        self.assertTrue((skill / "assets" / "vendor" / "three.min.js").is_file())
+        for eng in ("core.js", "multiplane.js", "choreo.js", "tactile-audio.js"):
+            self.assertTrue((skill / "assets" / eng).is_file())
+            self.assertIsNone(re.search(r"\bany\b", (skill / "assets" / eng).read_text(encoding="utf-8")))
+        for ex in (
+            "toaster.html",
+            "lamp.html",
+            "claw.html",
+            "harbor-transit-multiplane.html",
+            "argon-orbital-choreo.html",
+            "dinkuskit-macbook-commerce.html",
+            "dinkuskit-macbook-illustrated.html",
+            "dinkuskit-macbook-pbr.html",
+            "dinkuskit-macbook-frameworks.html",
+            "DinkusKitCommerceMacbook.astro",
+        ):
+            self.assertTrue((skill / "assets" / "examples" / ex).is_file(), ex)
+        self.assertIsNone(
+            re.search(r"\bany\b", (skill / "assets" / "examples" / "dinkuskit-macbook-commerce.html").read_text(encoding="utf-8"))
+        )
+        self.assertIsNone(
+            re.search(r"\bany\b", (skill / "assets" / "examples" / "dinkuskit-macbook-pbr.html").read_text(encoding="utf-8"))
+        )
+        self.assertIsNone(
+            re.search(r"\bany\b", (skill / "assets" / "examples" / "dinkuskit-macbook-illustrated.html").read_text(encoding="utf-8"))
+        )
+        self.assertIsNone(
+            re.search(r"\bany\b", (skill / "assets" / "examples" / "DinkusKitCommerceMacbook.astro").read_text(encoding="utf-8"))
+        )
+        for ref in (
+            "astro-integration.md",
+            "multiplane-and-pigment-drift.md",
+            "grilltrack-progressive-workflow.md",
+            "tactile-foil-and-web-audio.md",
+        ):
+            self.assertTrue((skill / "references" / ref).is_file())
+        for script in ("build.py", "verify_motion.py"):
+            self.assertTrue((skill / "scripts" / script).is_file())
+
+        tactile_js = (skill / "assets" / "tactile-audio.js").read_text(encoding="utf-8")
+        self.assertIn("function renderBarcodeSvg(", tactile_js)
+        self.assertIn("function mountReceipt(", tactile_js)
+        self.assertIn("function mountRubberStamp(", tactile_js)
+
+        skill_text = (skill / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("High-Leverage Website Placement Guide (Strong Defaults + Open Experimentation)", skill_text)
+        self.assertIn("purely reveals the coupon code + copies it to clipboard", skill_text)
+        self.assertIn("Align on Website Placement + Single User Trigger (`chrome: 'stage-only'` Default)", skill_text)
+        self.assertIn("Progressive GrillTrack Animation Workflow", skill_text)
+        self.assertIn("Round 0 — 5 Materially Distinct End-to-End Build Frameworks", skill_text)
+        self.assertIn("Rounds 1..N — Piece-by-Piece Build, Render & Grill Loop", skill_text)
+        self.assertIn("Mode D — Tactile Paper, Holographic Foil & Tear-Off Pass", skill_text)
+        self.assertIn("Optional Add-On: Procedural Web Audio Micro-Foley", skill_text)
+        self.assertIn("editorial lookbooks / magazine-style story pages", skill_text)
+        self.assertIn("Mode A2 — Studio WebGL 3D PBR", skill_text)
+
+        workflow_ref_text = (skill / "references" / "grilltrack-progressive-workflow.md").read_text(encoding="utf-8")
+        self.assertIn("Website Placement + Single User Trigger (`chrome: 'stage-only'` Default)", workflow_ref_text)
+        self.assertIn("purely revealing the coupon code + copying it to the clipboard", workflow_ref_text)
+
+        metadata = (skill / "agents" / "openai.yaml").read_text(encoding="utf-8")
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("$emdash-motion-studio", metadata)
+
+        license_text = (skill / "LICENSE").read_text(encoding="utf-8")
+        self.assertIn("April Zhu", license_text)
+        self.assertIn("Tolga Cohce", license_text)
+        self.assertIn("Three.js Authors", license_text)
+        self.assertIn("Ryan's Anatomy", license_text)
+
+        multiplane_js = (skill / "assets" / "multiplane.js").read_text(encoding="utf-8")
+        self.assertIn("function timelapse(", multiplane_js)
+        self.assertIn("function renderTimelapse(", multiplane_js)
+        self.assertIn("function renderPlate(", multiplane_js)
+        self.assertIn("MutationObserver", multiplane_js)
+
+        choreo_js = (skill / "assets" / "choreo.js").read_text(encoding="utf-8")
+        self.assertIn("ui.updateScroll", choreo_js)
+        self.assertIn("addEventListener('scroll'", choreo_js)
+        self.assertIn("MutationObserver", choreo_js)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            out_html = tmp_dir / "toaster.out.html"
+            out_astro = tmp_dir / "ToasterCutaway.astro"
+            out_mp_astro = tmp_dir / "HarborMultiplane.astro"
+            out_ch_astro = tmp_dir / "ArgonChoreo.astro"
+            out_dk_astro = tmp_dir / "DinkusKitCommerceMacbook.astro"
+            out_fw_html = tmp_dir / "dinkuskit-macbook-frameworks.out.html"
+            out_fw_astro = tmp_dir / "DinkusKitMacbookFrameworks.astro"
+            out_sfx_astro = tmp_dir / "DinkusKitSurfaceFxShowcase.astro"
+            subprocess.run(
+                ["python3", str(skill / "scripts" / "build.py"), str(skill / "assets" / "examples" / "toaster.html"), str(out_html)],
+                check=True,
+            )
+            subprocess.run(
+                ["python3", str(skill / "scripts" / "build.py"), str(skill / "assets" / "examples" / "toaster.html"), str(out_astro), "--astro"],
+                check=True,
+            )
+            subprocess.run(
+                ["python3", str(skill / "scripts" / "build.py"), str(skill / "assets" / "examples" / "harbor-transit-multiplane.html"), str(out_mp_astro), "--astro"],
+                check=True,
+            )
+            subprocess.run(
+                ["python3", str(skill / "scripts" / "build.py"), str(skill / "assets" / "examples" / "argon-orbital-choreo.html"), str(out_ch_astro), "--astro"],
+                check=True,
+            )
+            subprocess.run(
+                ["python3", str(skill / "scripts" / "build.py"), str(skill / "assets" / "examples" / "dinkuskit-macbook-commerce.html"), str(out_dk_astro), "--astro", "--strict-no-any"],
+                check=True,
+            )
+            subprocess.run(
+                ["python3", str(skill / "scripts" / "build.py"), str(skill / "assets" / "examples" / "dinkuskit-macbook-frameworks.html"), str(out_fw_html)],
+                check=True,
+            )
+            subprocess.run(
+                ["python3", str(skill / "scripts" / "build.py"), str(skill / "assets" / "examples" / "dinkuskit-macbook-frameworks.html"), str(out_fw_astro), "--astro"],
+                check=True,
+            )
+            subprocess.run(
+                ["python3", str(skill / "scripts" / "build.py"), str(surface_skill / "assets" / "examples" / "dinkuskit-surface-fx-showcase.html"), str(out_sfx_astro), "--astro", "--strict-no-any"],
+                check=True,
+            )
+            html_body = out_html.read_text(encoding="utf-8")
+            astro_body = out_astro.read_text(encoding="utf-8")
+            mp_astro_body = out_mp_astro.read_text(encoding="utf-8")
+            ch_astro_body = out_ch_astro.read_text(encoding="utf-8")
+            dk_astro_body = out_dk_astro.read_text(encoding="utf-8")
+            fw_html_body = out_fw_html.read_text(encoding="utf-8")
+            fw_astro_body = out_fw_astro.read_text(encoding="utf-8")
+            sfx_astro_body = out_sfx_astro.read_text(encoding="utf-8")
+            self.assertIsNone(re.search(r"\bany\b", dk_astro_body))
+            self.assertIsNone(re.search(r"\bany\b", sfx_astro_body))
+            self.assertIn("function mountDitherShader(", sfx_astro_body)
+            self.assertIn("function mountReceipt(", sfx_astro_body)
+            self.assertIn("data-rough-path", sfx_astro_body)
+            self.assertIn("getTotalLength", sfx_astro_body)
+            self.assertIn("function mountFigure(", html_body)
+            self.assertNotIn('<script src="core.js"></script>', html_body)
+            self.assertIn("data-motion-stage", astro_body)
+            self.assertIn("--color-canvas", astro_body)
+            self.assertIn("window.__EMDASH_MOTION_TARGET", astro_body)
+            self.assertIn("document.currentScript", astro_body)
+            self.assertNotIn("stages[stages.length - 1]", astro_body)
+            self.assertIn("function mountMultiplane(", mp_astro_body)
+            self.assertIn("function mountChoreo(", ch_astro_body)
+            self.assertIn("function mountFigure(", dk_astro_body)
+            self.assertIn("THREE.WebGLRenderer", (skill / "assets" / "examples" / "dinkuskit-macbook-pbr.html").read_text(encoding="utf-8"))
+            self.assertIn("function createMicroFoley(", fw_html_body)
+            self.assertIn("color-scheme: light;", fw_html_body)
+            for cid in (
+                "c1-assembly-line",
+                "c2-command-island",
+                "c3-vertical-tower",
+                "c4-cockpit-hud",
+                "c5-radial-turntable",
+            ):
+                self.assertIn(cid, fw_html_body)
+                self.assertIn(cid, fw_astro_body)
 
     def test_emdash_ci_deploy_resources_are_packaged(self) -> None:
         skill = ROOT / "skills" / "emdash-ci-deploy"

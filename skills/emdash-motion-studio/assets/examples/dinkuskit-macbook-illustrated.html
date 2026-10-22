@@ -1,0 +1,1831 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="motion-probes" content="rest_closed:free=1&yaw=45&t=0.0@1180,860;lid_open_storefront:free=1&yaw=45&t=0.18@1180,860;auto_cutaway_factory:free=1&yaw=45&t=0.30@1180,860;packing_slip_and_kettle_in_box:free=1&yaw=45&t=0.43@1180,860;flaps_folded_and_taped:free=1&yaw=45&t=0.63@1180,860;shipping_label_slapped_on_top:free=1&yaw=45&t=0.76@1180,860;box_lands_in_outbound_tote:free=1&yaw=45&t=0.96@1180,860;mobile_390x844:free=1&yaw=45&t=0.76&vw=390@390,844">
+  <title>DinkusKit.com — Homepage Hero (Complete 1-Click Assembly Line: Pieces 1, 2 &amp; 3)</title>
+  <style>
+    /* DinkusKit Studio Paper & Aizome Ink Palette with light-dark() Token Support */
+    :root, .emdash-motion-stage {
+      color-scheme: light;
+      --color-canvas: light-dark(#f4f1ea, #111621);
+      --color-surface: light-dark(#ebe5d8, #192131);
+      --color-ink: light-dark(#1b222c, #eaeff7);
+      --color-muted: light-dark(#5a6675, #94a3b8);
+      --color-border: light-dark(#d4cdc0, #2b374b);
+      --color-accent: light-dark(#2b5b9e, #4b83d1);
+      --color-shadow: light-dark(#3b5078, #090d14);
+    }
+    :root[data-theme="dark"], .dark, .emdash-motion-stage[data-theme="dark"] {
+      color-scheme: dark;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--color-canvas);
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='320' height='320'><filter id='p'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .42  0 0 0 0 .39  0 0 0 0 .33  .12 0 0 0 0'/></filter><rect width='100%' height='100%' filter='url(%23p)'/></svg>");
+      color: var(--color-ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Mock DinkusKit.com Storefront & Marketing Shell */
+    .dk-site-shell {
+      max-width: 1140px;
+      margin: 0 auto;
+      padding: 10px 20px 14px;
+    }
+    .dk-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 8px 16px;
+      border: 1.5px solid var(--color-ink);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--color-canvas) 92%, var(--color-surface));
+      box-shadow: 0 3px 0 var(--color-ink);
+      margin-bottom: 10px;
+    }
+    .dk-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font: 800 14px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: 0.03em;
+      color: var(--color-ink);
+      text-decoration: none;
+    }
+    .dk-brand-diamond {
+      width: 12px;
+      height: 12px;
+      background: var(--color-accent);
+      border: 1.5px solid var(--color-ink);
+      transform: rotate(45deg);
+      display: inline-block;
+    }
+    .dk-brand-tag {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      color: var(--color-muted);
+      letter-spacing: 0.05em;
+    }
+    .dk-nav-links {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      font: 600 12.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--color-muted);
+    }
+    .dk-nav-links span.active {
+      color: var(--color-ink);
+      font-weight: 800;
+      text-decoration: underline;
+      text-underline-offset: 4px;
+    }
+    .dk-nav-meta {
+      font: 700 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: #1b222c;
+      color: #f4f1ea;
+      letter-spacing: 0.04em;
+    }
+
+    /* DinkusKit Homepage Hero Card */
+    .dk-hero-card {
+      border: 2px solid var(--color-ink);
+      border-radius: 18px;
+      background: color-mix(in srgb, var(--color-canvas) 95%, #ffffff);
+      box-shadow: 0 6px 0 var(--color-ink);
+      overflow: hidden;
+      padding: 14px 22px 12px;
+    }
+    .dk-hero-top {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      flex-wrap: wrap;
+      padding-bottom: 10px;
+      border-bottom: 1.5px dashed var(--color-border);
+    }
+    .dk-hero-copy {
+      max-width: 680px;
+    }
+    .dk-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font: 800 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--color-accent);
+      margin-bottom: 6px;
+    }
+    .dk-eyebrow-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #2ea874;
+      border: 1px solid var(--color-ink);
+    }
+    .dk-hero-title {
+      margin: 0 0 6px;
+      font-size: 25px;
+      font-weight: 850;
+      line-height: 1.14;
+      letter-spacing: -0.02em;
+      color: var(--color-ink);
+    }
+    .dk-hero-sub {
+      margin: 0;
+      font-size: 13.5px;
+      line-height: 1.45;
+      color: var(--color-muted);
+    }
+    .dk-hero-sub strong {
+      color: var(--color-ink);
+      font-weight: 700;
+    }
+    .dk-hero-RightMeta {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+      font: 700 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .dk-stage-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 13px;
+      border-radius: 999px;
+      border: 1.5px solid var(--color-ink);
+      background: var(--color-surface);
+      color: var(--color-ink);
+      box-shadow: 0 2px 0 var(--color-ink);
+    }
+    .dk-stage-status[data-phase="storefront"] {
+      background: #fef3c7;
+      border-color: #1b222c;
+    }
+    .dk-stage-status[data-phase="cutaway"] {
+      background: #e0e7ff;
+      border-color: #1b222c;
+      color: #1e1b4b;
+    }
+    .dk-stage-status[data-phase="pack"] {
+      background: #ffedd5;
+      border-color: #1b222c;
+      color: #7c2d12;
+    }
+    .dk-stage-status[data-phase="ship"] {
+      background: #dcfce7;
+      border-color: #1b222c;
+      color: #14532d;
+    }
+    .dk-stage-hint {
+      font-size: 10px;
+      color: var(--color-muted);
+      letter-spacing: 0.04em;
+    }
+
+    /* Stage-Only Container — strictly zero April Zhu debug pills or toolbars */
+    #dk-hero-stage {
+      width: 100%;
+      padding: 4px 0 0 !important;
+      margin: 0 !important;
+      background: transparent !important;
+      background-image: none !important;
+    }
+    #dk-hero-stage > header,
+    #dk-hero-stage .controls,
+    #dk-hero-stage .actions,
+    #dk-hero-stage .stats,
+    #dk-hero-stage .vset,
+    #dk-hero-stage .made-with,
+    #dk-hero-stage #readout,
+    #dk-hero-stage .idea,
+    #dk-hero-stage .lgd,
+    .zchip {
+      display: none !important;
+    }
+    #dk-hero-stage .stage {
+      max-width: 1080px !important;
+      margin: 0 auto !important;
+    }
+    #dk-hero-stage #fig {
+      max-width: 1080px !important;
+      margin: 0 auto !important;
+      display: block;
+    }
+
+    /* Bottom 3-Station Assembly Line Context Strip inside Hero Card */
+    .dk-station-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 6px;
+      padding-top: 10px;
+      border-top: 1.5px solid var(--color-border);
+      font: 700 10.5px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .dk-station-cell {
+      padding: 6px 10px;
+      border-radius: 9px;
+      border: 1.2px solid var(--color-border);
+      background: color-mix(in srgb, var(--color-surface) 55%, var(--color-canvas));
+      color: var(--color-muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .dk-station-cell.star {
+      border-color: var(--color-ink);
+      background: color-mix(in srgb, var(--color-accent) 12%, var(--color-canvas));
+      color: var(--color-ink);
+    }
+    .dk-station-cell span.badge {
+      font-size: 9.5px;
+      padding: 2px 6px;
+      border-radius: 5px;
+      background: var(--color-ink);
+      color: var(--color-canvas);
+      white-space: nowrap;
+    }
+    .dk-station-cell:not(.star) span.badge {
+      background: var(--color-border);
+      color: var(--color-ink);
+    }
+
+    @media (max-width: 640px) {
+      .dk-site-shell { padding: 8px 10px 14px; }
+      .dk-nav-links, .dk-nav-meta { display: none; }
+      .dk-hero-card { padding: 12px 12px 10px; }
+      .dk-hero-title { font-size: 18px; }
+      .dk-hero-sub { font-size: 11.5px; }
+      .dk-station-strip { grid-template-columns: 1fr; gap: 5px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="dk-site-shell">
+    <!-- Mock DinkusKit.com Top Navigation -->
+    <nav class="dk-nav" aria-label="DinkusKit Storefront Navigation">
+      <a class="dk-brand" href="#dk-hero-stage" onclick="return false;">
+        <span class="dk-brand-diamond"></span>
+        <span>dinkuskit.com</span>
+        <span class="dk-brand-tag">EMDASH + ASTRO</span>
+      </a>
+      <div class="dk-nav-links">
+        <span class="active">Storefront</span>
+        <span>Commerce</span>
+        <span>Ship 4×6</span>
+        <span>D1 Ledger</span>
+        <span>Docs</span>
+      </div>
+      <div class="dk-nav-meta">LIVE EDGE WORKBENCH</div>
+    </nav>
+
+    <!-- Mock DinkusKit.com Homepage Hero Card -->
+    <section class="dk-hero-card" aria-label="DinkusKit Interactive Homepage Hero">
+      <div class="dk-hero-top">
+        <div class="dk-hero-copy">
+          <div class="dk-eyebrow">
+            <span class="dk-eyebrow-dot"></span>
+            <span>DINKUSKIT HOMEPAGE HERO · 1-CLICK ORDER-TO-OUTBOUND TOTE</span>
+          </div>
+          <h1 class="dk-hero-title">Click the MacBook. Watch an order pack, label, and drop into the tote.</h1>
+          <p class="dk-hero-sub">
+            Zero-dependency commerce on <strong>EmDash</strong>: <strong>Stripe + D1</strong> inside the MacBook, <strong>Packing Slip + Artisan Kettle</strong> dropped in the box, <strong>Pitney Bowes 4×6</strong> top label, and <strong>Mail Chute</strong> dispatch into the outbound tote.
+          </p>
+        </div>
+        <div class="dk-hero-RightMeta">
+          <div class="dk-stage-status" id="dk-hero-status" data-phase="rest">
+            <span id="dk-status-text">At Rest · Click MacBook to Place Order</span>
+          </div>
+          <div class="dk-stage-hint">1-Click MacBook Trigger · Drag stage to rotate 3D view</div>
+        </div>
+      </div>
+
+      <!-- Scoped Stage-Only Mount Target (Zero Debug Chrome) -->
+      <div id="dk-hero-stage" class="emdash-motion-stage" data-chrome="stage-only"></div>
+
+      <!-- Clean 3-Station Assembly Line Context Strip -->
+      <div class="dk-station-strip">
+        <div class="dk-station-cell star" id="dk-st-cell-1">
+          <span><strong>1. LEFT STATION</strong> · 3D MacBook Pro + 38-Part Stripe/D1 Cutaway</span>
+          <span class="badge" id="dk-st-badge-1">PIECE 1</span>
+        </div>
+        <div class="dk-station-cell star" id="dk-st-cell-2">
+          <span><strong>2. CENTER ROLLERS</strong> · Kettle + Packing Slip Inside Box &rarr; 4-Flap Fold &amp; Tape</span>
+          <span class="badge" id="dk-st-badge-2">PIECE 2</span>
+        </div>
+        <div class="dk-station-cell star" id="dk-st-cell-3">
+          <span><strong>3. RIGHT STATION</strong> · 4×6 Top Label &rarr; Mail Chute &rarr; Outbound Tote</span>
+          <span class="badge" id="dk-st-badge-3">PIECE 3</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+<script src="core.js"></script>
+<script>
+/* ============================================================
+   DinkusKit.com Homepage Hero — Complete 1-Click Assembly Line
+   (Pieces 1, 2 & 3: t = 0.00 -> 1.00, ~9.0s total on 1 click)
+   - Chrome: 'stage-only' (Zero April Zhu debug pills, zero sliders)
+   - Piece 1 (Left Station, t = 0.00 -> 0.34):
+     * t = 0.00: Closed MacBook at rest ("Click MacBook to Place Order").
+     * t = 0.00 -> 0.14: Lid hinges open (108 deg) showing dinkuskit.com
+       checkout (KETTLE · $68, ORD #DK-402).
+     * t = 0.14 -> 0.19: Cursor clicks orange PLACE ORDER button on screen
+       -> flips to green "✓ ORDER #DK-402".
+     * t = 0.19 -> 0.34: Automatic cutaway (autoCutaway) reveals the 38
+       internal parts (Stripe + D1 modules, fans, brass gears) and pushes
+       the Order #DK-402 pulse out onto the center roller belt.
+   - Piece 2 (Center Roller Station, t = 0.34 -> 0.66):
+     * t = 0.34 -> 0.46: Ordered 3D Artisan Kettle lifts/transfers into the
+       open corrugated box on the center rollers, while a compact Packing
+       Slip / Receipt Dispenser right beside the box feeds out a crisp white
+       Packing Slip (with mini header & order lines) that curves and drops
+       directly inside the open box alongside the kettle
+       (Callout: "Packing Slip Inside Box").
+     * t = 0.46 -> 0.58: 2 inner minor flaps fold down (0 deg -> 90 deg),
+       followed immediately by 2 outer major flaps folding flat (0 deg -> 90 deg)
+       to close the box top over the kettle and packing slip.
+     * t = 0.58 -> 0.66: Kraft Water-Activated Tape Strip feeds across the
+       center seam of the closed top flaps, sealing the box shut
+       (Callout: "Sealed + Kraft Taped").
+   - Piece 3 (Right Station, Mail Chute & Outgoing Tote, t = 0.66 -> 1.00):
+     * t = 0.66 -> 0.80: Sealed box glides down the roller belt to the
+       Pitney Bowes 4x6 Thermal Label Printer. The printer feeds out a crisp
+       4x6 Shipping Label (dark header bar, PB-9400-1082, red Pitney Bowes
+       stripe, and barcode stripes) and the tamp applicator arm presses/slaps
+       the 4x6 shipping label flat onto the top surface of the sealed box
+       (Callout: "4x6 Label Applied").
+     * t = 0.80 -> 1.00: Right below the exit of the Mail Chute sits a
+       heavy-duty Outgoing Postal Tote / Shipping Crate ("DINKUSKIT OUTBOUND
+       TOTE") that already contains 5 pre-packed, kraft-taped, and
+       4x6-labeled cardboard boxes stacked at realistic angles. Our newly
+       labeled box (#DK-402) slides through the Mail Chute, tips down the
+       chute ramp, and falls/lands right into the Outgoing Tote on top of
+       the other packed & labeled boxes with a satisfying settle bounce
+       (Callout: "Dispatched in Outbound Tote").
+   ============================================================ */
+
+window.FIG_A = () => innerWidth <= 560 ? 0.78 : 0.50;
+
+const BW = 108, BD = 196, BH = 4, H = 54;
+const BTOP = boardTop(0, 0, BW, BD, BH, 6);
+
+// Materials & Palettes
+const AIZOME   = { l:'#3568b0', m:'#234982', d:'#132a4f' };
+const INDIGO_B = { l:'#6366f1', m:'#4f46e5', d:'#312e81' };
+const ALUM     = { l:'#e8ecf0', m:'#c5cdd6', d:'#8994a0' };
+const SPACE_BK = { l:'#4a525d', m:'#323842', d:'#1c2026' };
+const SPACE    = { l:'#626b75', m:'#454d56', d:'#282d33' };
+const TOTE_M   = { l:'#3d4f66', m:'#293648', d:'#17202b' };
+const KRAFT    = { l:'#dfa668', m:'#c2894d', d:'#8a5c2d' };
+const KRAFT_DK = { l:'#d19656', m:'#b3793d', d:'#7a4f21' };
+const TAPE_M   = { l:'#f0d5a3', m:'#d6b47c', d:'#9c7b49' };
+const BRASS    = { l:'#f2c96b', m:'#cf9f3e', d:'#8c651c' };
+const COPPER   = { l:'#e08b56', m:'#b86535', d:'#783d1b' };
+const STRIPE_G = { l:'#55d69e', m:'#2ea874', d:'#186343' };
+const CF_ORG   = { l:'#f79640', m:'#db6f18', d:'#8f4208' };
+const CRIM     = { l:'#ed5f55', m:'#c73e35', d:'#7a1f19' };
+const PCB_M    = { l:'#2d7a5e', m:'#1e5742', d:'#103527' };
+
+const clamp01 = v => Math.max(0, Math.min(1, +v || 0));
+const lerp = (a, b, t) => a + (b - a) * t;
+const subRange = (t, t0, t1) => t1 <= t0 ? 0 : clamp01((t - t0) / (t1 - t0));
+const easeInOutCubic = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+function windowFade(t, in0, in1, out0, out1){
+  if (t <= in0 || t >= out1) return 0;
+  if (t < in1) return easeInOutCubic((t - in0) / (in1 - in0));
+  if (t > out0) return 1 - easeInOutCubic((t - out0) / (out1 - out0));
+  return 1;
+}
+
+/* Pure deterministic kinematics across Piece 1, Piece 2, and Piece 3 (t = 0.00 -> 1.00) */
+function deriveKinematics(tRaw, manualXr = 0){
+  const u = clamp01(tRaw);
+
+  // ---- PIECE 1 (t = 0.00 -> 0.34) ----
+  const lidOpen = easeInOutCubic(subRange(u, 0.005, 0.135));
+  const screenOn = easeInOutCubic(subRange(u, 0.03, 0.12));
+  const cursorApproach = easeInOutCubic(subRange(u, 0.11, 0.165));
+  const clickWindow = subRange(u, 0.14, 0.205);
+  const clickPress = Math.sin(subRange(u, 0.15, 0.195) * Math.PI);
+  const clickRipple = subRange(u, 0.15, 0.205);
+  const orderPlaced = easeInOutCubic(subRange(u, 0.165, 0.195));
+
+  // Auto-cutaway opens at t=0.19..0.24, full at t=0.30, and closes smoothly by t=0.36
+  const autoCutaway = windowFade(u, 0.19, 0.24, 0.32, 0.365);
+  const xr = Math.max(manualXr, autoCutaway);
+  const fanSpin = u > 0.02 ? u * 34 : 0;
+  const stripeBusGlow = easeInOutCubic(subRange(u, 0.19, 0.27));
+  const d1IndexSlide = easeInOutCubic(subRange(u, 0.20, 0.29));
+  const gearSpin = subRange(u, 0.20, 0.36) * Math.PI * 6;
+  const capsulePush = easeInOutCubic(subRange(u, 0.21, 0.33));
+
+  // ---- PIECE 2 (t = 0.34 -> 0.66) ----
+  // 2a. Ordered 3D Artisan Kettle + Crisp White Packing Slip drop inside open box (t = 0.34 -> 0.46, verified at t = 0.43)
+  const kettleTransfer = easeInOutCubic(subRange(u, 0.34, 0.415));
+  const slipFeed = easeInOutCubic(subRange(u, 0.345, 0.425));
+  const slipSettleDeep = easeInOutCubic(subRange(u, 0.445, 0.47));
+  const slipArcTailAlpha = windowFade(u, 0.35, 0.38, 0.44, 0.462);
+
+  // 2b. 4 Corrugated Flaps Fold Shut (t = 0.46 -> 0.58): 2 inner minor flaps first, then 2 outer major flaps
+  const minorFlapFold = easeInOutCubic(subRange(u, 0.46, 0.525));
+  const majorFlapFold = easeInOutCubic(subRange(u, 0.51, 0.58));
+
+  // 2c. Kraft Water-Activated Tape Strip seals top seam (t = 0.58 -> 0.66, verified at t = 0.63)
+  const tapeSeal = easeInOutCubic(subRange(u, 0.58, 0.64));
+
+  // ---- PIECE 3 (t = 0.66 -> 1.00) ----
+  // 3a. Box glides to Pitney Bowes 4x6 Printer & Tamp Applicator slaps 4x6 Shipping Label on top (t = 0.66 -> 0.80, verified at t = 0.76)
+  const glideToPrinter = easeInOutCubic(subRange(u, 0.655, 0.71));
+  const labelFeedTop = easeInOutCubic(subRange(u, 0.69, 0.745));
+  // Tamp arm swings/presses down at t=0.71..0.75 and lifts slightly at t=0.76 so the slapped 4x6 label is 100% readable
+  const tampPress = windowFade(u, 0.70, 0.735, 0.745, 0.785);
+  const tampHover = windowFade(u, 0.68, 0.71, 0.78, 0.81);
+  const printHeat = windowFade(u, 0.67, 0.70, 0.77, 0.80);
+
+  // 3b. Box slides through Mail Chute, tips down ramp, and falls into Outbound Tote full of packed & labeled boxes (t = 0.80 -> 1.00, verified at t = 0.96)
+  const chuteSlide = easeInOutCubic(subRange(u, 0.80, 0.87));
+  const chuteGateSwing = windowFade(u, 0.81, 0.84, 0.89, 0.93);
+  const toteDrop = easeInOutCubic(subRange(u, 0.865, 0.93));
+  const totePitch = Math.sin(subRange(u, 0.855, 0.93) * Math.PI);
+  const settlePhase = subRange(u, 0.925, 0.962);
+  const toteBounce = settlePhase > 0 && settlePhase < 1
+    ? Math.abs(Math.sin(settlePhase * Math.PI * 2)) * (1 - settlePhase) * 2.2
+    : 0;
+
+  // ---- SELF-FADING CALLOUT ENVELOPES ----
+  const restPromptAlpha     = 1 - easeInOutCubic(subRange(u, 0.002, 0.04));
+  const tagStorefrontAlpha  = windowFade(u, 0.08, 0.13, 0.315, 0.345);
+  const tagStripeD1Alpha    = windowFade(u, 0.20, 0.24, 0.315, 0.345);
+  const tagOrderAlpha       = windowFade(u, 0.21, 0.25, 0.315, 0.345);
+  const tagSlipInBoxAlpha   = windowFade(u, 0.355, 0.385, 0.455, 0.485);
+  const tagTapedAlpha       = windowFade(u, 0.585, 0.605, 0.65, 0.675);
+  const tagTopLabelAlpha    = windowFade(u, 0.71, 0.735, 0.79, 0.815);
+  const tagOutboundToteAlpha = windowFade(u, 0.89, 0.92, 1.01, 1.05);
+
+  return {
+    t: u,
+    lidOpen,
+    screenOn,
+    cursorApproach,
+    clickWindow,
+    clickPress,
+    clickRipple,
+    orderPlaced,
+    xr,
+    fanSpin,
+    stripeBusGlow,
+    d1IndexSlide,
+    gearSpin,
+    capsulePush,
+    kettleTransfer,
+    slipFeed,
+    slipSettleDeep,
+    slipArcTailAlpha,
+    minorFlapFold,
+    majorFlapFold,
+    tapeSeal,
+    glideToPrinter,
+    labelFeedTop,
+    tampPress,
+    tampHover,
+    printHeat,
+    chuteSlide,
+    chuteGateSwing,
+    toteDrop,
+    totePitch,
+    toteBounce,
+    restPromptAlpha,
+    tagStorefrontAlpha,
+    tagStripeD1Alpha,
+    tagOrderAlpha,
+    tagSlipInBoxAlpha,
+    tagTapedAlpha,
+    tagTopLabelAlpha,
+    tagOutboundToteAlpha,
+  };
+}
+
+const boxOfPts = (pts, pad = 0.35) => [
+  [0,1,2].map(i => Math.min(...pts.map(p => p[i])) - pad),
+  [0,1,2].map(i => Math.max(...pts.map(p => p[i])) + pad),
+];
+
+function unitShadow(x0, y0, x1, y1, zTop){
+  return castShadow([
+    ...on(PZ(BH), rectUV(x0, y0, x1, y1)),
+    ...on(PZ(zTop), rectUV(x0, y0, x1, y1)),
+  ], BH);
+}
+
+function wireSegs(pts, col, w = 0.48){
+  const out = [];
+  for (let i = 0; i < pts.length - 1; i++){
+    const a = pts[i], b = pts[i + 1], seg = [a, b], d = pd(seg, false);
+    const svg = `<path d="${d}" fill="none" stroke="${INK}" stroke-width="${f(2*w + 0.85)}" stroke-linecap="round"/>`
+      + `<path d="${d}" fill="none" stroke="${col}" stroke-width="${f(2*w)}" stroke-linecap="round"/>`;
+    out.push({ box: boxOfPts(seg, 0.25), svg });
+  }
+  return out;
+}
+
+/* ============================================================
+   STATION 1 (LEFT, y = 136..190): 3D MACBOOK PRO & 38-PART CUTAWAY
+   ============================================================ */
+const Y_MAC_OFF = 38; // Shifts Piece 1 MacBook from y=98..154 to y=136..192 so all 3 stations + tote have generous room
+
+function buildOrderCapsulePart(K, z0){
+  const capY = lerp(103.5 + Y_MAC_OFF, 88.5 + Y_MAC_OFF, K.capsulePush);
+  const capX = 58.0;
+  const capZ = z0 + 2.0;
+  const capMat = K.orderPlaced > 0.3 ? CF_ORG : BRASS;
+  const fadeOut = 1 - easeInOutCubic(subRange(K.t, 0.34, 0.38));
+  if (fadeOut <= 0.02) return null;
+  const capSvg = box(capX - 4.2, capY - 3.6, capZ, capX + 4.2, capY + 3.6, capZ + 3.4, capMat, tone, 0.9)
+    + box(capX - 3.2, capY - 2.6, capZ + 3.45, capX + 3.2, capY + 2.6, capZ + 4.1, STRIPE_G, toneI, 0.75);
+  return {
+    box: [[capX - 4.5, capY - 3.8, capZ], [capX + 4.5, capY + 3.8, capZ + 4.3]],
+    svg: fadeOut < 0.99 ? `<g opacity="${f(fadeOut)}">${capSvg}</g>` : capSvg,
+  };
+}
+
+function drawInternalFactory38(K, z0){
+  const parts = [];
+  const put = (b, svg) => parts.push({ box: b, svg });
+  const yo = Y_MAC_OFF;
+  const bx = (x0, y0, zA, x1, y1, zB, m, w = 0.72) =>
+    put([[x0, y0 + yo, zA], [x1, y1 + yo, zB]], box(x0, y0 + yo, zA, x1, y1 + yo, zB, m, toneI, w));
+  const vc = (x, y, zA, zB, r, m, w = 0.78, n = 16) =>
+    put([[x - r, y + yo - r, zA], [x + r, y + yo + r, zB]], cyl(x, y + yo, zA, zB, r, m, toneI, w, n));
+
+  // ---- 1. CHASSIS FLOOR, MAGSAFE POWER BUS, DUAL HEATPIPES & COOLING FANS (Parts 1–6) ----
+  bx(29.2, 99.2, z0 + 0.2, 74.8, 152.8, z0 + 0.7, SPACE_BK, 0.8);                  // Part 1
+  bx(30.0, 146.5, z0 + 0.75, 34.5, 151.8, z0 + 3.6, BRASS, 0.7);                   // Part 2
+  bx(30.2, 102.0, z0 + 3.0, 32.2, 145.5, z0 + 4.1, COPPER, 0.7);                   // Part 3
+  vc(35.5, 141.5, z0 + 0.75, z0 + 3.8, 4.0, SPACE, 0.8, 18);                       // Part 4
+  {
+    const cx = 35.5, cy = 141.5 + yo, cz = z0 + 3.9, ang0 = K.fanSpin;
+    let blades = cyl(cx, cy, z0 + 3.8, z0 + 4.5, 1.4, ALUM, toneI, 0.65, 12);
+    for (let i = 0; i < 8; i++){
+      const a = ang0 + (i / 8) * Math.PI * 2;
+      blades += line([[cx + 1.1*Math.cos(a), cy + 1.1*Math.sin(a), cz + 0.25], [cx + 3.6*Math.cos(a), cy + 3.6*Math.sin(a), cz + 0.25]], 0.85);
+    }
+    put([[cx - 4.0, cy - 4.0, z0 + 3.8], [cx + 4.0, cy + 4.0, z0 + 4.7]], blades); // Part 5
+  }
+  {
+    const cx = 35.5, cy = 111.5 + yo, cz = z0 + 3.9, ang0 = -K.fanSpin * 1.1;
+    let fanR = cyl(cx, cy, z0 + 0.75, z0 + 3.8, 4.0, SPACE, toneI, 0.8, 18)
+      + cyl(cx, cy, z0 + 3.8, z0 + 4.5, 1.4, ALUM, toneI, 0.65, 12);
+    for (let i = 0; i < 8; i++){
+      const a = ang0 + (i / 8) * Math.PI * 2;
+      fanR += line([[cx + 1.1*Math.cos(a), cy + 1.1*Math.sin(a), cz + 0.25], [cx + 3.6*Math.cos(a), cy + 3.6*Math.sin(a), cz + 0.25]], 0.85);
+    }
+    put([[cx - 4.1, cy - 4.1, z0 + 0.75], [cx + 4.1, cy + 4.1, z0 + 4.7]], fanR);   // Part 6
+  }
+
+  // ---- 2. LOGIC BOARD, M-SERIES COMMERCE SOC & UNIFIED MEMORY (Parts 7–11) ----
+  bx(40.5, 126.0, z0 + 0.75, 55.5, 150.5, z0 + 1.65, PCB_M, 0.75);                 // Part 7
+  bx(44.0, 134.5, z0 + 1.7, 52.0, 143.5, z0 + 3.5, SPACE_BK, 0.85);                // Part 8
+  bx(45.5, 136.0, z0 + 3.55, 50.5, 142.0, z0 + 4.15, ALUM, 0.7);                   // Part 9
+  bx(41.5, 145.0, z0 + 1.7, 45.5, 149.2, z0 + 3.2, DARK, 0.65);                    // Part 10
+  bx(47.0, 145.0, z0 + 1.7, 51.0, 149.2, z0 + 3.2, DARK, 0.65);                    // Part 11
+
+  // ---- 3. STRIPE PAYMENT BUS — GLOWING INDIGO VAULT & SETTLEMENT RAILS (Parts 12–19) ----
+  const stripeMat = K.stripeBusGlow > 0.25 ? INDIGO_B : AIZOME;
+  bx(40.5, 112.5, z0 + 0.75, 54.0, 125.0, z0 + 4.8, stripeMat, 0.9);               // Part 12
+  {
+    const slide = K.stripeBusGlow * 2.2;
+    bx(54.1, 115.0 - slide, z0 + 1.2, 55.6, 121.5 - slide, z0 + 4.4, STRIPE_G, 0.75); // Part 13
+  }
+  const cylH = 2.6 + K.stripeBusGlow * 1.9;
+  vc(43.0, 128.5, z0 + 1.7, z0 + 1.7 + cylH, 1.35, BRASS, 0.7, 12);                // Part 14
+  vc(46.8, 128.5, z0 + 1.7, z0 + 1.7 + cylH, 1.35, STRIPE_G, 0.7, 12);             // Part 15
+  vc(50.6, 128.5, z0 + 1.7, z0 + 1.7 + cylH, 1.35, INDIGO_B, 0.7, 12);             // Part 16
+  bx(41.5, 107.5, z0 + 0.75, 46.0, 111.8, z0 + 3.4, STRIPE_G, 0.75);               // Part 17
+  bx(47.2, 108.0, z0 + 0.75, 53.5, 110.2, z0 + 2.8, INDIGO_B, 0.7);                // Part 18
+  vc(52.5, 127.8, z0 + 1.7, z0 + 4.4, 1.1, BRASS, 0.65, 10);                       // Part 19
+
+  // ---- 4. CLOUDFLARE D1 LEDGER — INDEXING ROWS & EDGE TURBINE (Parts 20–27) ----
+  bx(57.5, 139.0, z0 + 0.75, 65.0, 149.5, z0 + 4.2, CF_ORG, 0.8);                  // Part 20
+  vc(69.5, 143.5, z0 + 0.75, z0 + 4.5, 3.5, ALUM, 0.8, 16);                        // Part 21
+  bx(57.5, 113.0, z0 + 0.75, 72.8, 136.5, z0 + 1.55, METAL, 0.75);                 // Part 22
+  bx(57.5, 113.0, z0 + 1.6,  60.2, 136.5, z0 + 4.35, METAL, 0.75);                 // Part 23
+  bx(60.6, 129.0, z0 + 1.6, 68.2, 134.8, z0 + 3.65, AIZOME, 0.75);                 // Part 24
+  bx(60.6, 121.8, z0 + 1.6, 68.2, 127.6, z0 + 3.65, AIZOME, 0.75);                 // Part 25
+  {
+    const idxShift = K.d1IndexSlide * 4.2;
+    bx(60.8 + idxShift, 114.2, z0 + 1.6, 68.4 + idxShift, 120.5, z0 + 3.75, CF_ORG, 0.85); // Part 26
+  }
+  vc(70.6, 131.8, z0 + 1.6, z0 + 4.8, 1.45, BRASS, 0.7, 12);                       // Part 27
+
+  // ---- 5. INTERNAL BRASS/COPPER CONVEYOR GEARS & GLOWING ORDER CAPSULE (Parts 28–38) ----
+  vc(33.5, 102.8, z0 + 0.75, z0 + 4.9, 2.2, COPPER, 0.8, 14);                      // Part 28
+  bx(36.5, 100.5, z0 + 0.75, 41.0, 105.2, z0 + 3.9, PCB_M, 0.72);                  // Part 29
+  bx(42.0, 99.5, z0 + 0.75, 71.5, 106.5, z0 + 1.6, SPACE, 0.75);                   // Part 30
+
+  const gearXs = [45.5, 51.5, 57.5, 63.5];
+  gearXs.forEach((gx, idx) => {
+    const dir = idx % 2 === 0 ? 1 : -1;
+    const ga = K.gearSpin * dir;
+    const mat = idx % 2 === 0 ? BRASS : COPPER;
+    const gy = 105.2 + yo;
+    let gSvg = cyl(gx, gy, z0 + 1.65, z0 + 3.6, 2.4, mat, toneI, 0.75, 14)
+      + cyl(gx, gy, z0 + 3.6, z0 + 4.2, 0.9, METAL, toneI, 0.6, 10);
+    for (let t = 0; t < 4; t++){
+      const a = ga + (t / 4) * Math.PI * 2;
+      gSvg += line([[gx + 0.8*Math.cos(a), gy + 0.8*Math.sin(a), z0 + 3.7], [gx + 2.2*Math.cos(a), gy + 2.2*Math.sin(a), z0 + 3.7]], 0.8);
+    }
+    put([[gx - 2.5, gy - 2.6, z0 + 1.65], [gx + 2.5, gy + 2.6, z0 + 4.3]], gSvg);  // Parts 31–34
+  });
+
+  const capPart = buildOrderCapsulePart(K, z0);
+  if (capPart) parts.push(capPart);                                                 // Part 35
+
+  bx(52.5, 97.6, z0 + 0.8, 63.5, 99.2, z0 + 4.6, BRASS, 0.8);                      // Part 36
+  bx(34.5, 97.8, z0 + 0.8, 40.5, 100.2, z0 + 3.6, AIZOME, 0.75);                   // Part 37
+
+  const busCol = K.stripeBusGlow > 0.2 ? '#818cf8' : '#475569';
+  const d1Col  = K.d1IndexSlide > 0.1 ? '#f79640' : '#475569';
+  parts.push(...wireSegs([[48.0, 134.5 + yo, z0 + 1.8], [48.0, 125.0 + yo, z0 + 1.8]], busCol, 0.5)); // Part 38
+  parts.push(...wireSegs([[54.0, 120.0 + yo, z0 + 1.7], [58.5, 120.0 + yo, z0 + 1.7]], '#55d69e', 0.5));
+  parts.push(...wireSegs([[64.0, 139.0 + yo, z0 + 1.7], [64.0, 134.8 + yo, z0 + 1.7]], d1Col, 0.5));
+  parts.push(...wireSegs([[64.0, 114.2 + yo, z0 + 1.7], [58.0, 106.5 + yo, z0 + 1.7]], d1Col, 0.52));
+
+  return byDepth(parts);
+}
+
+function drawMacbookBase(K, z0){
+  const yo = Y_MAC_OFF;
+  const x0 = 28, x1 = 76, y0 = 98 + yo, y1 = 154 + yo, z1 = z0 + 6.4;
+  const prof = rrUV(y0, z0, y1, z1, 1.5, 5);
+  const FRONT = facing([1, 0, 0]), BACK = facing([-1, 0, 0]), RIGHT = facing([0, -1, 0]), LEFT = facing([0, 1, 0]);
+  let body = extrude(prof, x0, x1, ALUM, tone);
+
+  if (FRONT){
+    body += shape(on(PX(x1), prof), tone([1, 0, 0], ALUM), 1.0);
+    body += shape(on(PX(x1 + 0.06), rectUV(119 + yo, z1 - 1.35, 133 + yo, z1)), SPACE_BK.d, 0.65);
+  }
+  if (BACK){
+    body += shape(on(PX(x0), prof), tone([-1, 0, 0], ALUM), 1.0);
+    for (let y = 106 + yo; y <= 144 + yo; y += 6){
+      body += shape(on(PX(x0 - 0.06), rectUV(y, z0 + 1.6, y + 3.5, z0 + 3.2)), SPACE_BK.d, 0.5);
+    }
+  }
+  if (RIGHT){
+    body += shape(on(PY(y0 - 0.06), rrUV(53, z0 + 1.2, 63, z0 + 4.8, 0.6)), BRASS.m, 0.7);
+    body += shape(on(PY(y0 - 0.06), rrUV(35, z0 + 2.0, 39.5, z0 + 3.6, 0.5)), CF_ORG.m, 0.6);
+  }
+  if (LEFT){
+    body += shape(on(PY(y1 + 0.06), rrUV(32, z0 + 2.0, 36, z0 + 3.6, 0.5)), BRASS.m, 0.6);
+    body += shape(on(PY(y1 + 0.06), rrUV(39, z0 + 2.0, 42.5, z0 + 3.6, 0.5)), SPACE_BK.d, 0.6);
+    body += shape(on(PY(y1 + 0.06), rrUV(45, z0 + 2.0, 48.5, z0 + 3.6, 0.5)), SPACE_BK.d, 0.6);
+  }
+
+  const topFace = on(PZ(z1 + 0.02), rrUV(x0 + 1.2, y0 + 1.2, x1 - 1.2, y1 - 1.2, 2.0));
+  body += fill(pd(topFace), ALUM.l) + ink(pd(topFace), 0.8);
+
+  const kbWell = on(PZ(z1 + 0.06), rrUV(32.5, 103.5 + yo, 58.0, 148.5 + yo, 1.3));
+  body += shape(kbWell, '#181c23', 0.85);
+
+  const keyFill = K.screenOn > 0.2 ? '#29303d' : '#222730';
+  const keyStroke = K.screenOn > 0.2 ? '#60a5fa' : '#11141a';
+  for (let r = 0; r < 5; r++){
+    const rx0 = 33.8 + r * 4.7, rx1 = rx0 + 3.8;
+    for (let c = 0; c < 10; c++){
+      const cy0 = 105.0 + yo + c * 4.25, cy1 = cy0 + 3.5;
+      const kp = pd(on(PZ(z1 + 0.11), rectUV(rx0, cy0, rx1, cy1)));
+      body += `<path d="${kp}" fill="${keyFill}" stroke="${keyStroke}" stroke-width="${f(0.35 * INK_K)}"/>`;
+    }
+  }
+  body += shape(on(PZ(z1 + 0.06), rrUV(60.0, 115.0 + yo, 73.0, 137.0 + yo, 1.2)), '#cfd6de', 0.75);
+  body += hullInk([...on(PX(x0), prof), ...on(PX(x1), prof)], 2.4);
+
+  const k = ease(K.xr || 0);
+  if (k > 0.01){
+    body = xrGhost(body, '', k, prof, x0, x1, ALUM) + `<g opacity="${f(k)}">${drawInternalFactory38(K, z0)}</g>`;
+  }
+  return {
+    box: [[x0, y0, z0], [x1, y1, z1]],
+    svg: act('macbook', body),
+  };
+}
+
+function drawMacbookLid(K, z0){
+  const yo = Y_MAC_OFF;
+  const xH = 29.5, y0 = 98 + yo, y1 = 154 + yo, zH = z0 + 6.5;
+  const deg = K.lidOpen * 108;
+  const rad = deg * Math.PI / 180;
+  const L_lid = 46.2, T_lid = 1.65;
+  const ux = Math.cos(rad), uz = Math.sin(rad);
+  const nx = -Math.sin(rad), nz = Math.cos(rad);
+  const lidPt = (s, y, w) => [xH + s * ux + w * nx, y, zH + s * uz + w * nz];
+
+  const c000 = lidPt(0, y0, 0), c100 = lidPt(L_lid, y0, 0), c110 = lidPt(L_lid, y1, 0), c010 = lidPt(0, y1, 0);
+  const c001 = lidPt(0, y0, T_lid), c101 = lidPt(L_lid, y0, T_lid), c111 = lidPt(L_lid, y1, T_lid), c011 = lidPt(0, y1, T_lid);
+
+  const innerFace = [c000, c100, c110, c010];
+  const outerFace = [c001, c011, c111, c101];
+  const screenNorm = [-nx, 0, -nz];
+  const backNorm   = [nx, 0, nz];
+
+  let s = '';
+  s += loft(innerFace, [c001, c101, c111, c011], nr => tone(nr, ALUM));
+  if (vis(backNorm)){
+    s += shape(outerFace, tone(backNorm, ALUM), 1.0);
+    const band = [
+      lidPt(6, y0 + 5, T_lid + 0.04),
+      lidPt(L_lid - 6, y0 + 5, T_lid + 0.04),
+      lidPt(L_lid - 6, y1 - 5, T_lid + 0.04),
+      lidPt(6, y1 - 5, T_lid + 0.04),
+    ];
+    s += shape(band, '#dce2e9', 0.65);
+    const em = [
+      lidPt(L_lid * 0.42, 126 + yo, T_lid + 0.09),
+      lidPt(L_lid * 0.50, 120.5 + yo, T_lid + 0.09),
+      lidPt(L_lid * 0.58, 126 + yo, T_lid + 0.09),
+      lidPt(L_lid * 0.50, 131.5 + yo, T_lid + 0.09),
+    ];
+    s += shape(em, AIZOME.l, 0.9);
+  }
+
+  if (vis(screenNorm) && K.lidOpen > 0.04){
+    s += shape(innerFace, '#12161f', 1.0);
+    const padS = 2.4, padY = 2.6;
+    const scr = [
+      lidPt(padS, y0 + padY, -0.05),
+      lidPt(L_lid - padS, y0 + padY, -0.05),
+      lidPt(L_lid - padS, y1 - padY, -0.05),
+      lidPt(padS, y1 - padY, -0.05),
+    ];
+    s += shape(scr, K.screenOn > 0.08 ? '#f4f1ea' : '#1b2230', 0.8);
+
+    if (K.screenOn > 0.12){
+      const hdr = [
+        lidPt(L_lid - 7.4, y0 + padY + 0.6, -0.09),
+        lidPt(L_lid - 2.9, y0 + padY + 0.6, -0.09),
+        lidPt(L_lid - 2.9, y1 - padY - 0.6, -0.09),
+        lidPt(L_lid - 7.4, y1 - padY - 0.6, -0.09),
+      ];
+      s += fill(pd(hdr), '#1b222c');
+
+      const cardL = [
+        lidPt(8.5, 127 + yo, -0.09),
+        lidPt(37.0, 127 + yo, -0.09),
+        lidPt(37.0, 150 + yo, -0.09),
+        lidPt(8.5, 150 + yo, -0.09),
+      ];
+      s += shape(cardL, '#e6e0d2', 0.65);
+
+      const prodBox = [
+        lidPt(19.5, 131.5 + yo, -0.13),
+        lidPt(33.5, 131.5 + yo, -0.13),
+        lidPt(33.5, 145.5 + yo, -0.13),
+        lidPt(19.5, 145.5 + yo, -0.13),
+      ];
+      s += shape(prodBox, AIZOME.l, 0.65);
+      const prodStripe = [
+        lidPt(24.5, 131.5 + yo, -0.16),
+        lidPt(28.5, 131.5 + yo, -0.16),
+        lidPt(28.5, 145.5 + yo, -0.16),
+        lidPt(24.5, 145.5 + yo, -0.16),
+      ];
+      s += fill(pd(prodStripe), '#f2c96b');
+
+      const cardR = [
+        lidPt(8.5, 101.0 + yo, -0.09),
+        lidPt(37.0, 101.0 + yo, -0.09),
+        lidPt(37.0, 125.0 + yo, -0.09),
+        lidPt(8.5, 125.0 + yo, -0.09),
+      ];
+      s += shape(cardR, '#ffffff', 0.65);
+
+      const isClicking = K.clickWindow > 0.05 && K.orderPlaced < 0.85;
+      const btnCol = K.orderPlaced >= 0.85 ? '#2ea874' : isClicking ? '#f79640' : '#2b5b9e';
+      const btnPts = [
+        lidPt(10.5, 102.0 + yo, -0.14),
+        lidPt(20.5, 102.0 + yo, -0.14),
+        lidPt(20.5, 123.8 + yo, -0.14),
+        lidPt(10.5, 123.8 + yo, -0.14),
+      ];
+      s += shape(btnPts, btnCol, 0.85);
+
+      const txLid = (sPos, yPos, wOff, str, sz, col, weight = 800) => {
+        const o = P(...lidPt(sPos, yPos, wOff));
+        return `<text transform="${txM(o, Dv(0, -1, 0), Dv(-ux, 0, -uz))}" font-size="${sz}" fill="${col}" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-weight="${weight}" letter-spacing=".03em">${str}</text>`;
+      };
+      s += txLid(L_lid - 5.5, 126.0 + yo, -0.18, 'dinkuskit.com', 2.6, '#f4f1ea', 800);
+      s += txLid(13.2, 138.5 + yo, -0.18, 'KETTLE · $68', 2.15, '#1b222c', 800);
+      s += txLid(31.2, 112.9 + yo, -0.18, 'ORD #DK-402', 2.1, '#1b222c', 800);
+      s += txLid(25.2, 112.9 + yo, -0.18, '$68.00 USD', 2.25, '#234982', 800);
+
+      const isPlaced = K.orderPlaced >= 0.85;
+      const btnLabel = isPlaced ? '✓ ORDER #DK-402' : 'PLACE ORDER';
+      s += txLid(15.0, 112.9 + yo, -0.20, btnLabel, isPlaced ? 1.82 : 2.05, '#ffffff', 900);
+
+      if (K.cursorApproach > 0.05 && K.t < 0.25){
+        const btnS = lerp(28.0, 15.2, K.cursorApproach);
+        const btnY = lerp(132.0 + yo, 110.5 + yo, K.cursorApproach);
+        const [cx, cy] = P(...lidPt(btnS, btnY, -0.25));
+
+        if (K.clickRipple > 0.01 && K.clickRipple < 0.99){
+          const r1 = (4 + K.clickRipple * 14) * INK_K;
+          const r2 = (2 + K.clickRipple * 8) * INK_K;
+          const aRip = f(1 - K.clickRipple * 0.75);
+          s += `<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(r1)}" fill="none" stroke="#f79640" stroke-width="${f(2.0 * INK_K)}" opacity="${aRip}"/>`;
+          s += `<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(r2)}" fill="#fde68a" fill-opacity="0.45" stroke="#1b222c" stroke-width="${f(1.2 * INK_K)}" opacity="${aRip}"/>`;
+        }
+        const sc = 1.25 * INK_K;
+        s += `<g transform="translate(${f(cx)}, ${f(cy)}) scale(${f(sc)})">
+          <path d="M 0 0 L 2 14 L 5.8 10.5 L 9.5 16.5 L 12.2 15.0 L 8.5 9.0 L 13.5 8.2 Z" fill="#ffffff" stroke="#1b222c" stroke-width="1.5" stroke-linejoin="round"/>
+        </g>`;
+      }
+    }
+  }
+
+  s += hullInk([...innerFace, ...outerFace], 2.2);
+  const lidBox = boxOfPts([...innerFace, ...outerFace], 0.2);
+  lidBox[0][2] = Math.max(z0 + 6.42, lidBox[0][2]);
+  return {
+    box: lidBox,
+    svg: act('macbook', s),
+  };
+}
+
+/* ============================================================
+   ORIENTED 3D PARCEL HELPER (Supports yaw + pitch for pre-packed
+   boxes inside the Outgoing Tote AND hero box #DK-402 on the chute!)
+   ============================================================ */
+function drawOrientedSealedParcel({
+  cx, cy, z0, w = 15, d = 14, h = 10.5,
+  yawDeg = 0, pitchDeg = 0,
+  mat = KRAFT,
+  tapeFrac = 1.0,
+  labelFrac = 1.0,
+  trackingText = '',
+  frontTitle = '',
+  frontSub = '',
+}){
+  const yr = yawDeg * Math.PI / 180;
+  const pr = pitchDeg * Math.PI / 180;
+  const cyaw = Math.cos(yr), syaw = Math.sin(yr);
+  const cp = Math.cos(pr), sp = Math.sin(pr);
+
+  // Local coordinates: u in [-w/2, w/2] (along x), v in [-d/2, d/2] (along y), zL in [0, h]
+  // Pitch tilts forward as parcel slides along -y down the chute ramp
+  const toW = (u, v, zL) => {
+    const zC = zL - h / 2;
+    const vP = v * cp - zC * sp;
+    const zP = v * sp + zC * cp + h / 2;
+    const wx = cx + u * cyaw - vP * syaw;
+    const wy = cy + u * syaw + vP * cyaw;
+    const wz = z0 + zP;
+    return [wx, wy, wz];
+  };
+  const rotN = (nx, ny, nz) => {
+    const nyP = ny * cp - nz * sp;
+    const nzP = ny * sp + nz * cp;
+    return [nx * cyaw - nyP * syaw, nx * syaw + nyP * cyaw, nzP];
+  };
+
+  const hw = w / 2, hd = d / 2;
+  const faces = [
+    { n: rotN(0, 1, 0),  pts: [toW(-hw, hd, 0), toW(hw, hd, 0), toW(hw, hd, h), toW(-hw, hd, h)] },
+    { n: rotN(1, 0, 0),  pts: [toW(hw, -hd, 0), toW(hw, hd, 0), toW(hw, hd, h), toW(hw, -hd, h)] },
+    { n: rotN(0, -1, 0), pts: [toW(-hw, -hd, 0), toW(hw, -hd, 0), toW(hw, -hd, h), toW(-hw, -hd, h)] },
+    { n: rotN(-1, 0, 0), pts: [toW(-hw, -hd, 0), toW(-hw, hd, 0), toW(-hw, hd, h), toW(-hw, -hd, h)] },
+    { n: rotN(0, 0, 1),  pts: [toW(-hw, -hd, h), toW(hw, -hd, h), toW(hw, hd, h), toW(-hw, hd, h)] },
+  ];
+
+  let s = '';
+  for (const fc of faces){
+    if (vis(fc.n)){
+      s += shape(fc.pts, tone(fc.n, mat), 0.9);
+    }
+  }
+
+  const topVis = vis(rotN(0, 0, 1));
+  if (topVis){
+    // Center flap seam line along u = 0
+    s += line([toW(0, -hd + 0.3, h + 0.08), toW(0, hd - 0.3, h + 0.08)], 0.85);
+  }
+
+  // Kraft Water-Activated Tape Strip across the top seam (along u from -hw to +hw, width 3.4 in v)
+  if (tapeFrac > 0.02){
+    const tw = Math.min(2.1, hd * 0.22);
+    const uEnd = lerp(-hw, hw, tapeFrac);
+    if (topVis){
+      const tPts = [
+        toW(-hw, -tw, h + 0.14),
+        toW(uEnd, -tw, h + 0.14),
+        toW(uEnd, tw, h + 0.14),
+        toW(-hw, tw, h + 0.14),
+      ];
+      s += shape(tPts, TAPE_M.l, 0.72);
+      // Subtle fiber reinforcement ticks on kraft tape
+      const nTicks = Math.floor(tapeFrac * 5);
+      for (let i = 1; i <= nTicks; i++){
+        const uT = -hw + (w * i) / 6;
+        if (uT < uEnd - 0.5){
+          s += line([toW(uT - 0.6, -tw * 0.65, h + 0.18), toW(uT + 0.6, tw * 0.65, h + 0.18)], 0.45);
+        }
+      }
+    }
+    // Front lip overhang on +u face once tape reaches front edge
+    if (tapeFrac > 0.85 && vis(rotN(1, 0, 0))){
+      const lip = ((tapeFrac - 0.85) / 0.15) * Math.min(3.4, h * 0.30);
+      const lipPts = [
+        toW(hw + 0.08, -tw, h - lip),
+        toW(hw + 0.08, tw, h - lip),
+        toW(hw + 0.08, tw, h + 0.12),
+        toW(hw + 0.08, -tw, h + 0.12),
+      ];
+      s += shape(lipPts, TAPE_M.m, 0.65);
+    }
+  }
+
+  // Crisp 4x6 Thermal Shipping Label applied flat onto the top surface!
+  if (labelFrac > 0.02 && topVis){
+    const u0 = -hw * 0.58, u1 = hw * 0.66;
+    const v0 = hd * 0.06,  v1 = hd * 0.82;
+    const zL = h + 0.24;
+    const lPts = [toW(u0, v0, zL), toW(u1, v0, zL), toW(u1, v1, zL), toW(u0, v1, zL)];
+    s += shape(lPts, '#ffffff', 0.85);
+
+    // Dark top header bar on 4x6 label
+    const hU0 = u1 - (u1 - u0) * 0.24;
+    const hdrPts = [toW(hU0, v0 + 0.35, zL + 0.05), toW(u1 - 0.35, v0 + 0.35, zL + 0.05), toW(u1 - 0.35, v1 - 0.35, zL + 0.05), toW(hU0, v1 - 0.35, zL + 0.05)];
+    s += fill(pd(hdrPts), '#1b222c');
+
+    // Red Pitney Bowes postage meter indicia strip
+    const pbU0 = hU0 - (u1 - u0) * 0.15, pbU1 = hU0 - 0.25;
+    const pbPts = [toW(pbU0, v0 + 0.45, zL + 0.05), toW(pbU1, v0 + 0.45, zL + 0.05), toW(pbU1, v1 - 0.45, zL + 0.05), toW(pbU0, v1 - 0.45, zL + 0.05)];
+    s += fill(pd(pbPts), CRIM.l);
+
+    // 1D Barcode stripes across lower half of 4x6 label
+    const bcU0 = u0 + 0.65, bcU1 = pbU0 - 0.55;
+    for (let i = 0; i < 6; i++){
+      const bv = lerp(v0 + 0.65, v1 - 0.65, i / 5);
+      s += line([toW(bcU0, bv, zL + 0.07), toW(bcU1, bv, zL + 0.07)], i % 2 === 0 ? 0.95 : 0.55);
+    }
+
+    if (trackingText){
+      const o = P(...toW((pbU0 + bcU0) * 0.5 + 0.9, (v0 + v1) * 0.5, zL + 0.10));
+      const uVec = Dv(-syaw, -cyaw, 0);
+      const vVec = Dv(-cyaw * cp, -syaw * cp, -sp);
+      s += `<text transform="${txM(o, uVec, vVec)}" font-size="1.45" fill="#1b222c" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-weight="900" letter-spacing=".02em">${trackingText}</text>`;
+    }
+  }
+
+  // Front stencil on +u face
+  if (frontTitle && vis(rotN(1, 0, 0))){
+    const o1 = P(...toW(hw + 0.14, 0, h * 0.55));
+    const uVec = Dv(-syaw, -cyaw, 0);
+    const vVec = Dv(0, 0, -1);
+    s += `<text transform="${txM(o1, uVec, vVec)}" font-size="2.2" fill="${INK}" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-weight="800" letter-spacing=".03em">${frontTitle}</text>`;
+    if (frontSub){
+      const o2 = P(...toW(hw + 0.14, 0, h * 0.30));
+      s += `<text transform="${txM(o2, uVec, vVec)}" font-size="1.75" fill="${KRAFT.d}" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-weight="700" letter-spacing=".03em">${frontSub}</text>`;
+    }
+  }
+
+  const allCorners = [
+    toW(-hw, -hd, 0), toW(hw, -hd, 0), toW(hw, hd, 0), toW(-hw, hd, 0),
+    toW(-hw, -hd, h), toW(hw, -hd, h), toW(hw, hd, h), toW(-hw, hd, h),
+  ];
+  s += hullInk(allCorners, 1.9);
+  return {
+    box: boxOfPts(allCorners, 0.3),
+    svg: s,
+  };
+}
+
+/* ============================================================
+   3D ARTISAN KETTLE & CRISP WHITE PACKING SLIP (PIECE 2)
+   ============================================================ */
+function drawArtisanKettleSvg(cx, cy, zBot){
+  const h = 7.4;
+  let s = '';
+  // Kettle Aizome ceramic body + warm brass belly band + brass lid & knob + curved spout
+  s += box(cx - 4.0, cy - 4.0, zBot, cx + 4.0, cy + 4.0, zBot + h, AIZOME, tone, 0.85);
+  s += box(cx - 4.12, cy - 4.12, zBot + h * 0.40, cx + 4.12, cy + 4.12, zBot + h * 0.62, BRASS, toneI, 0.65);
+  s += cyl(cx, cy, zBot + h, zBot + h + 1.4, 1.7, BRASS, toneI, 0.72, 12);
+  // Gooseneck pour spout on -y side & handle on +y side
+  s += rod([cx + 1.0, cy - 4.0, zBot + 3.2], [cx + 2.2, cy - 5.6, zBot + 7.2], 0.65, BRASS, toneI, 0.65, 0.45, 10);
+  return s;
+}
+
+/* Renders the crisp white Packing Slip dropping inside the open box alongside the kettle */
+function drawPackingSlipInBoxSvg(K, bCx, bCy, bz0, bz1){
+  if (K.slipFeed <= 0.02) return '';
+  const fk = K.slipFeed;
+  const deep = K.slipSettleDeep;
+
+  // Slip starts at Packing Slip Dispenser slot (x=37.5, y=99.0, z=BH+14.0),
+  // curves over box rim, and drops directly inside the open box mouth
+  // alongside the Artisan Kettle (x=54.5, y=110.2) so its header & order lines are 100% visible!
+  const targetX = bCx - 0.8;
+  const targetY = bCy - 4.4;
+  const targetZ = lerp(bz1 - 1.1, bz0 + 4.6, deep);
+  const arcZ = Math.sin(fk * Math.PI) * 6.5;
+
+  const sx = lerp(37.5, targetX, fk);
+  const sy = lerp(98.5, targetY, fk);
+  const sz = lerp(BH + 14.0, targetZ, fk) + arcZ;
+
+  // 3D tilted white Packing Slip sheet (tilted toward viewer so header & mini order lines are crisp inside the open box!)
+  const wX = 9.0, dY = 9.4;
+  const tiltZ = lerp(3.6, 1.4, deep); // Top edge rises inside the open box mouth
+  const pBL = [sx - wX/2, sy + dY/2, sz + tiltZ];
+  const pBR = [sx - wX/2, sy - dY/2, sz + tiltZ];
+  const pFR = [sx + wX/2, sy - dY/2, sz];
+  const pFL = [sx + wX/2, sy + dY/2, sz];
+
+  let s = '';
+
+  // Curved paper feed ribbon from the Packing Slip Dispenser into the open box during the drop beat (t = 0.35 -> 0.45)
+  if (K.slipArcTailAlpha > 0.02){
+    const aTail = f(K.slipArcTailAlpha * 0.92);
+    const d0 = [37.2, 95.0, BH + 13.8], d1 = [37.2, 102.0, BH + 13.8];
+    const m0 = [46.5, 95.5, bz1 + 3.8],  m1 = [46.5, 102.5, bz1 + 3.8];
+    const e0 = pBR,                      e1 = pBL;
+    s += `<g opacity="${aTail}">`;
+    s += shape([d0, m0, m1, d1], '#fbfaf5', 0.65);
+    s += shape([m0, e0, e1, m1], '#ffffff', 0.65);
+    // Dashed perforation line at dispenser tear-off bar
+    s += line([[46.5, 95.8, bz1 + 3.88], [46.5, 102.2, bz1 + 3.88]], 0.55);
+    s += `</g>`;
+  }
+
+  // Main Packing Slip sheet inside the open box
+  s += shape([pBL, pBR, pFR, pFL], '#ffffff', 0.9);
+
+  // Dark Aizome header bar across the top of the Packing Slip
+  const lerpP = (A, B, t) => [lerp(A[0], B[0], t), lerp(A[1], B[1], t), lerp(A[2], B[2], t) + 0.06];
+  const h0 = lerpP(pBL, pFL, 0.08), h1 = lerpP(pBR, pFR, 0.08);
+  const h2 = lerpP(pBR, pFR, 0.30), h3 = lerpP(pBL, pFL, 0.30);
+  s += fill(pd([h0, h1, h2, h3]), '#1b222c');
+
+  // Green PAID verification pill strip on the Packing Slip
+  const g0 = lerpP(pBL, pFL, 0.36), g1 = lerpP(pBR, pFR, 0.36);
+  const g2 = lerpP(pBR, pFR, 0.50), g3 = lerpP(pBL, pFL, 0.50);
+  s += fill(pd([g0, g1, g2, g3]), '#55d69e');
+
+  // Mini itemized order lines across the Packing Slip body
+  for (const frac of [0.60, 0.72, 0.84]){
+    const lA = lerpP(pBL, pFL, frac), lB = lerpP(pBR, pFR, frac);
+    const inA = [lerp(lA[0], lB[0], 0.12), lerp(lA[1], lB[1], 0.12), lA[2] + 0.04];
+    const inB = [lerp(lA[0], lB[0], 0.88), lerp(lA[1], lB[1], 0.88), lB[2] + 0.04];
+    s += line([inA, inB], 0.75);
+  }
+
+  // Crisp 3D text on the Packing Slip header ("SLIP #DK-402")
+  const centerHdr = lerpP(
+    [lerp(pBL[0], pBR[0], 0.5), lerp(pBL[1], pBR[1], 0.5), lerp(pBL[2], pBR[2], 0.5)],
+    [lerp(pFL[0], pFR[0], 0.5), lerp(pFL[1], pFR[1], 0.5), lerp(pFL[2], pFR[2], 0.5)],
+    0.21
+  );
+  const oHdr = P(centerHdr[0], centerHdr[1], centerHdr[2] + 0.08);
+  s += `<text transform="${txM(oHdr, Dv(0, -1, 0), Dv(1, 0, -0.35))}" font-size="1.45" fill="#ffffff" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-weight="900" letter-spacing=".02em">SLIP #DK-402</text>`;
+
+  return s;
+}
+
+/* ============================================================
+   HERO SHIPPING BOX (#DK-402) ACROSS PIECES 1, 2 & 3
+   ============================================================ */
+function buildHeroBoxAndContents(K){
+  const parts = [];
+
+  // 1. Kettle Staging Pedestal beside Center Rollers (x = 20..36, y = 110..126)
+  parts.push({
+    box: [[20, 110, BH], [36, 126, BH + 2.8]],
+    svg: box(20, 110, BH, 36, 126, BH + 2.8, SPACE, toneI, 0.75),
+  });
+
+  // 2. Compact Packing Slip / Receipt Dispenser right beside the Open Box (x = 18..38, y = 88..106)
+  {
+    const rx0 = 18, rx1 = 38, ry0 = 88, ry1 = 106, rz0 = BH, rz1 = BH + 13.5;
+    const rProf = rrUV(ry0, rz0, ry1, rz1, 2.2, 5);
+    let rSvg = extrude(rProf, rx0, rx1, SPACE_BK, tone);
+    if (facing([1, 0, 0])){
+      rSvg += shape(on(PX(rx1), rProf), tone([1, 0, 0], SPACE_BK), 0.95);
+      rSvg += shape(on(PX(rx1 + 0.06), rrUV(ry0 + 1.8, rz0 + 2.5, ry1 - 1.8, rz1 - 2.2, 1.2)), '#f4f1ea', 0.75);
+      rSvg += shape(on(PX(rx1 + 0.12), ellUV(ry0 + 3.5, rz1 - 4.0, 0.95, 0.95, 10)), '#2ea874', 0.5);
+      rSvg += tx(rx1 + 0.16, (ry0 + ry1) / 2, rz0 + 5.8, 'PACKING SLIP', 1.5, INK, 800);
+    }
+    if (facing([0, 0, 1])){
+      // Top paper feed slot & protruding white thermal receipt lip
+      rSvg += shape(on(PZ(rz1 + 0.04), rrUV(rx0 + 2.5, ry0 + 2.5, rx1 - 2.5, ry1 - 2.5, 1.2)), ALUM.l, 0.7);
+      rSvg += shape(on(PZ(rz1 + 0.09), rectUV(rx1 - 5.2, ry0 + 4.0, rx1 - 3.2, ry1 - 4.0)), '#12161f', 0.65);
+      if (K.slipFeed < 0.15){
+        rSvg += shape(on(PZ(rz1 + 0.16), rectUV(rx1 - 4.5, ry0 + 4.6, rx1 - 1.5, ry1 - 4.6)), '#ffffff', 0.65);
+      }
+    }
+    rSvg += hullInk([...on(PX(rx0), rProf), ...on(PX(rx1), rProf)], 2.0);
+    parts.push({
+      box: [[rx0, ry0, rz0], [rx1 + 0.3, ry1, rz1 + 0.4]],
+      svg: act('box', rSvg),
+    });
+  }
+
+  // 3. Hero Box (#DK-402) Position along the Assembly Line:
+  //    - Piece 1 & Piece 2 (t = 0.00 -> 0.655): Center Station (x = 48..70, y = 95..117, bCx = 59, bCy = 106, bz0 = BH + 4.55)
+  //    - Piece 3a (t = 0.655 -> 0.80): Glides to Pitney Bowes 4x6 Label Station (bCy = 106 -> 68)
+  //    - Piece 3b (t = 0.80 -> 0.87): Slides through Mail Chute Portal (bCy = 68 -> 42)
+  //    - Piece 3c (t = 0.87 -> 1.00): Tips down Mail Chute Ramp and drops into Outgoing Tote (bCy = 42 -> 19.5, bCx = 59 -> 61)
+  const wBox = 22.0, dBox = 22.0, hBox = 12.5;
+  let bCx = 59.0;
+  let bCy = 106.0;
+  let bz0 = BH + 4.55;
+  let yawDeg = 0;
+  let pitchDeg = 0;
+
+  if (K.glideToPrinter > 0){
+    bCy = lerp(106.0, 68.0, K.glideToPrinter);
+  }
+  if (K.chuteSlide > 0){
+    bCy = lerp(68.0, 42.5, K.chuteSlide);
+  }
+  if (K.toteDrop > 0){
+    bCx = lerp(59.0, 61.0, K.toteDrop);
+    bCy = lerp(42.5, 19.5, K.toteDrop);
+    // Slight arc over chute lip then drop onto top of the packed boxes inside the tote (z = BH + 7.45)
+    const dropArc = Math.sin(K.toteDrop * Math.PI) * 3.2;
+    bz0 = lerp(BH + 4.55, BH + 7.45, K.toteDrop) + dropArc + K.toteBounce;
+    yawDeg = lerp(0, 5.5, K.toteDrop);
+    pitchDeg = K.totePitch * 15.0;
+  }
+
+  const bx0 = bCx - wBox / 2, bx1 = bCx + wBox / 2;
+  const by0 = bCy - dBox / 2, by1 = bCy + dBox / 2;
+  const bz1 = bz0 + hBox;
+
+  // Kettle trajectory (t = 0.34 -> 0.415): from staging pedestal (28, 118, BH+2.85) into back-left of open box (54.5, 110.2, bz0+4.4)
+  const kt = K.kettleTransfer;
+  const kCx = lerp(28.0, bCx - 4.2, kt);
+  const kCy = lerp(118.0, bCy + 4.2, kt);
+  const kCz = lerp(BH + 2.85, bz0 + 4.4, kt) + Math.sin(kt * Math.PI) * 14.5;
+  const kettleNested = kt >= 0.58;
+
+  if (!kettleNested){
+    parts.push({
+      box: [[kCx - 4.3, kCy - 5.8, kCz], [kCx + 4.3, kCy + 4.3, kCz + 9.2]],
+      svg: act('box', drawArtisanKettleSvg(kCx, kCy, kCz)),
+    });
+  }
+
+  // If the box has already crossed into the Outgoing Tote (K.toteDrop > 0.35), it is rendered inside
+  // the Outgoing Tote's openShell contents so the tote walls and stacked boxes depth-sort cleanly with it!
+  if (K.toteDrop > 0.35){
+    return parts;
+  }
+
+  // Once flaps are folded flat shut (majorFlapFold >= 0.96), use drawOrientedSealedParcel so tape, 4x6 top label,
+  // and chute pitch/yaw rotation render as a unified rigid body!
+  if (K.majorFlapFold >= 0.96){
+    const sealed = drawOrientedSealedParcel({
+      cx: bCx,
+      cy: bCy,
+      z0: bz0,
+      w: wBox,
+      d: dBox,
+      h: hBox,
+      yawDeg,
+      pitchDeg,
+      mat: KRAFT,
+      tapeFrac: K.tapeSeal,
+      labelFrac: K.labelFeedTop >= 0.85 ? 1.0 : 0.0,
+      trackingText: K.labelFeedTop >= 0.85 ? 'PB-9400-1082' : '',
+      frontTitle: 'DINKUSKIT',
+      frontSub: 'BOX #DK-402',
+    });
+    parts.push({
+      box: [[bx0 - 1.5, by0 - 1.5, bz0], [bx1 + 1.5, by1 + 1.5, bz1 + 0.5]],
+      svg: act('box', sealed.svg),
+    });
+
+    // While 4x6 Shipping Label is feeding out of the Pitney Bowes printer onto the box top (0 < labelFeedTop < 0.85)
+    if (K.labelFeedTop > 0.02 && K.labelFeedTop < 0.85){
+      const lf = K.labelFeedTop / 0.85;
+      const lx = lerp(40.0, bCx + 0.5, lf);
+      const ly = lerp(68.0, bCy + 4.5, lf);
+      const lz = lerp(BH + 14.5, bz1 + 0.4, lf) + Math.sin(lf * Math.PI) * 3.5;
+      const lPts = on(PZ(lz), rectUV(lx - 6.0, ly - 4.0, lx + 6.0, ly + 4.0));
+      let lSvg = shape(lPts, '#ffffff', 0.85);
+      lSvg += fill(pd(on(PZ(lz + 0.05), rectUV(lx + 3.2, ly - 3.6, lx + 5.5, ly + 3.6))), '#1b222c');
+      lSvg += fill(pd(on(PZ(lz + 0.05), rectUV(lx + 1.5, ly - 3.5, lx + 3.0, ly + 3.5))), CRIM.l);
+      parts.push({
+        box: [[lx - 6.2, ly - 4.2, lz], [lx + 6.2, ly + 4.2, lz + 0.5]],
+        svg: act('box', lSvg),
+      });
+    }
+
+    return parts;
+  }
+
+  // ---- OPEN-TOP CORRUGATED BOX (t = 0.00 -> 0.58) WITH KETTLE + PACKING SLIP INSIDE ----
+  const A = on(PZ(bz0), rectUV(bx0, by0, bx1, by1));
+  const B = on(PZ(bz1), rectUV(bx0, by0, bx1, by1));
+  const dunnageZ = bz0 + 4.2;
+  const dunnagePad = fill(pd(on(PZ(dunnageZ), rectUV(bx0 + 0.5, by0 + 0.5, bx1 - 0.5, by1 - 0.5))), KRAFT.d);
+
+  // Inner contents rendered inside openShell:
+  // 1. Honeycomb kraft dunnage floor pad
+  // 2. Ordered 3D Artisan Kettle nested in back-left of open box
+  // 3. Crisp White Packing Slip (#DK-402) dropping inside front-right of open box alongside the kettle
+  let innerContents = fill(pd(A), KRAFT.d) + dunnagePad;
+  if (kettleNested && K.majorFlapFold < 0.90){
+    innerContents += drawArtisanKettleSvg(kCx, kCy, kCz);
+  }
+  if (K.slipFeed > 0.02 && K.majorFlapFold < 0.88){
+    innerContents += drawPackingSlipInBoxSvg(K, bCx, bCy, bz0, bz1);
+  }
+
+  let boxSvg = openShell(A, B, nr => tone(nr, KRAFT), innerContents) + hullInk([...A, ...B], 2.0);
+
+  // 4 Corrugated Flaps:
+  // - 2 inner minor flaps (flapL at y=by1, flapR at y=by0) fold 0 deg -> 90 deg with K.minorFlapFold
+  // - 2 outer major flaps (flapB at x=bx0, flapF at x=bx1) fold 0 deg -> 90 deg with K.majorFlapFold
+  const fkMinor = K.minorFlapFold;
+  const fkMajor = K.majorFlapFold;
+  const halfX = wBox / 2;
+  const halfY = dBox / 2;
+
+  const angSide = (-22 + fkMinor * 112) * Math.PI / 180;
+  const angFB   = (-18 + fkMajor * 108) * Math.PI / 180;
+
+  const sInY = Math.sin(angSide) * (halfY - 0.4);
+  const sUpY = Math.cos(angSide) * (halfY - 0.4) * (1 - fkMinor * 0.98) * (fkMinor < 0.05 ? 0.34 : 0.65);
+  const sInX = Math.sin(angFB) * (halfX - 0.2);
+  const sUpX = Math.cos(angFB) * (halfX - 0.2) * (1 - fkMajor * 0.98) * (fkMajor < 0.05 ? 0.32 : 0.65);
+
+  const flapL = [
+    [bx0 + 0.4, by1, bz1],
+    [bx1 - 0.4, by1, bz1],
+    [bx1 - 0.4, by1 - Math.max(-2.5, sInY), bz1 + sUpY],
+    [bx0 + 0.4, by1 - Math.max(-2.5, sInY), bz1 + sUpY],
+  ];
+  const flapR = [
+    [bx0 + 0.4, by0, bz1],
+    [bx1 - 0.4, by0, bz1],
+    [bx1 - 0.4, by0 + Math.max(-2.5, sInY), bz1 + sUpY],
+    [bx0 + 0.4, by0 + Math.max(-2.5, sInY), bz1 + sUpY],
+  ];
+  const flapB = [
+    [bx0, by0, bz1 + 0.12],
+    [bx0, by1, bz1 + 0.12],
+    [bx0 + Math.max(-2.5, sInX), by1, bz1 + 0.12 + sUpX],
+    [bx0 + Math.max(-2.5, sInX), by0, bz1 + 0.12 + sUpX],
+  ];
+  const flapF = [
+    [bx1, by0, bz1 + 0.12],
+    [bx1, by1, bz1 + 0.12],
+    [bx1 - Math.max(-2.5, sInX), by1, bz1 + 0.12 + sUpX],
+    [bx1 - Math.max(-2.5, sInX), by0, bz1 + 0.12 + sUpX],
+  ];
+
+  if (fkMajor < 0.88){
+    boxSvg += shape(flapL, KRAFT.m, 0.82) + shape(flapR, KRAFT.m, 0.82);
+  }
+  boxSvg += shape(flapB, KRAFT.l, 0.9) + shape(flapF, KRAFT.l, 0.9);
+
+  if (facing([1, 0, 0])){
+    boxSvg += tx(bx1 + 0.12, bCy, bz0 + 7.2, 'DINKUSKIT', 2.2, INK, 800);
+    boxSvg += tx(bx1 + 0.12, bCy, bz0 + 4.1, 'BOX #DK-402', 1.75, KRAFT.d, 700);
+  }
+
+  parts.push({
+    box: [[bx0 - 2.5, by0 - 2.5, bz0], [bx1 + 2.5, by1 + 2.5, bz1 + 5.5]],
+    svg: act('box', boxSvg),
+  });
+
+  return parts;
+}
+
+/* ============================================================
+   CONVEYOR ROLLERS, PITNEY BOWES 4x6 PRINTER + TAMP ARM,
+   MAIL CHUTE PORTAL & OUTGOING TOTE FULL OF PACKED BOXES
+   ============================================================ */
+function drawRollersPrinterChuteAndTote(K){
+  const parts = [];
+  const zConv = BH + 4.5; // Elevated roller conveyor deck height
+
+  // 1. Segmented Steel & Brass Roller Conveyor Bed (x = 43..75, y = 50..135.5, z = BH..zConv)
+  for (let y = 50; y < 135; y += 7.8){
+    const yNext = Math.min(135.5, y + 7.8);
+    parts.push({
+      box: [[43, y, BH], [75, yNext, zConv - 0.55]],
+      svg: box(43, y, BH, 75, yNext, zConv - 0.55, SPACE, toneI, 0.72),
+    });
+    const ry = y + 3.9;
+    const isLitRoller =
+      (K.capsulePush > 0.2 && K.t < 0.40 && ry >= 118) ||
+      (K.glideToPrinter > 0.05 && K.t < 0.80 && ry >= 64 && ry <= 108) ||
+      (K.chuteSlide > 0.05 && ry <= 72);
+    parts.push({
+      box: [[44, ry - 1.0, zConv - 0.5], [74, ry + 1.0, zConv]],
+      svg: box(44.5, ry - 0.9, zConv - 0.5, 73.5, ry + 0.9, zConv, isLitRoller ? CF_ORG : BRASS, toneI, 0.55),
+    });
+  }
+
+  // 2. Braided USB-C Telemetry Cable from MacBook right side along rear channel to Dispenser & Pitney Bowes Printer
+  parts.push(...wireSegs([
+    [36.5, 136.0, BH + 6.2],
+    [16.0, 128.0, BH + 0.55],
+    [16.0, 96.0,  BH + 0.55],
+    [16.0, 68.0,  BH + 0.55],
+    [20.0, 66.0,  BH + 2.2],
+  ], K.printHeat > 0.1 ? '#f79640' : '#3568b0', 0.52));
+
+  // 3. Station 3: Pitney Bowes 4x6 Thermal Label Printer (x = 14..39, y = 56..80, z = BH..BH+18.5)
+  {
+    const px0 = 14, px1 = 39, py0 = 56, py1 = 80, pz0 = BH, pz1 = BH + 18.5;
+    const pProf = rrUV(py0, pz0, py1, pz1, 3.2, 5);
+    let pSvg = extrude(pProf, px0, px1, CERAMIC, tone);
+    if (facing([1, 0, 0])){
+      pSvg += shape(on(PX(px1), pProf), tone([1, 0, 0], CERAMIC), 0.95);
+      pSvg += shape(on(PX(px1 + 0.05), rrUV(py0 + 2.2, pz0 + 3.2, py1 - 2.2, pz1 - 2.5, 1.6)), AIZOME.d, 0.75);
+      pSvg += shape(on(PX(px1 + 0.10), rectUV(py0 + 3.8, pz0 + 9.5, py1 - 3.8, pz0 + 11.5)), '#12161f', 0.65);
+      const ledCol = K.printHeat > 0.1 ? '#f79640' : '#2ea874';
+      pSvg += shape(on(PX(px1 + 0.12), ellUV(py0 + 5.2, pz0 + 14.0, 1.15, 1.15, 10)), ledCol, 0.5);
+      pSvg += tx(px1 + 0.16, (py0 + py1) / 2, pz0 + 6.2, 'PITNEY BOWES 4x6', 1.55, '#f4f1ea', 800);
+    }
+    if (facing([0, 0, 1])){
+      pSvg += shape(on(PZ(pz1 + 0.05), rrUV(px0 + 4.5, py0 + 4.5, px1 - 5.5, py1 - 4.5, 1.6)), CLEAR.m, 0.75);
+    }
+    pSvg += hullInk([...on(PX(px0), pProf), ...on(PX(px1), pProf)], 2.1);
+    parts.push({
+      box: [[px0, py0, pz0], [px1 + 0.3, py1, pz1 + 0.3]],
+      svg: act('printer', pSvg),
+    });
+
+    // Overhead Pneumatic Tamp-Blow Label Applicator Arm extending over the Pitney Bowes Label Station!
+    // Strictly above sealed box top (z_min = BH + 17.8 > BH + 17.05 = bz1), so byDepth sorts it cleanly ON TOP OF the box!
+    const armZ0 = BH + 17.8;
+    const extendX = lerp(46.0, 64.5, K.tampHover);
+    const padStroke = K.tampPress * 2.4;
+    const padZ0 = armZ0 + 2.4 - padStroke;
+    let armSvg = '';
+    // Vertical gantry mast rising from printer top rear-right
+    armSvg += box(33.5, 65.0, armZ0, 38.5, 71.0, armZ0 + 6.5, SPACE_BK, toneI, 0.8);
+    // Horizontal cantilevered brass & steel applicator boom extending over box top
+    armSvg += box(38.5, 66.0, armZ0 + 4.2, extendX, 70.0, armZ0 + 6.2, BRASS, toneI, 0.8);
+    // Tamp applicator head & peel-and-press pad over box top
+    if (K.tampHover > 0.05){
+      const hx = extendX - 4.5;
+      armSvg += cyl(hx, 68.0, padZ0 + 1.2, armZ0 + 4.2, 1.35, METAL, toneI, 0.7, 12);
+      armSvg += box(hx - 4.8, 64.2, padZ0, hx + 4.8, 71.8, padZ0 + 1.2, K.tampPress > 0.2 ? CF_ORG : SPACE_BK, toneI, 0.8);
+    }
+    parts.push({
+      box: [[33.5, 64.0, armZ0], [65.5, 72.0, armZ0 + 6.8]],
+      svg: act('printer', armSvg),
+    });
+  }
+
+  // 4. Station 4a: Industrial Mail Chute Portal Arch & Angled Brass Gravity Slide Ramp (y = 36.5..49.5, x = 43..75.5)
+  // Decomposed into 4 non-overlapping parts (Ramp Bed, Back-Left Pillar, Front-Right Pillar, Overhead Arch + Swinging Brass Flap)
+  // so Box #DK-402 depth-sorts cleanly INSIDE the Mail Chute tunnel as it glides through!
+  {
+    const cy0 = 36.5, cy1 = 49.5;
+    // 4a-i. Angled Brass Chute Slide Ramp Bed (z = BH..zConv, strictly below box bottom)
+    const rBack = on(PZ(zConv - 0.1), rectUV(43.5, 44.0, 74.5, cy1));
+    const rFront = [
+      [44.0, cy0, BH + 2.4],
+      [74.0, cy0, BH + 2.4],
+      [74.0, 44.0, zConv - 0.1],
+      [44.0, 44.0, zConv - 0.1],
+    ];
+    let rampSvg = box(43.5, cy0, BH, 74.5, cy1, BH + 2.4, SPACE, toneI, 0.75)
+      + shape(rBack, BRASS.m, 0.75)
+      + shape(rFront, BRASS.l, 0.85);
+    parts.push({
+      box: [[43.5, cy0, BH], [74.5, cy1, zConv]],
+      svg: rampSvg,
+    });
+
+    // 4a-ii. Mail Chute Back-Left Pillar (x = 43.0..46.8, strictly behind box x_min = 48)
+    parts.push({
+      box: [[43.0, cy0, zConv + 0.05], [46.8, cy1, BH + 18.2]],
+      svg: box(43.0, cy0, zConv + 0.05, 46.8, cy1, BH + 18.2, AIZOME, tone, 0.9),
+    });
+
+    // 4a-iii. Mail Chute Front-Right Pillar with "MAIL CHUTE" Placard (x = 71.2..75.5, strictly in front of box x_max = 70)
+    let frontPillarSvg = box(71.2, cy0, zConv + 0.05, 75.5, cy1, BH + 18.2, AIZOME, tone, 0.95);
+    if (facing([1, 0, 0])){
+      frontPillarSvg += shape(on(PX(75.56), rrUV(cy0 + 0.9, BH + 8.8, cy1 - 0.9, BH + 15.8, 0.9)), '#f4f1ea', 0.75);
+      frontPillarSvg += tx(75.64, (cy0 + cy1) / 2, BH + 12.2, 'MAIL CHUTE', 1.45, INK, 800);
+    }
+    parts.push({
+      box: [[71.2, cy0, zConv + 0.05], [75.7, cy1, BH + 18.2]],
+      svg: frontPillarSvg,
+    });
+
+    // 4a-iv. Mail Chute Overhead Bridge Arch + Swinging Brass Chute Gate (z = BH + 18.25..BH + 23.5, strictly above box top)
+    let archSvg = box(43.0, cy0, BH + 18.25, 75.5, cy1, BH + 21.8, AIZOME, tone, 0.95);
+    const rA = on(PZ(BH + 21.8), rectUV(43.0, cy0, 75.5, cy1));
+    const rB = on(PZ(BH + 23.8), rectUV(45.2, cy0 + 1.4, 73.3, cy1 - 1.4));
+    archSvg += loft(rA, rB, nr => tone(nr, BRASS)) + fill(pd(rB), BRASS.l) + hullInk([...rA, ...rB], 1.5);
+
+    // Swinging Brass Chute Flap Door hinged at top of arch (swings open along -y as Box #DK-402 passes through!)
+    const swingAng = K.chuteGateSwing * 62 * Math.PI / 180;
+    const flapLen = 7.2;
+    const fyBot = (cy0 + 2.0) - Math.sin(swingAng) * flapLen;
+    const fzBot = (BH + 18.2) - Math.cos(swingAng) * (flapLen * 0.45);
+    const gatePts = [
+      [47.2, cy0 + 2.0, BH + 18.2],
+      [70.8, cy0 + 2.0, BH + 18.2],
+      [70.8, fyBot, fzBot],
+      [47.2, fyBot, fzBot],
+    ];
+    archSvg += shape(gatePts, BRASS.l, 0.85);
+    parts.push({
+      box: [[43.0, cy0 - 5.0, BH + 18.25], [75.6, cy1, BH + 24.0]],
+      svg: archSvg,
+    });
+  }
+
+  // 5. Station 4b: Heavy-Duty Outgoing Postal Tote / Shipping Crate ("DINKUSKIT OUTBOUND TOTE")
+  //    Sitting right below the exit of the Mail Chute (x = 34..88, y = 3..35.5, z = BH..BH+11.2)
+  //    Already filled with 5 pre-packed, kraft-taped, and 4x6-labeled cardboard boxes stacked at realistic angles!
+  {
+    const tx0 = 34.0, tx1 = 88.0, ty0 = 3.0, ty1 = 35.5, tz0 = BH, tz1 = BH + 10.6;
+    const toteA = on(PZ(tz0), rectUV(tx0, ty0, tx1, ty1));
+    const toteB = on(PZ(tz1), rectUV(tx0, ty0, tx1, ty1));
+
+    // 5 Pre-Packed, Kraft-Taped, and 4x6-Labeled Cardboard Boxes stacked inside the Outgoing Tote
+    // (Ordered back-to-front in camera depth so they nest naturally inside the crate!)
+    const prePackedSpecs = [
+      { cx: 43.8, cy: 11.2, z0: tz0 + 0.4, w: 14.2, d: 12.2, h: 10.2, yawDeg: -8,  pitchDeg:  2, mat: KRAFT_DK, trackingText: 'PB-4018', frontTitle: 'DK-397' },
+      { cx: 44.2, cy: 26.5, z0: tz0 + 0.4, w: 14.5, d: 12.6, h: 11.2, yawDeg:  7,  pitchDeg: -2, mat: KRAFT,    trackingText: 'PB-4019', frontTitle: 'DK-398' },
+      { cx: 61.0, cy: 19.2, z0: tz0 + 0.4, w: 15.6, d: 14.2, h: 6.8,  yawDeg: -4,  pitchDeg:  0, mat: KRAFT_DK, trackingText: 'PB-4020', frontTitle: 'DK-399' },
+      { cx: 77.8, cy: 11.0, z0: tz0 + 0.4, w: 14.4, d: 12.2, h: 11.0, yawDeg:  9,  pitchDeg:  3, mat: KRAFT,    trackingText: 'PB-4021', frontTitle: 'DK-400' },
+      { cx: 77.5, cy: 26.8, z0: tz0 + 0.4, w: 14.4, d: 12.2, h: 10.4, yawDeg: -6,  pitchDeg: -2, mat: KRAFT_DK, trackingText: 'PB-4022', frontTitle: 'DK-401' },
+    ];
+
+    let innerToteBoxesSvg = fill(pd(toteA), TOTE_M.d);
+    for (const spec of prePackedSpecs){
+      innerToteBoxesSvg += drawOrientedSealedParcel({
+        ...spec,
+        tapeFrac: 1.0,
+        labelFrac: 1.0,
+      }).svg;
+    }
+
+    // Once our newly labeled Hero Box (#DK-402) slides out of the Mail Chute into the Outgoing Tote (K.toteDrop > 0.35),
+    // it lands right on top of the packed & labeled boxes inside the crate!
+    if (K.toteDrop > 0.35){
+      const bCx = lerp(59.0, 61.0, K.toteDrop);
+      const bCy = lerp(42.5, 19.5, K.toteDrop);
+      const dropArc = Math.sin(K.toteDrop * Math.PI) * 3.2;
+      const bz0 = lerp(BH + 4.55, BH + 7.45, K.toteDrop) + dropArc + K.toteBounce;
+      const yawDeg = lerp(0, 5.5, K.toteDrop);
+      const pitchDeg = K.totePitch * 15.0;
+
+      innerToteBoxesSvg += drawOrientedSealedParcel({
+        cx: bCx,
+        cy: bCy,
+        z0: bz0,
+        w: 21.0,
+        d: 21.0,
+        h: 12.0,
+        yawDeg,
+        pitchDeg,
+        mat: KRAFT,
+        tapeFrac: 1.0,
+        labelFrac: 1.0,
+        trackingText: 'PB-9400-1082',
+        frontTitle: 'DINKUSKIT',
+        frontSub: 'BOX #DK-402',
+      }).svg;
+    }
+
+    let toteSvg = openShell(toteA, toteB, nr => tone(nr, TOTE_M), innerToteBoxesSvg) + hullInk([...toteA, ...toteB], 2.2);
+
+    // Brass/Safety-Yellow reinforced top rim bumper bars on the visible front-right (+x) and front-left (+y) tote lips
+    if (facing([1, 0, 0])){
+      // Structural ribs & bold placard on the front-right tote wall (x = tx1)
+      for (const ry of [6.5, 32.0]){
+        toteSvg += shape(on(PX(tx1 + 0.06), rectUV(ry - 1.0, tz0 + 0.6, ry + 1.0, tz1 - 0.6)), SPACE_BK.d, 0.6);
+      }
+      toteSvg += shape(on(PX(tx1 + 0.08), rrUV(ty0 + 5.8, tz0 + 2.0, ty1 - 5.8, tz1 - 1.8, 1.1)), '#f4f1ea', 0.85);
+      toteSvg += shape(on(PX(tx1 + 0.12), rectUV(ty0 + 6.4, tz1 - 4.0, ty1 - 6.4, tz1 - 2.3)), AIZOME.m, 0.5);
+      toteSvg += tx(tx1 + 0.16, (ty0 + ty1) / 2, tz1 - 3.25, 'DINKUSKIT OUTBOUND TOTE', 1.38, '#ffffff', 800);
+      const countStr = K.toteDrop > 0.7 ? '6 PACKED & LABELED BOXES' : '5 PACKED & LABELED BOXES';
+      toteSvg += tx(tx1 + 0.16, (ty0 + ty1) / 2, tz0 + 3.9, countStr, 1.35, INK, 800);
+    }
+    if (facing([0, 1, 0])){
+      // Molded side grip handle on front-left tote wall (y = ty1)
+      toteSvg += shape(on(PY(ty1 + 0.08), rrUV(tx0 + 18.0, tz1 - 4.5, tx1 - 18.0, tz1 - 1.8, 0.9)), BRASS.m, 0.75);
+    }
+
+    parts.push({
+      box: [[tx0, ty0, tz0], [tx1 + 0.5, ty1, tz1 + 12.0]],
+      svg: act('box', toteSvg),
+    });
+  }
+
+  return parts;
+}
+
+/* ============================================================
+   FLOATING REST PILL & AUTOMATIC SELF-FADING CALLOUT TAGS
+   ============================================================ */
+function drawOverlayPill(anchor3D, dx, dy, text, alpha, style = {}){
+  if (alpha <= 0.01) return '';
+  const k = INK_K;
+  const [ax, ay] = P(...anchor3D);
+  const cx = ax + dx * k;
+  const cy = ay + dy * k;
+  const fs = (style.fontSize || 9.0) * k;
+  const padX = 13.5 * k;
+  const h = (style.height || 20) * k;
+  const w = text.length * fs * 0.64 + padX * 2.25;
+  const bg = style.bg || '#1b222c';
+  const fg = style.fg || '#f4f1ea';
+  const border = style.border || '#1b222c';
+  const dotCol = style.dot || '#55d69e';
+
+  return `
+    <g class="dk-auto-pill" opacity="${f(alpha)}" data-act="macbook" style="cursor:pointer">
+      <path d="M ${f(ax)} ${f(ay)} L ${f(cx)} ${f(cy)}" fill="none" stroke="${border}" stroke-width="${f(1.4 * k)}" stroke-dasharray="${style.dashed ? `${f(3*k)} ${f(2*k)}` : 'none'}"/>
+      <circle cx="${f(ax)}" cy="${f(ay)}" r="${f(2.2 * k)}" fill="${dotCol}" stroke="${border}" stroke-width="${f(1.1 * k)}"/>
+      <rect x="${f(cx - w/2 + 1.2*k)}" y="${f(cy - h/2 + 1.8*k)}" width="${f(w)}" height="${f(h)}" rx="${f(h/2)}" fill="#1b222c" opacity="0.22"/>
+      <rect x="${f(cx - w/2)}" y="${f(cy - h/2)}" width="${f(w)}" height="${f(h)}" rx="${f(h/2)}" fill="${bg}" stroke="${border}" stroke-width="${f(1.5 * k)}"/>
+      <circle cx="${f(cx - w/2 + 10.5*k)}" cy="${f(cy)}" r="${f(2.8 * k)}" fill="${dotCol}"/>
+      <text x="${f(cx + 4.5*k)}" y="${f(cy + fs * 0.35)}" font-size="${f(fs)}" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-weight="800" letter-spacing=".04em" fill="${fg}">${text}</text>
+    </g>
+  `;
+}
+
+function drawAllCalloutsAndPrompts(K, zMac){
+  let s = '';
+  const yo = Y_MAC_OFF;
+  const bz1 = BH + 4.55 + 12.5;
+
+  // 1. At Rest (t = 0.0): Floating pill badge above the closed MacBook
+  if (K.restPromptAlpha > 0.01){
+    s += drawOverlayPill(
+      [52, 126 + yo, zMac + 8.2],
+      10, -34,
+      'Click MacBook to Place Order',
+      K.restPromptAlpha,
+      { bg: '#1b222c', fg: '#f4f1ea', border: '#1b222c', dot: '#55d69e', fontSize: 9.5, height: 22 }
+    );
+  }
+
+  // 2. Piece 1 Callouts (t = 0.14 -> 0.34): dinkuskit.com, Stripe + D1, Order #DK-402
+  if (K.tagStorefrontAlpha > 0.01){
+    s += drawOverlayPill(
+      [16, 134 + yo, zMac + 45],
+      -26, -32,
+      'dinkuskit.com',
+      K.tagStorefrontAlpha,
+      { bg: '#fff8e7', fg: '#1b222c', border: '#1b222c', dot: '#2b5b9e', fontSize: 9.0, height: 19 }
+    );
+  }
+  if (K.tagStripeD1Alpha > 0.01){
+    s += drawOverlayPill(
+      [52, 132 + yo, zMac + 3.2],
+      -62, 36,
+      'Stripe + D1',
+      K.tagStripeD1Alpha,
+      { bg: '#eef2ff', fg: '#1e1b4b', border: '#312e81', dot: '#6366f1', fontSize: 9.0, height: 19 }
+    );
+  }
+  if (K.tagOrderAlpha > 0.01){
+    const capY = lerp(103.5 + yo, 88.5 + yo, K.capsulePush);
+    s += drawOverlayPill(
+      [60, capY, zMac + 3.0],
+      42, 34,
+      'Order #DK-402',
+      K.tagOrderAlpha,
+      { bg: '#ecfdf5', fg: '#14532d', border: '#186343', dot: '#f79640', fontSize: 9.0, height: 19 }
+    );
+  }
+
+  // 3. Piece 2 Callout A (t = 0.35 -> 0.48, verified at t = 0.43): "Packing Slip Inside Box"
+  if (K.tagSlipInBoxAlpha > 0.01){
+    s += drawOverlayPill(
+      [68.0, 99.5, bz1 - 2.5],
+      48, 34,
+      'Packing Slip Inside Box',
+      K.tagSlipInBoxAlpha,
+      { bg: '#fff8e7', fg: '#1b222c', border: '#1b222c', dot: '#2ea874', fontSize: 9.1, height: 20 }
+    );
+  }
+
+  // 4. Piece 2 Callout B (t = 0.58 -> 0.67, verified at t = 0.63): "Sealed + Kraft Taped"
+  if (K.tagTapedAlpha > 0.01){
+    s += drawOverlayPill(
+      [70.0, 106.0, bz1 - 1.5],
+      46, 34,
+      'Sealed + Kraft Taped',
+      K.tagTapedAlpha,
+      { bg: '#fef3c7', fg: '#78350f', border: '#1b222c', dot: '#db6f18', fontSize: 9.1, height: 20 }
+    );
+  }
+
+  // 5. Piece 3 Callout A (t = 0.71 -> 0.81, verified at t = 0.76): "4×6 Label Applied"
+  if (K.tagTopLabelAlpha > 0.01){
+    s += drawOverlayPill(
+      [66.5, 72.5, bz1 + 0.3],
+      48, 34,
+      '4×6 Label Applied',
+      K.tagTopLabelAlpha,
+      { bg: '#eef2ff', fg: '#1e1b4b', border: '#1b222c', dot: '#ed5f55', fontSize: 9.1, height: 20 }
+    );
+  }
+
+  // 6. Piece 3 Callout B (t = 0.89 -> 1.00, verified at t = 0.96): "Dispatched in Outbound Tote"
+  if (K.tagOutboundToteAlpha > 0.01){
+    s += drawOverlayPill(
+      [53.5, 24.5, BH + 19.5],
+      -38, -28,
+      'Dispatched in Outbound Tote',
+      K.tagOutboundToteAlpha,
+      { bg: '#ecfdf5', fg: '#14532d', border: '#186343', dot: '#2ea874', fontSize: 9.1, height: 20 }
+    );
+  }
+
+  return s;
+}
+
+/* ============================================================
+   MAIN SCENE COMPOSITOR
+   ============================================================ */
+function scene(st){
+  const K = deriveKinematics(st.t || 0, st.xr || 0);
+  const zMac = BH + 4.5;
+  const yo = Y_MAC_OFF;
+
+  let s = '';
+  // 1. Assembly Line Studio Workbench Board + Per-Station Cast Shadows
+  s += board(0, 0, BW, BD, BH, 6, BOARD);
+  s += clipTo(BTOP,
+    unitShadow(28, 98 + yo, 76, 154 + yo, zMac + 10) +
+    unitShadow(43, 50, 75, 135, BH + 5) +
+    unitShadow(18, 88, 38, 106, BH + 14) +
+    unitShadow(14, 56, 39, 80, BH + 19) +
+    unitShadow(43, 36.5, 75.5, 49.5, BH + 22) +
+    unitShadow(34, 3, 88, 35.5, BH + 14)
+  );
+
+  // 2. Depth-Sorted 3D Workbench Stations (Piece 1 MacBook + Piece 2 Rollers/Dispenser/Box + Piece 3 Printer/Chute/Tote)
+  const capOut = K.capsulePush > 0.15 ? buildOrderCapsulePart(K, zMac) : null;
+  const parts = [
+    {
+      box: [[29, 99 + yo, BH], [75, 153 + yo, zMac - 0.05]],
+      svg: act('macbook', box(29, 99 + yo, BH, 75, 153 + yo, zMac - 0.05, SPACE_BK, toneI, 0.75)),
+    },
+    drawMacbookBase(K, zMac),
+    drawMacbookLid(K, zMac),
+    ...(capOut ? [capOut] : []),
+    ...buildHeroBoxAndContents(K),
+    ...drawRollersPrinterChuteAndTote(K),
+  ];
+  s += byDepth(parts);
+
+  // 3. Floating Rest Prompt & Self-Fading Callouts across Pieces 1, 2 & 3
+  s += drawAllCalloutsAndPrompts(K, zMac);
+
+  return s;
+}
+
+/* ============================================================
+   1-CLICK INTERACTION & TIMELINE CONTROLLER (t = 0.00 -> 1.00)
+   ============================================================ */
+let ui, animId = 0;
+
+function syncHeroStatus(st){
+  const K = deriveKinematics(st.t || 0, st.xr || 0);
+  const pill = document.getElementById('dk-hero-status');
+  const txt = document.getElementById('dk-status-text');
+  const c1 = document.getElementById('dk-st-cell-1');
+  const c2 = document.getElementById('dk-st-cell-2');
+  const c3 = document.getElementById('dk-st-cell-3');
+
+  if (c1 && c2 && c3){
+    const u = K.t;
+    c1.classList.toggle('star', u < 0.34 || u >= 0.95);
+    c2.classList.toggle('star', (u >= 0.34 && u < 0.66) || u >= 0.95 || u < 0.02);
+    c3.classList.toggle('star', u >= 0.66 || u < 0.02);
+  }
+
+  if (!pill || !txt) return;
+  if (K.t < 0.03){
+    pill.setAttribute('data-phase', 'rest');
+    txt.textContent = 'At Rest · Click MacBook to Place Order';
+  } else if (K.t < 0.20){
+    pill.setAttribute('data-phase', 'storefront');
+    txt.textContent = 'Piece 1 · Storefront Open & Clicking "Place Order" (#DK-402)';
+  } else if (K.t < 0.34){
+    pill.setAttribute('data-phase', 'cutaway');
+    txt.textContent = 'Piece 1 · 38-Part Stripe + D1 Cutaway & Roller Egress';
+  } else if (K.t < 0.47){
+    pill.setAttribute('data-phase', 'pack');
+    txt.textContent = 'Piece 2 · Artisan Kettle + Packing Slip Drop Inside Open Box';
+  } else if (K.t < 0.66){
+    pill.setAttribute('data-phase', 'pack');
+    txt.textContent = 'Piece 2 · 4 Flaps Fold Shut & Kraft Water-Activated Tape Seal';
+  } else if (K.t < 0.80){
+    pill.setAttribute('data-phase', 'ship');
+    txt.textContent = 'Piece 3 · Pitney Bowes 4×6 Shipping Label Applied to Box Top';
+  } else if (K.t < 0.95){
+    pill.setAttribute('data-phase', 'ship');
+    txt.textContent = 'Piece 3 · Sliding Through Mail Chute into Outbound Tote';
+  } else {
+    pill.setAttribute('data-phase', 'ship');
+    txt.textContent = 'Dispatched in Outbound Tote · Click MacBook to Replay';
+  }
+}
+
+function triggerFullAssemblyLineAnimation(st){
+  const id = ++animId;
+  st.__scrubbed = false;
+  st.t = 0.0;
+  st.xr = 0.0;
+  syncHeroStatus(st);
+  ui.render();
+  const durationMs = 9000;
+  let elapsed = 0;
+  ui.animate(dt => {
+    if (id !== animId) return false;
+    elapsed += dt * 1000;
+    const k = Math.min(1, elapsed / durationMs);
+    st.t = k;
+    syncHeroStatus(st);
+    return k < 1;
+  });
+}
+
+ui = mountFigure({
+  fig: 'HERO',
+  target: '#dk-hero-stage',
+  chrome: 'stage-only',
+  credit: false,
+  turn: 'full',
+  title: 'DinkusKit.com — Homepage Hero (Complete 1-Click Assembly Line)',
+  size: [BW, BD, H],
+  center: [54, 98],
+  palette: 'aizome',
+  state: { t: 0.0, xr: 0, xrT: 0 },
+  scene,
+  acts: {
+    macbook: st => triggerFullAssemblyLineAnimation(st),
+    box:     st => triggerFullAssemblyLineAnimation(st),
+    printer: st => triggerFullAssemblyLineAnimation(st),
+  },
+  scrub: (st, tNorm) => {
+    animId++;
+    st.t = clamp01(tNorm);
+    syncHeroStatus(st);
+  },
+  params: (st, q) => {
+    if (q.has('t')){
+      st.t = clamp01(+q.get('t') || 0);
+    }
+  },
+});
+
+// Tightly frame the 3D assembly line inside the Homepage Hero stage
+(() => {
+  const fig = document.getElementById('fig');
+  if (fig && fig.viewBox && fig.viewBox.baseVal){
+    const vb = fig.viewBox.baseVal;
+    const cropX = vb.width * 0.075;
+    const topCropY = vb.height * 0.125;
+    const newW = vb.width * 0.855;
+    const newH = vb.height * 0.785;
+    fig.setAttribute('viewBox', `${f(vb.x + cropX)} ${f(vb.y + topCropY)} ${f(newW)} ${f(newH)}`);
+  }
+  const pill = document.getElementById('dk-hero-status');
+  if (pill){
+    pill.style.cursor = 'pointer';
+    pill.addEventListener('click', () => triggerFullAssemblyLineAnimation(ui.st));
+  }
+  syncHeroStatus(ui.st);
+})();
+</script>
+</body>
+</html>
