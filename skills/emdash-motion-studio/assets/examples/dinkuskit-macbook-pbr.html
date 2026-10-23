@@ -1154,27 +1154,27 @@
 
       // 6 Focused Studio Softbox Strips (HDR RGB > 1.0) against deep obsidian studio void
       // so anodized aluminum shows rich metallic gradients + sharp specular rim bevels!
-      // 1. Overhead Warm-Neutral Key Strip ([5.5, 5.2, 4.8])
-      addSoftbox(10.5, 2.8, [5.5, 5.2, 4.8], [0, 12.5, -2.5], [0, 0, 0]);
+      // 1. Overhead Warm-Neutral Key Strip ([5.5, 5.2, 4.8]) positioned so specular sweep frames the dark obsidian Apple logo
+      addSoftbox(8.5, 2.0, [5.5, 5.2, 4.8], [-5.2, 11.8, -1.8], [0, 0, 0]);
 
       // 2. Front-Left Warm Tungsten Grazing Softbox Strip ([5.5, 4.0, 2.8])
-      addSoftbox(7.5, 2.4, [5.5, 4.0, 2.8], [-11.5, 5.2, 7.5], [0, 0.6, 0]);
+      addSoftbox(7.0, 2.2, [5.5, 4.0, 2.8], [-11.8, 4.8, 7.2], [0, 0.5, 0]);
 
       // 3. Front-Right Cool Sky Rim Softbox Strip ([2.2, 4.0, 6.2])
-      addSoftbox(7.5, 2.4, [2.2, 4.0, 6.2], [11.5, 5.5, 7.0], [0, 0.8, 0]);
+      addSoftbox(7.0, 2.2, [2.2, 4.0, 6.2], [11.8, 5.2, 6.8], [0, 0.7, 0]);
 
       // 4. Back-Top Grazing Amber/Gold Rim Strip ([6.5, 4.5, 2.5])
-      addSoftbox(12.0, 2.0, [6.5, 4.5, 2.5], [0, 6.8, -11.5], [0, 0.5, 0]);
+      addSoftbox(11.5, 1.9, [6.5, 4.5, 2.5], [0, 6.6, -11.5], [0, 0.5, 0]);
 
       // 5. Left-Side Low Grazing Strip for MagSafe/Thunderbolt Ports ([2.2, 4.0, 6.2])
       addSoftbox(6.0, 1.4, [2.2, 4.0, 6.2], [-12.0, 1.5, 1.2], [0, 0.25, 0]);
 
-      // 6. Front-Low Grazing Strip for CNC Thumb Notch & Front Bevel ([5.5, 5.2, 4.8])
-      addSoftbox(8.5, 1.3, [5.5, 5.2, 4.8], [0, 1.4, 12.0], [0, 0.2, 2.0]);
+      // 6. Front-Low Grazing Strip for CNC Thumb Notch & 78 3D Keycap Bevels ([5.5, 5.2, 4.8])
+      addSoftbox(8.2, 1.3, [5.5, 5.2, 4.8], [0, 1.6, 12.2], [0, 0.2, 1.5]);
 
       const pmrem = new THREE.PMREMGenerator(renderer);
       pmrem.compileCubemapShader();
-      const envTex = pmrem.fromScene(envScene, 0.03).texture;
+      const envTex = pmrem.fromScene(envScene, 0.0).texture;
       pmrem.dispose();
       return envTex;
     }
@@ -1189,7 +1189,7 @@
       // Soft dark rounded-rect contact shadow matching MacBook footprint
       ctx.save();
       ctx.filter = 'blur(24px)';
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.94)';
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.95)';
       roundRect(ctx, 56, 82, 400, 348, 48);
       ctx.fill();
       ctx.restore();
@@ -1204,17 +1204,18 @@
       c.height = 1024;
       const ctx = c.getContext('2d');
 
-      const g = ctx.createRadialGradient(512, 512, 20, 512, 512, 512);
-      g.addColorStop(0, '#131926');
-      g.addColorStop(0.50, '#0b0f18');
-      g.addColorStop(1, '#04060b');
+      const g = ctx.createRadialGradient(512, 512, 18, 512, 512, 512);
+      g.addColorStop(0, '#141c2b');
+      g.addColorStop(0.38, '#0b1019');
+      g.addColorStop(0.75, '#060911');
+      g.addColorStop(1, '#05070d');
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, 1024, 1024);
 
       // Subtle architectural grid rings on the dark studio pedestal
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.08)';
-      ctx.lineWidth = 2;
-      [210, 325, 440].forEach(r => {
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.07)';
+      ctx.lineWidth = 1.5;
+      [140, 220, 310].forEach(r => {
         ctx.beginPath();
         ctx.arc(512, 512, r, 0, Math.PI * 2);
         ctx.stroke();
@@ -1245,20 +1246,20 @@
     renderer.physicallyCorrectLights = true;
     renderer.outputEncoding = THREE.sRGBEncoding;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.08;
+    renderer.toneMappingExposure = 1.06;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x060911);
-    scene.fog = new THREE.FogExp2(0x060911, 0.028);
+    scene.background = new THREE.Color(0x05070d);
+    scene.fog = new THREE.FogExp2(0x05070d, 0.025);
     scene.environment = buildStudioEnvironment(renderer);
 
     const camera = new THREE.PerspectiveCamera(34, 1080 / 555, 0.1, 100);
 
     // Controlled studio key & grazing rim lights so keycaps & CNC bevels pop without washing out aluminum
-    const hemiLight = new THREE.HemisphereLight(0x94a3b8, 0x060911, 0.35);
+    const hemiLight = new THREE.HemisphereLight(0x94a3b8, 0x05070d, 0.24);
     scene.add(hemiLight);
 
-    const keyLight = new THREE.DirectionalLight(0xfff7ed, 1.85);
+    const keyLight = new THREE.DirectionalLight(0xfff7ed, 1.55);
     keyLight.position.set(-5.5, 9.0, 7.0);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.width = 2048;
@@ -1274,23 +1275,23 @@
     scene.add(keyLight);
 
     const coolRimLight = new THREE.DirectionalLight(0x38bdf8, 1.45);
-    coolRimLight.position.set(7.5, 5.0, -5.5);
+    coolRimLight.position.set(7.5, 3.8, -5.5);
     scene.add(coolRimLight);
 
-    const frontEdgeLight = new THREE.PointLight(0xe2e8f0, 1.25, 14);
-    frontEdgeLight.position.set(-1.5, 1.6, 5.5);
+    const frontEdgeLight = new THREE.PointLight(0xe2e8f0, 1.45, 14);
+    frontEdgeLight.position.set(-1.5, 1.2, 6.2);
     scene.add(frontEdgeLight);
 
-    // Dark Obsidian Architectural Studio Pedestal at y = 0
-    const deskGeo = new THREE.CylinderGeometry(9.2, 9.5, 0.36, 64);
+    // Wide Dark Obsidian Studio Surface at y = 0 (no artificial cylinder horizon cutoff)
+    const deskGeo = new THREE.CylinderGeometry(18.0, 18.5, 0.36, 72);
     const deskMat = new THREE.MeshPhysicalMaterial({
       map: createStudioDeskTexture(),
-      color: new THREE.Color(0x111722),
-      roughness: 0.55,
-      metalness: 0.15,
-      clearcoat: 0.12,
-      clearcoatRoughness: 0.40,
-      envMapIntensity: 0.45,
+      color: new THREE.Color(0x080b12),
+      roughness: 0.78,
+      metalness: 0.08,
+      clearcoat: 0.04,
+      clearcoatRoughness: 0.45,
+      envMapIntensity: 0.18,
     });
     const deskMesh = new THREE.Mesh(deskGeo, deskMat);
     deskMesh.position.set(0, -0.18, -0.2);
@@ -1303,7 +1304,7 @@
       new THREE.MeshBasicMaterial({
         map: createContactShadowTexture(),
         transparent: true,
-        opacity: 0.92,
+        opacity: 0.94,
         depthWrite: false,
       })
     );
@@ -1327,7 +1328,7 @@
     // Screen Canvas Texture (1600x1040)
     const screenSurface = createMacBookScreenSurface(renderer);
 
-    // Load the 29,287-triangle M-Series MacBook Pro .glb from window.SHAHDIN_MAC_GLB_B64
+    // Load the M-Series MacBook Pro .glb from window.SHAHDIN_MAC_GLB_B64
     let macHingeNode = null;
     let macGlbReady = false;
 
@@ -1360,55 +1361,77 @@
 
           const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
-          // Rule 3: Preserve Embedded 114 KB Micro-Brushed Normal Map from the glTF 'aluminium' material
-          let origNormalMap = null;
+          // Map canonical mesh references (back_1, back_2, body_1, body_2, matte)
+          const meshes = {};
           root.traverse(obj => {
             if (obj.name === 'screen') {
               macHingeNode = obj;
             }
-            if (obj.isMesh && obj.material && obj.material.normalMap && !origNormalMap) {
-              origNormalMap = obj.material.normalMap;
+            if (!obj.isMesh) return;
+            const matName = (obj.material && obj.material.name) || '';
+            let inScreenLid = false;
+            let p = obj.parent;
+            while (p) {
+              if (p.name === 'screen') {
+                inScreenLid = true;
+                break;
+              }
+              p = p.parent;
+            }
+            if (matName === 'matte' || obj.name === 'matte') {
+              meshes.matte = obj;
+            } else if (matName === 'aluminium') {
+              if (inScreenLid) meshes.back_2 = obj;
+              else meshes.body_1 = obj;
+            } else if (matName === 'blackmatte') {
+              if (inScreenLid) meshes.back_1 = obj;
+              else meshes.body_2 = obj;
             }
           });
+
+          // Rule 3: Preserve Embedded 114 KB Micro-Brushed Normal Map on meshes.back_2 & meshes.body_1
+          const origNormalMap =
+            (meshes.back_2 && meshes.back_2.material && meshes.back_2.material.normalMap) ||
+            (meshes.body_1 && meshes.body_1.material && meshes.body_1.material.normalMap) ||
+            null;
           if (origNormalMap) {
             origNormalMap.anisotropy = maxAniso;
           }
 
-          // Sleek Space-Silver / Titanium Anodized Aluminum (contrasts against dark studio floor
-          // AND makes the 78 dark charcoal 3D keycaps & obsidian Apple logo pop unmistakably!)
+          // Space-Silver / Titanium Anodized Aluminum (Rule 3 PBR specification)
           const matAnodizedAluminum = new THREE.MeshPhysicalMaterial({
-            color: new THREE.Color(0x6e7683),
+            color: new THREE.Color(0x8a909a),
             metalness: 0.88,
-            roughness: 0.24,
+            roughness: 0.22,
             normalMap: origNormalMap,
-            normalScale: new THREE.Vector2(0.45, 0.45),
+            normalScale: new THREE.Vector2(0.4, 0.4),
             clearcoat: 0.15,
-            clearcoatRoughness: 0.22,
-            envMapIntensity: 1.45,
+            clearcoatRoughness: 0.20,
+            envMapIntensity: 1.5,
           });
 
-          // Rule 4A: Matte Charcoal PBT Keycap Dielectric for the 78 sculpted 3D keycaps,
-          // speaker grilles, MagSafe/Thunderbolt port cutouts, and 4 rubber feet
+          // Rule 4A: Matte Charcoal PBT Keycap Dielectric (meshes.body_2 — 78 3D keycaps, speaker grilles, ports, feet)
           const matKeycaps = new THREE.MeshPhysicalMaterial({
-            color: new THREE.Color(0x090b10),
-            metalness: 0.04,
-            roughness: 0.72,
-            clearcoat: 0.0,
-            clearcoatRoughness: 0.45,
-            envMapIntensity: 0.28,
+            color: new THREE.Color(0x0b0d13),
+            metalness: 0.08,
+            roughness: 0.48,
+            clearcoat: 0.12,
+            clearcoatRoughness: 0.25,
+            envMapIntensity: 0.55,
           });
 
-          // Rule 4B: Glossy Obsidian Glass for the Display Bezel & Lid Apple Emblem
+          // Rule 4B: Glossy Obsidian Bezel Glass & 3D Lid Apple Logo (meshes.back_1)
           const matBezelGlass = new THREE.MeshPhysicalMaterial({
-            color: new THREE.Color(0x07090e),
-            metalness: 0.35,
+            color: new THREE.Color(0x05070c),
+            metalness: 0.22,
             roughness: 0.08,
-            clearcoat: 0.95,
+            clearcoat: 0.92,
             clearcoatRoughness: 0.06,
-            envMapIntensity: 1.60,
+            envMapIntensity: 0.55,
+            side: THREE.DoubleSide,
           });
 
-          // Rule 5: Retina Display — Emissive Clearcoat Glass (Zero Diffuse Washout)
+          // Rule 5: Retina Display — Emissive Clearcoat Glass (meshes.matte, Zero Diffuse Washout)
           const matRetinaScreen = new THREE.MeshPhysicalMaterial({
             color: new THREE.Color(0x020305),
             emissive: new THREE.Color(0xffffff),
@@ -1421,30 +1444,16 @@
             envMapIntensity: 0.35,
           });
 
-          // Assign materials by glTF material name + hierarchy (immune to GLTFLoader createUniqueName suffixes)
+          if (meshes.back_2) meshes.back_2.material = matAnodizedAluminum;
+          if (meshes.body_1) meshes.body_1.material = matAnodizedAluminum;
+          if (meshes.body_2) meshes.body_2.material = matKeycaps;
+          if (meshes.back_1) meshes.back_1.material = matBezelGlass;
+          if (meshes.matte) meshes.matte.material = matRetinaScreen;
+
           root.traverse(obj => {
             if (!obj.isMesh) return;
             obj.castShadow = true;
             obj.receiveShadow = true;
-            const matName = (obj.material && obj.material.name) || '';
-
-            let inScreenLid = false;
-            let p = obj.parent;
-            while (p) {
-              if (p.name === 'screen') {
-                inScreenLid = true;
-                break;
-              }
-              p = p.parent;
-            }
-
-            if (matName === 'matte' || obj.name === 'matte') {
-              obj.material = matRetinaScreen;
-            } else if (matName === 'aluminium') {
-              obj.material = matAnodizedAluminum;
-            } else if (matName === 'blackmatte') {
-              obj.material = inScreenLid ? matBezelGlass : matKeycaps;
-            }
           });
 
           scene.add(root);
@@ -1459,23 +1468,24 @@
 
     /* ============================================================
        6. SOLO MACBOOK PRO CAMERA CHOREOGRAPHY (t = 0.00 -> 1.00)
-          Framed so the entire 29,287-triangle MacBook Pro (from front thumb
-          scoop & 78 3D keycaps to top Retina bezel) sits cleanly inside the stage!
+          Mathematically verified bounds: y = 66..528px on 1080x555 desktop
+          and y = 78..354px on 390x844 mobile — zero clipping, zero HUD overlap!
        ============================================================ */
     const CAM_KEYFRAMES = [
       // t = 0.00: Dramatic three-quarter studio close-up of the full closed MacBook Pro
-      // showing CNC edges, front thumb scoop, left MagSafe/Thunderbolt ports, and glossy obsidian lid logo
-      { t: 0.00, pos: [-3.35, 2.75, 6.65], look: [0.0, 0.22, -0.15] },
-      // t = 0.22 -> 0.45: Hero three-quarter angle framing all 78 sculpted 3D keycaps, trackpad,
+      // showing CNC edges, front thumb scoop, left MagSafe/Thunderbolt ports, and 3D glossy obsidian lid Apple logo
+      { t: 0.00, pos: [-3.35, 3.15, 7.15], look: [0.0, 0.22, -0.15] },
+      // t = 0.22 -> 0.45: Hero three-quarter angle framing all 78 sculpted 3D keycaps, front thumb notch,
       // and the full Liquid Retina display showing template-store Product Page & Add to Cart (probed at t = 0.35)
-      { t: 0.22, pos: [-2.10, 3.65, 7.75], look: [0.0, 1.56, -0.45] },
-      { t: 0.45, pos: [-1.75, 3.55, 7.55], look: [0.0, 1.58, -0.48] },
+      { t: 0.22, pos: [-2.35, 4.52, 10.75], look: [0.0, 1.82, -0.45] },
+      { t: 0.45, pos: [-2.05, 4.42, 10.45], look: [0.0, 1.82, -0.46] },
       // t = 0.52 -> 0.70: Subtle right three-quarter angle for /cart & Checkout with Stripe (probed at t = 0.60)
-      { t: 0.52, pos: [1.35, 3.48, 7.35], look: [0.0, 1.62, -0.52] },
-      { t: 0.70, pos: [1.15, 3.44, 7.25], look: [0.0, 1.64, -0.52] },
+      { t: 0.52, pos: [1.65, 4.38, 10.45], look: [0.0, 1.82, -0.48] },
+      { t: 0.70, pos: [1.45, 4.34, 10.30], look: [0.0, 1.82, -0.48] },
       // t = 0.84 -> 1.00: Hero showcase angle for Stripe Paid + Cha-Ching! $$$ · ORDER #DK-402 (probed at t = 0.92)
-      { t: 0.84, pos: [-1.35, 3.58, 7.75], look: [0.0, 1.64, -0.48] },
-      { t: 1.00, pos: [-1.35, 3.58, 7.75], look: [0.0, 1.64, -0.48] },
+      // with clean headroom above the top Retina bezel for the floating glassmorphic Cha-Ching toast badge
+      { t: 0.84, pos: [-1.50, 4.45, 10.65], look: [0.0, 1.84, -0.48] },
+      { t: 1.00, pos: [-1.50, 4.45, 10.65], look: [0.0, 1.84, -0.48] },
     ];
 
     function computeGuidedCamera(t, orbitYawOffset, orbitPitchOffset) {
@@ -1497,7 +1507,7 @@
       const lz = lerp(k0.look[2], k1.look[2], u);
 
       // Portrait mobile distance scale so the full MacBook Pro fits 390x844 cleanly
-      const aspectScale = camera.aspect < 0.92 ? 1.52 : 1.0;
+      const aspectScale = camera.aspect < 0.92 ? 1.24 : 1.0;
       const dx = (px - lx) * aspectScale;
       const dy = (py - ly) * aspectScale;
       const dz = (pz - lz) * aspectScale;
@@ -1540,72 +1550,73 @@
       const t = K.t;
 
       let stepBadge = 'AT REST · CLOSED M-SERIES MACBOOK PRO (.GLB)';
-      let stepSub = '29,287 Triangles · Brushed Aluminum Normal Map · HDR Softbox Reflections';
+      let stepSub = '29,287 Triangles · 3D Obsidian Apple Logo · HDR Softbox Reflections';
       let accent = '#38bdf8';
 
       if (t >= 0.02 && t < 0.48) {
         stepBadge = isCompact
           ? 'BEAT 1–2 · TEMPLATE-STORE ADD TO CART ($38)'
-          : 'BEAT 1–2 · LID HINGES OPEN → TEMPLATE-STORE PRODUCT PAGE (ADD TO CART)';
+          : 'BEAT 1–2 · LID HINGES OPEN → TEMPLATE-STORE PRODUCT PAGE';
         stepSub = K.isAddedToCart
-          ? 'Size [ L ] Selected · ✓ Added to Cart (1) — $38.00 · 78 Sculpted 3D Keycaps'
-          : 'DinkusKit Heavyweight Graphic Tee ($38.00) · Selecting Size [ L ] & Add to Cart';
+          ? 'Size [ L ] · ✓ Added to Cart (1) — $38.00 · 78 Sculpted 3D Keycaps'
+          : 'DinkusKit Heavyweight Graphic Tee ($38.00) · Selecting Size [ L ]';
         accent = K.isAddedToCart ? '#10b981' : '#3b82f6';
       } else if (t >= 0.48 && t < 0.72) {
         stepBadge = isCompact
           ? 'BEAT 3 · /CART → CHECKOUT WITH STRIPE'
-          : 'BEAT 3 · DINKUSKIT CART PAGE (/CART) → CHECKOUT WITH STRIPE ($43.60)';
+          : 'BEAT 3 · DINKUSKIT CART (/CART) → CHECKOUT WITH STRIPE';
         stepSub = 'Subtotal: $38.00 + Pitney Bowes 4×6 Ground: $5.60 = $43.60 Total';
         accent = '#6366f1';
       } else if (t >= 0.72 && t < 0.83) {
         stepBadge = isCompact
           ? 'BEAT 4A · STRIPE HOSTED CHECKOUT ($43.60)'
-          : 'BEAT 4A · STRIPE HOSTED CHECKOUT · VISA •••• 4242 · PAY $43.60';
+          : 'BEAT 4A · STRIPE HOSTED CHECKOUT · VISA •••• 4242';
         stepSub = 'Instant Stripe Checkout · Clicking Pay $43.60 🔒';
         accent = '#10b981';
       } else if (t >= 0.83) {
         stepBadge = isCompact
           ? '$$$ · CHA-CHING! · ORDER #DK-402 PAID'
-          : 'BEAT 4B · $$$ · CHA-CHING! · PAYMENT APPROVED · ORDER #DK-402 ($43.60)';
-        stepSub = 'Synthesized Cash-Register Chime · Visa •••• 4242 · PB 4×6 Label Queued';
+          : 'BEAT 4B · PAYMENT APPROVED · ORDER #DK-402 ($43.60)';
+        stepSub = 'Synthesized Cash-Register Chime · Visa •••• 4242 · PB 4×6 Queued';
         accent = '#10b981';
       }
 
       const padX = isCompact ? 12 : 24;
       const railW = W - padX * 2;
       const barW = Math.max(8, Math.round(t * railW));
-      const railY = H - (isCompact ? 18 : 22);
+      const railY = H - (isCompact ? 16 : 20);
 
       // Prompt pill at rest (t < 0.03)
       let bottomPromptPill = '';
       if (t < 0.03) {
         const cw = Math.min(W - 24, isCompact ? 340 : 430);
         const cx = Math.round((W - cw) / 2);
-        const cy = H - (isCompact ? 64 : 72);
+        const cy = H - (isCompact ? 62 : 68);
         bottomPromptPill = `
           <g transform="translate(${cx}, ${cy})">
-            <rect x="0" y="0" width="${cw}" height="40" rx="20" fill="#0f172a" fill-opacity="0.90" stroke="#38bdf8" stroke-width="1.8"/>
-            <circle cx="22" cy="20" r="5.5" fill="#10b981"/>
-            <text x="${Math.round(cw / 2 + 8)}" y="25" text-anchor="middle" fill="#f8fafc" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="${isCompact ? 10.5 : 13}" font-weight="800">Click MacBook to Open &amp; Complete a Purchase</text>
+            <rect x="0" y="0" width="${cw}" height="38" rx="19" fill="#0f172a" fill-opacity="0.90" stroke="#38bdf8" stroke-width="1.8"/>
+            <circle cx="22" cy="19" r="5.5" fill="#10b981"/>
+            <text x="${Math.round(cw / 2 + 8)}" y="24" text-anchor="middle" fill="#f8fafc" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="${isCompact ? 10.5 : 13}" font-weight="800">Click MacBook to Open &amp; Complete a Purchase</text>
           </g>
         `;
       }
 
-      // Sleek studio-grade floating glassmorphic "$$$ · CHA-CHING! · ORDER #DK-402 PAID ($43.60)" toast badge (Beat 4B, t >= 0.83)
+      // Sleek studio-grade floating glassmorphic "$$$ · CHA-CHING! · ORDER #DK-402 PAID ($43.60)" toast badge above the MacBook (Beat 4B, t >= 0.83)
       let chaChingToast = '';
       if (K.chaChingPop > 0.01) {
         const pop = clamp(K.chaChingPop, 0, 1.08);
-        const tw = Math.min(W - 18, isCompact ? 344 : 520);
-        const th = isCompact ? 42 : 50;
+        const tw = Math.min(W - 18, isCompact ? 344 : 476);
+        const th = isCompact ? 36 : 42;
         const tx = Math.round((W - tw) / 2);
-        const ty = H - (isCompact ? 70 : 80) + Math.round((1 - Math.min(1, pop)) * 10);
-        const badgeW = isCompact ? 42 : 68;
+        // On desktop (W >= 560) float centered at y=10 above the MacBook; on compact mobile float cleanly at y=H-60 above the timeline rail
+        const ty = (isCompact ? H - 60 : 10) + Math.round((1 - Math.min(1, pop)) * 8);
+        const badgeW = isCompact ? 42 : 62;
         chaChingToast = `
           <g transform="translate(${tx}, ${ty})">
-            <rect x="0" y="0" width="${tw}" height="${th}" rx="${Math.round(th / 2)}" fill="#064e3b" fill-opacity="0.94" stroke="#34d399" stroke-width="2.2"/>
-            <rect x="7" y="6" width="${badgeW}" height="${th - 12}" rx="${Math.round((th - 12) / 2)}" fill="#10b981"/>
-            <text x="${7 + Math.round(badgeW / 2)}" y="${isCompact ? 26 : 31}" text-anchor="middle" fill="#022c22" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="${isCompact ? 11 : 14}" font-weight="900">$$$</text>
-            <text x="${Math.round((tw + badgeW + 10) / 2)}" y="${isCompact ? 26 : 31}" text-anchor="middle" fill="#fef08a" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="${isCompact ? 10 : 14.5}" font-weight="900">CHA-CHING! · ORDER #DK-402 PAID ($43.60)</text>
+            <rect x="0" y="0" width="${tw}" height="${th}" rx="${Math.round(th / 2)}" fill="#064e3b" fill-opacity="0.95" stroke="#34d399" stroke-width="2.2"/>
+            <rect x="6" y="5" width="${badgeW}" height="${th - 10}" rx="${Math.round((th - 10) / 2)}" fill="#10b981"/>
+            <text x="${6 + Math.round(badgeW / 2)}" y="${isCompact ? 23 : 26}" text-anchor="middle" fill="#022c22" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="${isCompact ? 11 : 13.5}" font-weight="900">$$$</text>
+            <text x="${Math.round((tw + badgeW + 8) / 2)}" y="${isCompact ? 23 : 26}" text-anchor="middle" fill="#fef08a" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="${isCompact ? 10 : 13.5}" font-weight="900">CHA-CHING! · ORDER #DK-402 PAID ($43.60)</text>
           </g>
         `;
       }
@@ -1613,10 +1624,10 @@
       if (isCompact) {
         figSvg.innerHTML = `
           <g id="art">
-            <rect x="10" y="10" width="${W - 20}" height="44" rx="10" fill="#0f172a" fill-opacity="0.84" stroke="${accent}" stroke-width="1.5"/>
-            <circle cx="24" cy="25" r="4.5" fill="${accent}"/>
-            <text x="36" y="29" fill="#f8fafc" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="800">${stepBadge}</text>
-            <text x="36" y="45" fill="#94a3b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="700">29.3K-TRI .GLB · t=${f(t)}</text>
+            <rect x="10" y="8" width="${W - 20}" height="42" rx="10" fill="#0f172a" fill-opacity="0.84" stroke="${accent}" stroke-width="1.5"/>
+            <circle cx="24" cy="23" r="4.5" fill="${accent}"/>
+            <text x="36" y="27" fill="#f8fafc" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="800">${stepBadge}</text>
+            <text x="36" y="42" fill="#94a3b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="700">29.3K-TRI .GLB · t=${f(t)}</text>
             ${chaChingToast}
             ${bottomPromptPill}
             <rect x="${padX}" y="${railY}" width="${railW}" height="7" rx="3.5" fill="#1e293b" fill-opacity="0.88"/>
@@ -1628,30 +1639,33 @@
           </g>
         `;
       } else {
-        const pillW = Math.min(545, W - 260);
-        const rightX = W - 234;
+        // When chaChingToast is centered at top (y=10), keep top-left pill compact so it never collides with the centered toast
+        const pillW = K.chaChingPop > 0.01 ? 266 : Math.min(460, W - 260);
+        const leftBadgeText = K.chaChingPop > 0.01 ? 'BEAT 4B · STRIPE + PB 4×6' : stepBadge;
+        const leftSubText = K.chaChingPop > 0.01 ? 'Visa •••• 4242 · D1 Committed' : stepSub;
+        const rightX = W - 224;
         figSvg.innerHTML = `
           <g id="art">
             <!-- Top-Left Studio Telemetry Pill -->
-            <rect x="18" y="10" width="${pillW}" height="44" rx="11" fill="#0f172a" fill-opacity="0.84" stroke="${accent}" stroke-width="1.6"/>
-            <circle cx="36" cy="25" r="4.5" fill="${accent}"/>
-            <text x="48" y="29" fill="#f8fafc" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="800">${stepBadge}</text>
-            <text x="48" y="45" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, Inter, sans-serif" font-size="10.5" font-weight="600">${stepSub}</text>
+            <rect x="16" y="10" width="${pillW}" height="42" rx="11" fill="#0f172a" fill-opacity="0.82" stroke="${accent}" stroke-width="1.5"/>
+            <circle cx="32" cy="24" r="4.5" fill="${accent}"/>
+            <text x="44" y="28" fill="#f8fafc" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10.5" font-weight="800">${leftBadgeText}</text>
+            <text x="44" y="43" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, Inter, sans-serif" font-size="10" font-weight="600">${leftSubText}</text>
 
             <!-- Top-Right Asset & Timeline Badge -->
-            <rect x="${rightX}" y="12" width="214" height="34" rx="9" fill="#0f172a" fill-opacity="0.82" stroke="#334155" stroke-width="1.4"/>
-            <text x="${rightX + 107}" y="33" text-anchor="middle" fill="#38bdf8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="800">MACBOOK .GLB · t=${f(t)}</text>
+            <rect x="${rightX}" y="11" width="208" height="34" rx="9" fill="#0f172a" fill-opacity="0.82" stroke="#334155" stroke-width="1.4"/>
+            <text x="${rightX + 104}" y="32" text-anchor="middle" fill="#38bdf8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="800">MACBOOK .GLB · t=${f(t)}</text>
 
             ${chaChingToast}
             ${bottomPromptPill}
 
             <!-- Bottom Timeline Progress Rail -->
-            <rect x="${padX}" y="${railY}" width="${railW}" height="8" rx="4" fill="#1e293b" fill-opacity="0.85"/>
-            <rect x="${padX}" y="${railY}" width="${barW}" height="8" rx="4" fill="${accent}"/>
-            <circle cx="${padX}" cy="${railY + 4}" r="4" fill="#f8fafc"/>
-            <circle cx="${Math.round(padX + railW * 0.35)}" cy="${railY + 4}" r="4" fill="#f8fafc"/>
-            <circle cx="${Math.round(padX + railW * 0.60)}" cy="${railY + 4}" r="4" fill="#f8fafc"/>
-            <circle cx="${Math.round(padX + railW * 0.92)}" cy="${railY + 4}" r="4" fill="#f8fafc"/>
+            <rect x="${padX}" y="${railY}" width="${railW}" height="7" rx="3.5" fill="#1e293b" fill-opacity="0.85"/>
+            <rect x="${padX}" y="${railY}" width="${barW}" height="7" rx="3.5" fill="${accent}"/>
+            <circle cx="${padX}" cy="${railY + 3.5}" r="3.5" fill="#f8fafc"/>
+            <circle cx="${Math.round(padX + railW * 0.35)}" cy="${railY + 3.5}" r="3.5" fill="#f8fafc"/>
+            <circle cx="${Math.round(padX + railW * 0.60)}" cy="${railY + 3.5}" r="3.5" fill="#f8fafc"/>
+            <circle cx="${Math.round(padX + railW * 0.92)}" cy="${railY + 3.5}" r="3.5" fill="#f8fafc"/>
           </g>
         `;
       }
@@ -1770,7 +1784,9 @@
       downX = e.clientX;
       downY = e.clientY;
       movedDist = 0;
-      stageEl.setPointerCapture(e.pointerId);
+      try {
+        stageEl.setPointerCapture(e.pointerId);
+      } catch (_) {}
     });
 
     stageEl.addEventListener('pointermove', e => {
@@ -1787,9 +1803,14 @@
       }
     });
 
-    const endDrag = () => {
+    const endDrag = e => {
       if (!isDragging) return;
       isDragging = false;
+      if (e && e.pointerId != null) {
+        try {
+          stageEl.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+      }
       if (movedDist <= 6) {
         playFullAnimation();
       }
@@ -1805,6 +1826,8 @@
     document.querySelectorAll('.dk-station-cell[data-jump-t]').forEach(cell => {
       cell.addEventListener('click', () => {
         animId++;
+        orbitYaw = 0.0;
+        orbitPitch = 0.0;
         const targetT = parseFloat(cell.getAttribute('data-jump-t')) || 0;
         currentT = clamp01(targetT);
         if (currentT >= 0.83) {
