@@ -195,24 +195,25 @@ def inline_engines(page: str, src_path: Path, inline_vendor: bool = False) -> tu
             inlined.append(eng)
 
     if inline_vendor:
-        three_pattern = re.compile(
-            r'<script\s+src=["\'][^"\']*three\.min\.js["\']\s*>\s*</script>',
-            re.IGNORECASE,
-        )
-        three_match = three_pattern.search(page)
-        if three_match:
-            three_path = ASSETS_DIR / "vendor" / "three.min.js"
-            if not three_path.is_file():
-                sys.exit(f"error: vendor asset three.min.js not found for {src_path}")
-            three_code = three_path.read_text(encoding="utf-8")
-            page = (
-                page[: three_match.start()]
-                + "<script>\n"
-                + three_code
-                + "\n</script>"
-                + page[three_match.end() :]
+        for vendor_name in ("three.min.js", "GLTFLoader.js", "macbook-pro-glb.js"):
+            vendor_pattern = re.compile(
+                rf'<script\s+src=["\'][^"\']*{re.escape(vendor_name)}["\']\s*>\s*</script>',
+                re.IGNORECASE,
             )
-            inlined.append("three.min.js")
+            vendor_match = vendor_pattern.search(page)
+            if vendor_match:
+                vendor_path = ASSETS_DIR / "vendor" / vendor_name
+                if not vendor_path.is_file():
+                    sys.exit(f"error: vendor asset {vendor_name} not found for {src_path}")
+                vendor_code = vendor_path.read_text(encoding="utf-8")
+                page = (
+                    page[: vendor_match.start()]
+                    + "<script>\n"
+                    + vendor_code
+                    + "\n</script>"
+                    + page[vendor_match.end() :]
+                )
+                inlined.append(vendor_name)
 
     if not inlined:
         # Check if already inlined
@@ -407,7 +408,7 @@ def main() -> None:
         astro_code = build_astro(raw_page, src_path, default_chrome, strict_no_any=args.strict_no_any)
         out_path.write_text(astro_code, encoding="utf-8")
     else:
-        page, inlined = inline_engines(raw_page, src_path, inline_vendor=not args.strict_no_any)
+        page, inlined = inline_engines(raw_page, src_path, inline_vendor=True)
         built = build_html(page, inlined, args.chrome)
         if args.strict_no_any:
             built = sanitize_dinkuskit_astro(built, strict=True)

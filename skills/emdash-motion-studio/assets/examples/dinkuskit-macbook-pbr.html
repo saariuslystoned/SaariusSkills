@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="motion-probes" content="rest_closed:t=0.0@1180,860;lid_open_storefront:t=0.14@1180,860;stripe_paid_chaching:t=0.33@1180,860;tee_and_slip_in_box:t=0.49@1180,860;flaps_folded_and_taped:t=0.65@1180,860;shipping_label_slapped_on_top:t=0.79@1180,860;box_lands_in_outbound_tote:t=0.97@1180,860;mobile_390x844:t=0.79&vw=390@390,844">
-  <title>DinkusKit.com — Homepage Hero (3D Studio WebGL PBR: MacBook Checkout → Folded Tee &amp; Slip → 4×6 Label → Outbound Tote)</title>
+  <meta name="motion-probes" content="closed_macbook:t=0.0@1180,860;open_storefront_add_to_cart:t=0.35@1180,860;cart_checkout_stripe:t=0.60@1180,860;stripe_paid_chaching:t=0.92@1180,860;mobile_390x844:t=0.92&vw=390@390,844">
+  <title>DinkusKit.com — Homepage Hero (Ultra-Realistic 3D MacBook Pro .glb · template-store Checkout &amp; Cha-Ching!)</title>
   <style>
     :root, .emdash-motion-stage {
       color-scheme: light;
@@ -41,7 +41,7 @@
       padding: 8px 16px;
       border: 1.5px solid var(--color-border);
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.78);
+      background: rgba(255, 255, 255, 0.80);
       backdrop-filter: blur(10px);
       box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
       margin-bottom: 10px;
@@ -111,7 +111,7 @@
       border-bottom: 1px solid var(--color-border);
     }
     .dk-hero-copy {
-      max-width: 680px;
+      max-width: 690px;
     }
     .dk-eyebrow {
       display: inline-flex;
@@ -132,7 +132,7 @@
     }
     .dk-hero-title {
       margin: 0 0 5px;
-      font-size: 24px;
+      font-size: 23.5px;
       font-weight: 850;
       line-height: 1.15;
       letter-spacing: -0.02em;
@@ -173,20 +173,15 @@
       border-color: #2563eb;
       color: #1e3a8a;
     }
+    .dk-stage-status[data-phase="cart"] {
+      background: #eef2ff;
+      border-color: #4f46e5;
+      color: #312e81;
+    }
     .dk-stage-status[data-phase="paid"] {
       background: #ecfdf5;
       border-color: #059669;
       color: #065f46;
-    }
-    .dk-stage-status[data-phase="pack"] {
-      background: #fffbeb;
-      border-color: #d97706;
-      color: #92400e;
-    }
-    .dk-stage-status[data-phase="ship"] {
-      background: #eef2ff;
-      border-color: #4f46e5;
-      color: #312e81;
     }
     .dk-stage-hint {
       font-size: 10px;
@@ -198,12 +193,12 @@
     #dk-hero-stage {
       position: relative;
       width: 100%;
-      height: 550px;
+      height: 555px;
       margin: 8px 0 6px;
       border-radius: 14px;
       overflow: hidden;
-      background: radial-gradient(circle at 50% 35%, #242c3d 0%, #121722 100%);
-      border: 1px solid #2b3548;
+      background: radial-gradient(circle at 50% 42%, #182030 0%, #090c14 75%, #05070b 100%);
+      border: 1px solid #263144;
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
       cursor: pointer;
     }
@@ -224,18 +219,18 @@
       z-index: 2;
     }
 
-    /* Bottom 3-Station Assembly Line Context Strip */
+    /* Bottom 4-Beat Interactive Strip */
     .dk-station-strip {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
       margin-top: 6px;
       padding-top: 10px;
       border-top: 1px solid var(--color-border);
       font: 700 10.5px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
     }
     .dk-station-cell {
-      padding: 7px 11px;
+      padding: 7px 10px;
       border-radius: 9px;
       border: 1.2px solid var(--color-border);
       background: #f8fafc;
@@ -244,7 +239,12 @@
       align-items: center;
       justify-content: space-between;
       gap: 8px;
+      cursor: pointer;
+      user-select: none;
       transition: all 0.18s ease;
+    }
+    .dk-station-cell:hover {
+      border-color: #64748b;
     }
     .dk-station-cell.star {
       border-color: #1e293b;
@@ -253,7 +253,7 @@
       box-shadow: 0 2px 5px rgba(15, 23, 42, 0.05);
     }
     .dk-station-cell span.badge {
-      font-size: 9.5px;
+      font-size: 9px;
       padding: 2px 6px;
       border-radius: 5px;
       background: #1e293b;
@@ -278,7 +278,7 @@
       .dk-stage-hint { font-size: 9.5px; white-space: normal; }
       .dk-hero-title { font-size: 16px; line-height: 1.2; word-break: break-word; }
       .dk-hero-sub { font-size: 11px; line-height: 1.4; word-break: break-word; }
-      #dk-hero-stage { height: 400px; }
+      #dk-hero-stage { height: 420px; }
       .dk-station-strip { grid-template-columns: 1fr; gap: 5px; }
       .dk-station-cell { font-size: 10px; padding: 6px 9px; }
     }
@@ -294,7 +294,7 @@
     body.is-mobile-vw .dk-stage-hint { font-size: 9.5px; white-space: normal; }
     body.is-mobile-vw .dk-hero-title { font-size: 16px; line-height: 1.2; word-break: break-word; }
     body.is-mobile-vw .dk-hero-sub { font-size: 11px; line-height: 1.4; word-break: break-word; }
-    body.is-mobile-vw #dk-hero-stage { height: 400px; }
+    body.is-mobile-vw #dk-hero-stage { height: 420px; }
     body.is-mobile-vw .dk-station-strip { grid-template-columns: 1fr; gap: 5px; }
     body.is-mobile-vw .dk-station-cell { font-size: 10px; padding: 6px 9px; }
   </style>
@@ -314,56 +314,66 @@
         <span>D1 Ledger</span>
         <span>Docs</span>
       </div>
-      <div class="dk-nav-meta">3D STUDIO WEBGL PBR</div>
+      <div class="dk-nav-meta">29.3K-TRI .GLB + HDR PBR</div>
     </nav>
 
-    <section class="dk-hero-card" aria-label="DinkusKit Interactive 3D Homepage Hero">
+    <section class="dk-hero-card" aria-label="DinkusKit Interactive 3D MacBook Pro Hero">
       <div class="dk-hero-top">
         <div class="dk-hero-copy">
           <div class="dk-eyebrow">
             <span class="dk-eyebrow-dot"></span>
-            <span>DINKUSKIT HOMEPAGE HERO · CLOSE-UP CAMERA TRACKING · 1-CLICK ORDER-TO-TOTE</span>
+            <span>SOLO STUDIO MACBOOK PRO (.GLB) · HDR SOFTBOX PMREM · 1-CLICK PURCHASE</span>
           </div>
-          <h1 class="dk-hero-title">Click the MacBook. Watch checkout, tee packing, 4×6 labeling &amp; tote dispatch.</h1>
+          <h1 class="dk-hero-title">Click the MacBook Pro. Watch a live template-store purchase from open lid to Cha-Ching.</h1>
           <p class="dk-hero-sub">
-            Real <strong>template-store</strong> flow on the MacBook screen (<strong>Add to Cart &rarr; Cart &rarr; Stripe Paid &rarr; Cha-Ching! $$$ · #DK-402</strong>), overhead <strong>Folded Graphic Tee + Packing Slip</strong> into the box, <strong>Pitney Bowes 4×6</strong> top label, and <strong>Outbound Tote</strong>.
+            29,287-triangle M-Series MacBook Pro with micro-brushed anodized aluminum, <strong>78 sculpted 3D keycaps</strong>, and Liquid Retina glass running <strong>Add to Cart &rarr; /cart &rarr; Stripe Checkout &rarr; Cha-Ching! $$$ · ORDER #DK-402</strong>.
           </p>
         </div>
         <div class="dk-hero-RightMeta">
           <div class="dk-stage-status" id="dk-hero-status" data-phase="rest">
-            <span id="dk-status-text">At Rest · Click MacBook to Place Order</span>
+            <span id="dk-status-text">Click MacBook to Open &amp; Complete a Purchase</span>
           </div>
-          <div class="dk-stage-hint">1-Click MacBook Trigger · Synthesized Cha-Ching Audio · Drag to Orbit</div>
+          <div class="dk-stage-hint">1-Click MacBook Trigger · Synthesized Cha-Ching Chime · Drag to Orbit</div>
         </div>
       </div>
 
       <div id="dk-hero-stage" class="emdash-motion-stage" data-chrome="stage-only">
         <canvas id="dk-webgl-canvas"></canvas>
-        <svg id="fig" viewBox="0 0 1080 550" preserveAspectRatio="xMidYMid meet" aria-label="DinkusKit 3D Assembly Line HUD"></svg>
+        <svg id="fig" viewBox="0 0 1080 555" preserveAspectRatio="xMidYMid meet" aria-label="DinkusKit 3D MacBook Pro Studio HUD"></svg>
       </div>
 
       <div class="dk-station-strip">
-        <div class="dk-station-cell star" id="dk-st-cell-1">
-          <span><strong>1. MACBOOK CHECKOUT</strong> · Add Tee to Cart &rarr; Stripe Paid &rarr; Cha-Ching! $$$ #DK-402</span>
-          <span class="badge">STATION 1</span>
+        <div class="dk-station-cell star" id="dk-st-cell-1" data-jump-t="0.00">
+          <span><strong>1. CLOSED MACBOOK</strong> · CNC Unibody · Thumb Scoop &amp; Ports</span>
+          <span class="badge">t = 0.00</span>
         </div>
-        <div class="dk-station-cell star" id="dk-st-cell-2">
-          <span><strong>2. OVERHEAD TEE &amp; SLIP</strong> · Folded Graphic Tee + Packing Slip &rarr; 4-Flap Fold &amp; Kraft Tape</span>
-          <span class="badge">STATION 2</span>
+        <div class="dk-station-cell" id="dk-st-cell-2" data-jump-t="0.35">
+          <span><strong>2. ADD TO CART</strong> · 78 3D Keycaps · Graphic Tee ($38) &rarr; CART (1)</span>
+          <span class="badge">t = 0.35</span>
         </div>
-        <div class="dk-station-cell star" id="dk-st-cell-3">
-          <span><strong>3. 4×6 LABEL &amp; TOTE</strong> · Pitney Bowes 4×6 Top Label &rarr; Mail Chute &rarr; Outbound Tote</span>
-          <span class="badge">STATION 3</span>
+        <div class="dk-station-cell" id="dk-st-cell-3" data-jump-t="0.60">
+          <span><strong>3. /CART &amp; STRIPE</strong> · $38 Tee + $5.60 Ground &rarr; Checkout ($43.60)</span>
+          <span class="badge">t = 0.60</span>
+        </div>
+        <div class="dk-station-cell" id="dk-st-cell-4" data-jump-t="0.92">
+          <span><strong>4. CHA-CHING! PAID</strong> · Visa 4242 Approved · $$$ ORDER #DK-402</span>
+          <span class="badge">t = 0.92</span>
         </div>
       </div>
     </section>
   </div>
 
-  <!-- Vendored Three.js r128 loader with multi-depth path fallback for standalone + verify_motion.py -->
+  <!-- Vendored Three.js r128 + GLTFLoader + 29,287-triangle MacBook Pro .glb -->
   <script src="../vendor/three.min.js"></script>
   <script>if (!window.THREE && document.readyState === 'loading') document.write('<script src="../../../skills/emdash-motion-studio/assets/vendor/three.min.js"><\/script>');</script>
   <script>if (!window.THREE && document.readyState === 'loading') document.write('<script src="../../../../skills/emdash-motion-studio/assets/vendor/three.min.js"><\/script>');</script>
-  <script>if (!window.THREE && document.readyState === 'loading') document.write('<script src="/skills/emdash-motion-studio/assets/vendor/three.min.js"><\/script>');</script>
+  <script src="../vendor/GLTFLoader.js"></script>
+  <script>if (window.THREE && !window.THREE.GLTFLoader && document.readyState === 'loading') document.write('<script src="../../../skills/emdash-motion-studio/assets/vendor/GLTFLoader.js"><\/script>');</script>
+  <script>if (window.THREE && !window.THREE.GLTFLoader && document.readyState === 'loading') document.write('<script src="../../../../skills/emdash-motion-studio/assets/vendor/GLTFLoader.js"><\/script>');</script>
+  <script src="../vendor/macbook-pro-glb.js"></script>
+  <script>if (!window.SHAHDIN_MAC_GLB_B64 && document.readyState === 'loading') document.write('<script src="../../../skills/emdash-motion-studio/assets/vendor/macbook-pro-glb.js"><\/script>');</script>
+  <script>if (!window.SHAHDIN_MAC_GLB_B64 && document.readyState === 'loading') document.write('<script src="../../../../skills/emdash-motion-studio/assets/vendor/macbook-pro-glb.js"><\/script>');</script>
+
   <script>
   // Engine marker for build.py compatibility: function mountChoreo(
   (() => {
@@ -403,7 +413,7 @@
       if (!ac) return;
       const now = ac.currentTime;
 
-      // 1. Mechanical cash-drawer slide & spring latch clack (0.00s -> 0.09s)
+      // 1. Mechanical cash-drawer slide & spring latch clack (0.00s -> 0.085s)
       const noiseLen = Math.floor(ac.sampleRate * 0.085);
       const noiseBuf = ac.createBuffer(1, noiseLen, ac.sampleRate);
       const data = noiseBuf.getChannelData(0);
@@ -437,7 +447,7 @@
       hit1.start(now + 0.03);
       hit1.stop(now + 0.16);
 
-      // 3. Dual bright brass bell ring ("-Ching!", E7 = 2637 Hz + B7 = 3951 Hz + G#7 shimmer)
+      // 3. Dual bright brass bell ring ("-Ching!", E7 = 2637 Hz + B7 = 3951 Hz + E8 shimmer)
       const bellFreqs = [2637.02, 3951.07, 5274.04];
       const bellGains = [0.26, 0.16, 0.09];
       bellFreqs.forEach((freq, idx) => {
@@ -455,79 +465,50 @@
     }
 
     /* ============================================================
-       2. TIMELINE KINEMATICS (t = 0.00 -> 1.00)
+       2. SOLO MACBOOK PRO CHOREOGRAPHY KINEMATICS (t = 0.00 -> 1.00)
+          Beat 1 (0.00 -> 0.22): Closed MacBook -> Lid hinges open (Math.PI -> 1.34 rad)
+          Beat 2 (0.22 -> 0.48): template-store Product Page -> Select L & Click Add to Cart (probed at t=0.35)
+          Beat 3 (0.48 -> 0.72): /cart Page -> Click Checkout with Stripe (probed at t=0.60)
+          Beat 4 (0.72 -> 1.00): Stripe Checkout -> Paid + Cha-Ching! $$$ · ORDER #DK-402 (probed at t=0.92)
        ============================================================ */
     function deriveKinematics(tRaw) {
       const t = clamp01(tRaw);
 
-      // MacBook lid hinge: opens rapidly 0.01 -> 0.08 (0 deg -> 105 deg)
-      const lidOpen = easeOutCubic(sub(t, 0.01, 0.08));
+      // Lid hinge: Math.PI (180 deg closed) -> 1.34 rad (~77 deg open) over t = 0.01 -> 0.22
+      const lidOpen = easeInOut(sub(t, 0.01, 0.22));
+      const hingeRotX = lerp(Math.PI, 1.34, lidOpen);
 
-      // Screen workflow sub-phases:
-      // Phase A (0.06 -> 0.17): Product Page (Graphic Tee $38, Add to Cart click at 0.125..0.16)
-      // Phase B (0.17 -> 0.25): Cart Page (/cart, Checkout with Stripe click at 0.22..0.245)
-      // Phase C (0.25 -> 0.30): Stripe Checkout Modal (Pay $43.60 click at 0.275..0.298)
-      // Phase D (0.30 -> 1.00): Payment Approved + Cha-Ching $$$ · ORDER #DK-402
-      const addBtnClick = sub(t, 0.12, 0.155);
-      const cartBtnClick = sub(t, 0.215, 0.245);
-      const stripePayClick = sub(t, 0.272, 0.298);
-      const isPaid = t >= 0.30;
-      const chaChingPop = (t >= 0.295 && t <= 0.41) ? easeOutBack(sub(t, 0.295, 0.335)) * (1 - sub(t, 0.38, 0.41)) : 0;
+      // Beat 2: Product Page interactions (t = 0.22 -> 0.48)
+      const sizeLSelect = sub(t, 0.23, 0.28);
+      const addBtnClick = sub(t, 0.31, 0.37);
+      const isAddedToCart = t >= 0.335;
 
-      // Fiber-optic emerald pulse along workbench rail (0.30 -> 0.39)
-      const railPulse = sub(t, 0.30, 0.39);
-      const railGlow = (t >= 0.295 && t <= 0.44) ? Math.sin(sub(t, 0.295, 0.44) * Math.PI) : 0;
+      // Beat 3: /cart Page interactions (t = 0.48 -> 0.72)
+      const cartBtnClick = sub(t, 0.57, 0.63);
 
-      // Piece 2: Folded DinkusKit Graphic Tee slides from Overhead Merch Inventory Tray into open box (0.36 -> 0.47)
-      const teeSlide = easeInOut(sub(t, 0.36, 0.465));
-
-      // Thermal Packing Slip feeds from printer & arches into open box beside tee (0.41 -> 0.51)
-      const slipFeed = easeInOut(sub(t, 0.41, 0.505));
-
-      // 4 Corrugated Box Flaps fold shut (0.51 -> 0.605) + Kraft Tape seals seam (0.595 -> 0.642)
-      const minorFlaps = easeInOut(sub(t, 0.51, 0.57));
-      const majorFlaps = easeInOut(sub(t, 0.55, 0.605));
-      const tapeSeal = easeInOut(sub(t, 0.595, 0.642));
-
-      // Piece 3: Box rolls from Packing Station (x = -1.2) to Pitney Bowes 4x6 Label Station (x = +6.2)
-      const rollToLabel = easeInOut(sub(t, 0.675, 0.745));
-      // 4x6 Label feeds & tamp pad presses label onto top of sealed box (0.74 -> 0.815)
-      const labelFeed = easeOutCubic(sub(t, 0.725, 0.78));
-      const tampPress = (t >= 0.755 && t <= 0.825) ? Math.sin(sub(t, 0.755, 0.825) * Math.PI) : 0;
-      const labelOnBox = sub(t, 0.775, 0.79);
-
-      // Box rolls from Label Station (x = +6.2) onto Mail Chute (0.82 -> 0.885) and drops into Outbound Tote (0.885 -> 0.96)
-      const rollToChute = easeInOut(sub(t, 0.82, 0.885));
-      const dropInTote = easeInOut(sub(t, 0.885, 0.955));
-      const settleBounce = (t >= 0.95 && t <= 0.99) ? Math.sin(sub(t, 0.95, 0.99) * Math.PI * 2) * 0.12 * (1 - sub(t, 0.95, 0.99)) : 0;
+      // Beat 4: Stripe Checkout (0.72 -> 0.83) -> Order Confirmed + Cha-Ching! (0.83 -> 1.00)
+      const stripePayClick = sub(t, 0.77, 0.825);
+      const isPaid = t >= 0.83;
+      const chaChingPop = isPaid ? easeOutBack(sub(t, 0.83, 0.89)) : 0;
+      const studioRingGlow = isPaid ? easeOutCubic(sub(t, 0.83, 0.90)) : 0;
 
       return {
         t,
         lidOpen,
+        hingeRotX,
+        sizeLSelect,
         addBtnClick,
+        isAddedToCart,
         cartBtnClick,
         stripePayClick,
         isPaid,
         chaChingPop,
-        railPulse,
-        railGlow,
-        teeSlide,
-        slipFeed,
-        minorFlaps,
-        majorFlaps,
-        tapeSeal,
-        rollToLabel,
-        labelFeed,
-        tampPress,
-        labelOnBox,
-        rollToChute,
-        dropInTote,
-        settleBounce,
+        studioRingGlow,
       };
     }
 
     /* ============================================================
-       3. HIGH-DPI PROCEDURAL CANVAS TEXTURES (Three.js PBR)
+       3. HIGH-DPI LIQUID RETINA DISPLAY CANVAS (1600×1040, flipY=true)
        ============================================================ */
     function roundRect(ctx, x, y, w, h, r) {
       const rr = Math.min(r, w / 2, h / 2);
@@ -540,13 +521,12 @@
       ctx.closePath();
     }
 
-    // Helper: Draws the crisp DinkusKit Heavyweight Graphic Tee illustration
     function drawGraphicTeeArtwork(ctx, cx, cy, scale) {
       ctx.save();
       ctx.translate(cx, cy);
       ctx.scale(scale, scale);
 
-      // Drop shadow under tee
+      // Soft studio drop shadow under tee
       ctx.fillStyle = 'rgba(15, 23, 42, 0.16)';
       ctx.beginPath();
       ctx.ellipse(0, 128, 92, 14, 0, 0, Math.PI * 2);
@@ -581,14 +561,13 @@
       ctx.lineWidth = 2.5;
       ctx.stroke();
 
-      // Neck label tag inside collar
+      // Woven neck label tag inside collar
       ctx.fillStyle = '#f8fafc';
       ctx.fillRect(-12, -106, 24, 9);
       ctx.fillStyle = '#2563eb';
       ctx.fillRect(-8, -103, 16, 3);
 
       // Bold DinkusKit Chest Screenprint Graphic
-      // Outer frame
       roundRect(ctx, -44, -64, 88, 96, 10);
       ctx.fillStyle = '#1e293b';
       ctx.fill();
@@ -632,50 +611,72 @@
       ctx.restore();
     }
 
-    // 3A. Live 1600x1000 MacBook Screen Texture (template-store workflow)
-    function createMacBookScreenSurface() {
+    function createMacBookScreenSurface(renderer) {
       const canvas = document.createElement('canvas');
       canvas.width = 1600;
-      canvas.height = 1000;
+      canvas.height = 1040;
       const ctx = canvas.getContext('2d');
       const texture = new THREE.CanvasTexture(canvas);
+      // Rule 5: Keep flipY = true (matches meshes.matte UVs where v=0 is hinge and v=1 is webcam),
+      // LinearMipmapLinearFilter + generateMipmaps = true + maxAnisotropy for razor-sharp angled text!
+      texture.flipY = true;
       texture.encoding = THREE.sRGBEncoding;
-      texture.anisotropy = 8;
-      texture.minFilter = THREE.LinearFilter;
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
       texture.magFilter = THREE.LinearFilter;
-      return { canvas, ctx, texture };
+      texture.generateMipmaps = true;
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      return { canvas, ctx, texture, lastT: -1 };
     }
 
     function updateMacBookScreen(surface, K) {
       const { ctx, texture } = surface;
       const t = K.t;
-      const W = 1600, H = 1000;
+      if (Math.abs(surface.lastT - t) < 1e-5) return;
+      surface.lastT = t;
 
-      // Wallpaper & Browser Window Frame
-      ctx.fillStyle = '#0f172a';
+      const W = 1600, H = 1040;
+
+      // macOS Sonoma / Sequoia Dark Studio Wallpaper Frame
+      const bgGrad = ctx.createLinearGradient(0, 0, W, H);
+      bgGrad.addColorStop(0, '#0b1120');
+      bgGrad.addColorStop(0.5, '#131c31');
+      bgGrad.addColorStop(1, '#090d16');
+      ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, W, H);
 
-      // Browser Chrome Header
-      roundRect(ctx, 24, 20, W - 48, H - 40, 22);
+      // macOS Top Menu Bar
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx.fillRect(0, 0, W, 34);
+      ctx.fillStyle = '#e2e8f0';
+      ctx.font = '800 17px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('   Safari   File   Edit   View   History   Bookmarks   Window', 26, 23);
+      ctx.textAlign = 'right';
+      ctx.fillText('Wi-Fi  100% 🔋   Thu 9:41 AM', W - 26, 23);
+      ctx.textAlign = 'left';
+
+      // Browser Window Frame
+      roundRect(ctx, 22, 42, W - 44, H - 58, 20);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
 
+      // Browser Chrome Header
       ctx.fillStyle = '#f1f5f9';
-      roundRect(ctx, 24, 20, W - 48, 74, 22);
+      roundRect(ctx, 22, 42, W - 44, 72, 20);
       ctx.fill();
-      ctx.fillRect(24, 60, W - 48, 34);
+      ctx.fillRect(22, 82, W - 44, 32);
 
       // macOS Traffic Lights
-      const dots = [['#ef4444', 64], ['#f59e0b', 96], ['#10b981', 128]];
+      const dots = [['#ef4444', 62], ['#f59e0b', 94], ['#10b981', 126]];
       dots.forEach(([col, dx]) => {
         ctx.fillStyle = col;
         ctx.beginPath();
-        ctx.arc(dx, 57, 10, 0, Math.PI * 2);
+        ctx.arc(dx, 78, 10, 0, Math.PI * 2);
         ctx.fill();
       });
 
-      // URL Bar
-      roundRect(ctx, 220, 34, 980, 46, 12);
+      // Safari URL Pill
+      roundRect(ctx, 210, 55, 1020, 46, 12);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
       ctx.strokeStyle = '#cbd5e1';
@@ -683,150 +684,165 @@
       ctx.stroke();
 
       let urlText = 'https://dinkuskit.com/products/heavyweight-graphic-tee';
-      if (t >= 0.17 && t < 0.25) urlText = 'https://dinkuskit.com/cart';
-      else if (t >= 0.25 && t < 0.30) urlText = 'https://checkout.stripe.com/c/pay/cs_live_dk402';
-      else if (t >= 0.30) urlText = 'https://dinkuskit.com/checkout/success?order=DK-402';
+      if (t >= 0.48 && t < 0.72) urlText = 'https://dinkuskit.com/cart';
+      else if (t >= 0.72 && t < 0.83) urlText = 'https://checkout.stripe.com/c/pay/cs_live_dk402';
+      else if (t >= 0.83) urlText = 'https://dinkuskit.com/checkout/success?order=DK-402';
 
       ctx.fillStyle = '#059669';
       ctx.font = '800 21px ui-monospace, SFMono-Regular, Menlo, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText('🔒', 242, 64);
-      ctx.fillStyle = '#1e293b';
-      ctx.fillText(urlText, 278, 64);
+      ctx.fillText('🔒', 234, 85);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillText(urlText, 270, 85);
 
       // Storefront Navbar inside Browser
       ctx.fillStyle = '#0f172a';
-      ctx.fillRect(24, 94, W - 48, 76);
+      ctx.fillRect(22, 114, W - 44, 76);
 
       // Brand diamond + title
       ctx.fillStyle = '#38bdf8';
       ctx.beginPath();
-      ctx.moveTo(78, 116);
-      ctx.lineTo(94, 132);
-      ctx.lineTo(78, 148);
-      ctx.lineTo(62, 132);
+      ctx.moveTo(76, 136);
+      ctx.lineTo(92, 152);
+      ctx.lineTo(76, 168);
+      ctx.lineTo(60, 152);
       ctx.closePath();
       ctx.fill();
 
       ctx.fillStyle = '#f8fafc';
-      ctx.font = '900 28px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-      ctx.fillText('DinkusKit Store', 112, 142);
+      ctx.font = '900 29px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
+      ctx.fillText('DinkusKit Store', 110, 162);
 
       ctx.fillStyle = '#94a3b8';
       ctx.font = '700 21px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-      ctx.fillText('Apparel   ·   Hardware   ·   Fulfillment', 410, 140);
+      ctx.fillText('template-store   ·   EmDash Commerce   ·   Stripe + PB 4×6', 405, 160);
 
-      // Cart pill in navbar (synchronized with Add to Cart button state at t >= 0.135)
-      const isAddedToCart = t >= 0.135;
-      const cartCount = isAddedToCart ? 1 : 0;
-      roundRect(ctx, 1330, 108, 210, 48, 24);
-      ctx.fillStyle = cartCount > 0 ? '#2563eb' : '#1e293b';
+      // Cart pill in navbar
+      const cartCount = K.isAddedToCart ? 1 : 0;
+      roundRect(ctx, 1326, 128, 214, 48, 24);
+      ctx.fillStyle = cartCount > 0 ? '#10b981' : '#1e293b';
       ctx.fill();
       ctx.fillStyle = '#ffffff';
-      ctx.font = '800 22px ui-monospace, Menlo, monospace';
+      ctx.font = '900 22px ui-monospace, Menlo, monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`CART (${cartCount})`, 1435, 140);
+      ctx.fillText(`CART (${cartCount})`, 1433, 160);
       ctx.textAlign = 'left';
 
       // Cursor coordinates for animated click
       let curX = 1120, curY = 740, curDown = false;
 
-      if (t < 0.17) {
+      if (t < 0.48) {
         /* ----------------------------------------------------------
-           SCREEN PHASE A: template-store PRODUCT PAGE (Graphic Tee)
+           BEAT 1 & 2 (t = 0.00 -> 0.48):
+           template-store PRODUCT PAGE (DinkusKit Heavyweight Graphic Tee)
            ---------------------------------------------------------- */
         // Left Product Gallery Card
-        roundRect(ctx, 76, 206, 620, 710, 24);
+        roundRect(ctx, 72, 224, 620, 726, 24);
         ctx.fillStyle = '#f8fafc';
         ctx.fill();
-        ctx.strokeStyle = '#e2e8f0';
+        ctx.strokeStyle = '#cbd5e1';
         ctx.lineWidth = 3;
         ctx.stroke();
 
         // Badge inside product card
-        roundRect(ctx, 108, 234, 230, 38, 19);
+        roundRect(ctx, 104, 252, 242, 40, 20);
         ctx.fillStyle = '#dbeafe';
         ctx.fill();
         ctx.fillStyle = '#1d4ed8';
         ctx.font = '800 18px ui-monospace, Menlo, monospace';
-        ctx.fillText('NEW DROP · IN STOCK', 126, 259);
+        ctx.fillText('NEW DROP · IN STOCK', 124, 278);
 
-        drawGraphicTeeArtwork(ctx, 386, 560, 2.05);
+        drawGraphicTeeArtwork(ctx, 382, 580, 2.08);
 
         // Right Product Details Column
         ctx.fillStyle = '#2563eb';
-        ctx.font = '800 21px ui-monospace, Menlo, monospace';
-        ctx.fillText('DINKUSKIT APPAREL · SKU #DK-TEE-L', 750, 252);
+        ctx.font = '800 22px ui-monospace, Menlo, monospace';
+        ctx.fillText('DINKUSKIT APPAREL · SKU #DK-TEE-L', 746, 268);
 
         ctx.fillStyle = '#0f172a';
-        ctx.font = '900 50px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-        ctx.fillText('DinkusKit Heavyweight', 750, 318);
-        ctx.fillText('Graphic Tee', 750, 376);
+        ctx.font = '900 52px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
+        ctx.fillText('DinkusKit Heavyweight', 746, 336);
+        ctx.fillText('Graphic Tee', 746, 396);
 
         // Price & Rating
         ctx.fillStyle = '#059669';
-        ctx.font = '900 46px ui-monospace, Menlo, monospace';
-        ctx.fillText('$38.00', 750, 448);
+        ctx.font = '900 48px ui-monospace, Menlo, monospace';
+        ctx.fillText('$38.00', 746, 468);
 
-        ctx.fillStyle = '#64748b';
+        ctx.fillStyle = '#475569';
         ctx.font = '600 24px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-        ctx.fillText('280 GSM ring-spun cotton · Screenprinted chest cube', 750, 502);
+        ctx.fillText('280 GSM ring-spun cotton · Screenprinted chest cube', 746, 520);
 
         // Size selector pills
         ctx.fillStyle = '#334155';
         ctx.font = '800 20px ui-monospace, Menlo, monospace';
-        ctx.fillText('SELECT SIZE:', 750, 564);
+        ctx.fillText('SELECT SIZE:', 746, 580);
 
         const sizes = ['S', 'M', 'L', 'XL'];
         sizes.forEach((sz, idx) => {
-          const sx = 750 + idx * 116;
+          const sx = 746 + idx * 118;
           const isL = sz === 'L';
-          roundRect(ctx, sx, 584, 98, 60, 14);
-          ctx.fillStyle = isL ? '#0f172a' : '#f1f5f9';
+          const lHighlight = isL && K.sizeLSelect > 0.2;
+          roundRect(ctx, sx, 600, 100, 62, 14);
+          ctx.fillStyle = isL ? (lHighlight ? '#1d4ed8' : '#0f172a') : '#f1f5f9';
           ctx.fill();
-          ctx.strokeStyle = isL ? '#0f172a' : '#cbd5e1';
-          ctx.lineWidth = 3;
+          ctx.strokeStyle = isL ? '#1d4ed8' : '#cbd5e1';
+          ctx.lineWidth = isL ? 4 : 3;
           ctx.stroke();
           ctx.fillStyle = isL ? '#ffffff' : '#334155';
           ctx.font = '900 26px ui-monospace, Menlo, monospace';
           ctx.textAlign = 'center';
-          ctx.fillText(sz, sx + 49, 623);
+          ctx.fillText(sz, sx + 50, 640);
         });
         ctx.textAlign = 'left';
 
         // Big Add to Cart Button
-        const press = K.addBtnClick > 0.25 && K.addBtnClick < 0.85;
-        const added = isAddedToCart;
-        const btnY = press ? 688 : 680;
-        roundRect(ctx, 750, btnY, 740, 108, 22);
+        const press = K.addBtnClick > 0.2 && K.addBtnClick < 0.85;
+        const added = K.isAddedToCart;
+        const btnY = press ? 708 : 700;
+        roundRect(ctx, 746, btnY, 756, 114, 22);
         ctx.fillStyle = added ? '#059669' : '#2563eb';
         ctx.fill();
 
         ctx.fillStyle = '#ffffff';
-        ctx.font = '900 36px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
+        ctx.font = '900 37px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(added ? '✓ Added to Cart (1) — $38.00' : 'Add to Cart — $38.00', 750 + 370, btnY + 66);
+        ctx.fillText(
+          added ? '✓ Added to Cart (1) — $38.00' : 'Add to Cart — $38.00',
+          746 + 378,
+          btnY + 70
+        );
         ctx.textAlign = 'left';
 
         // Sub-caption below button
         ctx.fillStyle = '#475569';
         ctx.font = '700 21px ui-monospace, Menlo, monospace';
-        ctx.fillText('⚡ Ships from Overhead Tray · Pitney Bowes 4×6 Ground ($5.60)', 750, 845);
+        ctx.fillText('⚡ Instant Stripe Checkout · Pitney Bowes 4×6 Ground ($5.60)', 746, 872);
 
-        curX = lerp(1320, 1120, easeInOut(sub(t, 0.07, 0.135)));
-        curY = lerp(860, 734, easeInOut(sub(t, 0.07, 0.135)));
-        curDown = press;
+        // Cursor path: glides to Size L (t=0.22..0.27), then to Add to Cart button (t=0.27..0.34)
+        if (t < 0.27) {
+          const u = easeInOut(sub(t, 0.18, 0.26));
+          curX = lerp(1360, 1032, u);
+          curY = lerp(880, 632, u);
+          curDown = t >= 0.245 && t <= 0.268;
+        } else {
+          const u = easeInOut(sub(t, 0.27, 0.335));
+          curX = lerp(1032, 1124, u);
+          curY = lerp(632, 756, u);
+          curDown = press;
+        }
 
-      } else if (t < 0.25) {
+      } else if (t < 0.72) {
         /* ----------------------------------------------------------
-           SCREEN PHASE B: CART PAGE (/cart) -> Checkout with Stripe
+           BEAT 3 (t = 0.48 -> 0.72):
+           CART PAGE (/cart) -> Checkout with Stripe
            ---------------------------------------------------------- */
         ctx.fillStyle = '#0f172a';
         ctx.font = '900 46px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-        ctx.fillText('Your Cart (1 item)', 84, 248);
+        ctx.fillText('Your Cart (1 item)', 80, 266);
 
-        // Cart Item Card
-        roundRect(ctx, 84, 280, 880, 320, 22);
+        // Left Cart Item Card
+        roundRect(ctx, 80, 298, 884, 340, 22);
         ctx.fillStyle = '#f8fafc';
         ctx.fill();
         ctx.strokeStyle = '#cbd5e1';
@@ -834,32 +850,34 @@
         ctx.stroke();
 
         // Mini Tee Thumbnail
-        roundRect(ctx, 114, 310, 220, 260, 16);
+        roundRect(ctx, 112, 328, 224, 280, 16);
         ctx.fillStyle = '#e2e8f0';
         ctx.fill();
-        drawGraphicTeeArtwork(ctx, 224, 445, 0.88);
+        drawGraphicTeeArtwork(ctx, 224, 472, 0.90);
 
         ctx.fillStyle = '#0f172a';
-        ctx.font = '900 34px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-        ctx.fillText('DinkusKit Heavyweight Graphic Tee', 368, 372);
+        ctx.font = '900 25px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
+        ctx.fillText('DinkusKit Heavyweight Graphic Tee', 364, 390);
 
         ctx.fillStyle = '#475569';
-        ctx.font = '700 24px ui-monospace, Menlo, monospace';
-        ctx.fillText('Size: L   ·   Color: Charcoal Black   ·   Qty: 1', 368, 424);
+        ctx.font = '700 21px ui-monospace, Menlo, monospace';
+        ctx.fillText('Size: L  ·  Charcoal Black  ·  Qty: 1', 364, 440);
 
-        roundRect(ctx, 368, 458, 340, 44, 10);
+        roundRect(ctx, 364, 474, 344, 46, 10);
         ctx.fillStyle = '#dcfce7';
         ctx.fill();
         ctx.fillStyle = '#166534';
-        ctx.font = '800 20px ui-monospace, Menlo, monospace';
-        ctx.fillText('✓ RESERVED ON OVERHEAD TRAY', 386, 487);
+        ctx.font = '800 19px ui-monospace, Menlo, monospace';
+        ctx.fillText('✓ IN STOCK · SHIPS TODAY', 384, 504);
 
         ctx.fillStyle = '#0f172a';
-        ctx.font = '900 38px ui-monospace, Menlo, monospace';
-        ctx.fillText('$38.00', 810, 374);
+        ctx.font = '900 34px ui-monospace, Menlo, monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText('$38.00', 932, 392);
+        ctx.textAlign = 'left';
 
-        // Right Order Summary Card
-        roundRect(ctx, 1004, 280, 512, 610, 24);
+        // Bottom Left Shipping Method Card
+        roundRect(ctx, 80, 664, 884, 266, 22);
         ctx.fillStyle = '#f8fafc';
         ctx.fill();
         ctx.strokeStyle = '#cbd5e1';
@@ -867,126 +885,163 @@
         ctx.stroke();
 
         ctx.fillStyle = '#0f172a';
-        ctx.font = '900 32px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-        ctx.fillText('Order Summary', 1044, 344);
+        ctx.font = '900 28px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
+        ctx.fillText('Fulfillment & Carrier Rate', 116, 722);
 
-        ctx.font = '700 25px ui-monospace, Menlo, monospace';
+        roundRect(ctx, 116, 748, 812, 146, 16);
+        ctx.fillStyle = '#eff6ff';
+        ctx.fill();
+        ctx.strokeStyle = '#3b82f6';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        ctx.fillStyle = '#1e3a8a';
+        ctx.font = '900 25px ui-monospace, Menlo, monospace';
+        ctx.fillText('● Pitney Bowes 4×6 Ground Commercial', 144, 804);
         ctx.fillStyle = '#475569';
-        ctx.fillText('Subtotal (1 Tee)', 1044, 412);
-        ctx.fillText('$38.00', 1365, 412);
+        ctx.font = '700 20px ui-monospace, Menlo, monospace';
+        ctx.fillText('USPS Ground Advantage · Auto 4×6 thermal label', 144, 852);
+        ctx.fillStyle = '#1d4ed8';
+        ctx.font = '900 30px ui-monospace, Menlo, monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText('$5.60', 898, 826);
+        ctx.textAlign = 'left';
 
-        ctx.fillText('Shipping (PB Ground)', 1044, 468);
-        ctx.fillText('$5.60', 1380, 468);
-
+        // Right Order Summary Card
+        roundRect(ctx, 1000, 298, 520, 632, 24);
+        ctx.fillStyle = '#f8fafc';
+        ctx.fill();
         ctx.strokeStyle = '#cbd5e1';
-        ctx.beginPath();
-        ctx.moveTo(1044, 505);
-        ctx.lineTo(1476, 505);
+        ctx.lineWidth = 3;
         ctx.stroke();
 
         ctx.fillStyle = '#0f172a';
-        ctx.font = '900 34px ui-monospace, Menlo, monospace';
-        ctx.fillText('Total', 1044, 560);
+        ctx.font = '900 34px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
+        ctx.fillText('Order Summary', 1042, 364);
+
+        ctx.font = '700 23px ui-monospace, Menlo, monospace';
+        ctx.fillStyle = '#475569';
+        ctx.fillText('Subtotal (1 Tee)', 1042, 434);
+        ctx.textAlign = 'right';
+        ctx.fillText('$38.00', 1478, 434);
+        ctx.textAlign = 'left';
+
+        ctx.fillText('PB 4×6 Ground Shipping', 1042, 492);
+        ctx.textAlign = 'right';
+        ctx.fillText('$5.60', 1478, 492);
+        ctx.textAlign = 'left';
+
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.beginPath();
+        ctx.moveTo(1042, 532);
+        ctx.lineTo(1480, 532);
+        ctx.stroke();
+
+        ctx.fillStyle = '#0f172a';
+        ctx.font = '900 36px ui-monospace, Menlo, monospace';
+        ctx.fillText('Total', 1042, 590);
         ctx.fillStyle = '#2563eb';
-        ctx.fillText('$43.60', 1345, 560);
+        ctx.textAlign = 'right';
+        ctx.fillText('$43.60', 1478, 590);
+        ctx.textAlign = 'left';
 
         // Indigo Checkout with Stripe Button
-        const press = K.cartBtnClick > 0.25 && K.cartBtnClick < 0.85;
-        const btnY = press ? 622 : 614;
-        roundRect(ctx, 1040, btnY, 440, 112, 20);
-        ctx.fillStyle = '#4f46e5';
+        const press = K.cartBtnClick > 0.15 && K.cartBtnClick < 0.85;
+        const btnY = press ? 650 : 642;
+        roundRect(ctx, 1038, btnY, 444, 118, 22);
+        ctx.fillStyle = press ? '#4338ca' : '#4f46e5';
         ctx.fill();
 
         ctx.fillStyle = '#ffffff';
-        ctx.font = '900 33px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
+        ctx.font = '900 34px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('Checkout with Stripe →', 1260, btnY + 68);
+        ctx.fillText('Checkout with Stripe →', 1260, btnY + 72);
         ctx.textAlign = 'left';
 
         ctx.fillStyle = '#64748b';
-        ctx.font = '700 19px ui-monospace, Menlo, monospace';
-        ctx.fillText('Powered by Stripe + Cloudflare D1', 1075, 782);
+        ctx.font = '700 20px ui-monospace, Menlo, monospace';
+        ctx.fillText('🔒 Stripe Hosted Checkout · D1 Ledger', 1054, 818);
 
-        curX = lerp(1120, 1260, easeInOut(sub(t, 0.175, 0.225)));
-        curY = lerp(734, 670, easeInOut(sub(t, 0.175, 0.225)));
+        curX = lerp(1124, 1260, easeInOut(sub(t, 0.49, 0.58)));
+        curY = lerp(756, 700, easeInOut(sub(t, 0.49, 0.58)));
         curDown = press;
 
-      } else if (t < 0.30) {
+      } else if (t < 0.83) {
         /* ----------------------------------------------------------
-           SCREEN PHASE C: STRIPE CHECKOUT MODAL ($43.60)
+           BEAT 4A (t = 0.72 -> 0.83):
+           STRIPE HOSTED CHECKOUT MODAL ($43.60 · Visa •••• 4242)
            ---------------------------------------------------------- */
-        // Left dark Stripe summary column
         ctx.fillStyle = '#1e293b';
-        ctx.fillRect(24, 170, 680, H - 190);
+        ctx.fillRect(22, 190, 680, H - 206);
 
         ctx.fillStyle = '#94a3b8';
         ctx.font = '800 24px ui-monospace, Menlo, monospace';
-        ctx.fillText('PAY DINKUSKIT STORE', 88, 250);
+        ctx.fillText('PAY DINKUSKIT STORE', 86, 272);
 
         ctx.fillStyle = '#ffffff';
-        ctx.font = '900 68px ui-monospace, Menlo, monospace';
-        ctx.fillText('$43.60', 88, 336);
+        ctx.font = '900 72px ui-monospace, Menlo, monospace';
+        ctx.fillText('$43.60', 86, 360);
 
-        drawGraphicTeeArtwork(ctx, 185, 520, 0.85);
+        drawGraphicTeeArtwork(ctx, 185, 555, 0.88);
         ctx.fillStyle = '#f8fafc';
-        ctx.font = '800 27px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-        ctx.fillText('Heavyweight Graphic Tee (L)', 305, 485);
+        ctx.font = '800 28px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
+        ctx.fillText('Heavyweight Graphic Tee (L)', 308, 520);
         ctx.fillStyle = '#38bdf8';
         ctx.font = '700 23px ui-monospace, Menlo, monospace';
-        ctx.fillText('$38.00 + $5.60 PB Ground', 305, 528);
+        ctx.fillText('$38.00 + $5.60 PB Ground', 308, 564);
 
         // Right Stripe Payment Form
         ctx.fillStyle = '#0f172a';
-        ctx.font = '900 38px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-        ctx.fillText('Stripe Checkout · Instant Pay', 770, 256);
+        ctx.font = '900 40px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
+        ctx.fillText('Stripe Checkout · Instant Pay', 768, 278);
 
         // Email box
-        roundRect(ctx, 770, 292, 720, 74, 14);
+        roundRect(ctx, 768, 316, 732, 76, 14);
         ctx.fillStyle = '#f8fafc';
         ctx.fill();
         ctx.strokeStyle = '#cbd5e1';
         ctx.lineWidth = 3;
         ctx.stroke();
         ctx.fillStyle = '#334155';
-        ctx.font = '700 25px ui-monospace, Menlo, monospace';
-        ctx.fillText('customer@dinkuskit.com', 800, 338);
+        ctx.font = '700 26px ui-monospace, Menlo, monospace';
+        ctx.fillText('customer@dinkuskit.com', 800, 364);
 
         // Card box
-        roundRect(ctx, 770, 392, 720, 144, 14);
+        roundRect(ctx, 768, 418, 732, 148, 14);
         ctx.fillStyle = '#f8fafc';
         ctx.fill();
         ctx.strokeStyle = '#6366f1';
         ctx.lineWidth = 3;
         ctx.stroke();
         ctx.fillStyle = '#0f172a';
-        ctx.font = '800 27px ui-monospace, Menlo, monospace';
-        ctx.fillText('💳  VISA  •••• •••• •••• 4242', 800, 448);
+        ctx.font = '800 28px ui-monospace, Menlo, monospace';
+        ctx.fillText('💳  VISA  •••• •••• •••• 4242', 800, 476);
         ctx.fillStyle = '#64748b';
-        ctx.font = '700 23px ui-monospace, Menlo, monospace';
-        ctx.fillText('EXP 08/29     CVC •••     ZIP 94107', 800, 504);
+        ctx.font = '700 24px ui-monospace, Menlo, monospace';
+        ctx.fillText('EXP 08/29     CVC •••     ZIP 94107', 800, 532);
 
         // Green Pay $43.60 Button
         const press = K.stripePayClick > 0.25;
-        const btnY = press ? 584 : 576;
-        roundRect(ctx, 770, btnY, 720, 116, 22);
+        const btnY = press ? 614 : 606;
+        roundRect(ctx, 768, btnY, 732, 120, 22);
         ctx.fillStyle = '#10b981';
         ctx.fill();
         ctx.fillStyle = '#ffffff';
-        ctx.font = '900 40px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
+        ctx.font = '900 42px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('Pay $43.60  🔒', 1130, btnY + 72);
+        ctx.fillText('Pay $43.60  🔒', 1134, btnY + 75);
         ctx.textAlign = 'left';
 
-        curX = lerp(1260, 1130, easeInOut(sub(t, 0.25, 0.28)));
-        curY = lerp(670, 634, easeInOut(sub(t, 0.25, 0.28)));
+        curX = lerp(1260, 1134, easeInOut(sub(t, 0.72, 0.78)));
+        curY = lerp(700, 666, easeInOut(sub(t, 0.72, 0.78)));
         curDown = press;
 
       } else {
         /* ----------------------------------------------------------
-           SCREEN PHASE D: STRIPE PAID + CHA-CHING! $$$ · ORDER #DK-402
+           BEAT 4B (t = 0.83 -> 1.00):
+           ORDER CONFIRMED + CHA-CHING! $$$ · ORDER #DK-402 PAID
            ---------------------------------------------------------- */
-        // Bold Emerald Confirmation Screen
-        roundRect(ctx, 64, 196, W - 128, H - 246, 28);
+        roundRect(ctx, 58, 214, W - 116, H - 252, 28);
         ctx.fillStyle = '#ecfdf5';
         ctx.fill();
         ctx.strokeStyle = '#10b981';
@@ -994,64 +1049,67 @@
         ctx.stroke();
 
         // Top Cha-Ching Banner
-        roundRect(ctx, 104, 228, W - 208, 120, 22);
+        roundRect(ctx, 96, 246, W - 192, 124, 22);
         ctx.fillStyle = '#059669';
         ctx.fill();
 
         ctx.fillStyle = '#fef08a';
-        ctx.font = '900 44px ui-monospace, SFMono-Regular, Menlo, monospace';
+        ctx.font = '900 45px ui-monospace, SFMono-Regular, Menlo, monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('✓ PAYMENT APPROVED · ORDER #DK-402 · $43.60', W / 2, 304);
+        ctx.fillText('✓ PAYMENT APPROVED · ORDER #DK-402 · $43.60', W / 2, 324);
 
         // Left: Tee graphic + Stripe Visa 4242 mini card
-        drawGraphicTeeArtwork(ctx, 300, 545, 1.32);
-        roundRect(ctx, 118, 745, 364, 132, 16);
+        drawGraphicTeeArtwork(ctx, 296, 566, 1.32);
+        roundRect(ctx, 98, 768, 396, 142, 16);
         ctx.fillStyle = '#0f172a';
         ctx.fill();
         ctx.fillStyle = '#38bdf8';
-        ctx.font = '800 20px ui-monospace, Menlo, monospace';
+        ctx.font = '800 18px ui-monospace, Menlo, monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('STRIPE CHECKOUT · VISA •••• 4242', 300, 790);
+        ctx.fillText('STRIPE CHECKOUT · VISA •••• 4242', 296, 816);
         ctx.fillStyle = '#fef08a';
-        ctx.font = '900 28px ui-monospace, Menlo, monospace';
-        ctx.fillText('$$$ · CHA-CHING! ($43.60)', 300, 845);
+        ctx.font = '900 25px ui-monospace, Menlo, monospace';
+        ctx.fillText('$$$ · CHA-CHING! ($43.60)', 296, 872);
 
         // Right: Live Fulfillment Status
         ctx.textAlign = 'left';
         ctx.fillStyle = '#064e3b';
-        ctx.font = '900 44px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-        ctx.fillText('✓ Stripe Payment Approved', 530, 442);
+        ctx.font = '900 46px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
+        ctx.fillText('✓ Cha-Ching! Order #DK-402 Paid', 530, 462);
 
         ctx.fillStyle = '#047857';
         ctx.font = '800 30px ui-monospace, Menlo, monospace';
-        ctx.fillText('ORDER ID: #DK-402   ·   AMOUNT: $43.60 (VISA 4242)', 530, 504);
+        ctx.fillText('TOTAL PAID: $43.60   ·   CARD: VISA •••• 4242', 530, 524);
 
         const steps = [
-          ['✓', '1x Heavyweight Graphic Tee (Size L) released from Overhead Shelf'],
-          ['✓', 'Thermal Packing Slip printed & dropped inside box'],
-          ['✓', 'Pitney Bowes 4×6 Priority Label queued (PB-9400-1082)'],
+          ['✓', '1× DinkusKit Heavyweight Graphic Tee (Size L) — $38.00'],
+          ['✓', 'Pitney Bowes 4×6 Ground Label Queued (PB-9400-1082) — $5.60'],
+          ['✓', 'Cloudflare D1 Commerce Order Ledger Committed (#DK-402)'],
         ];
         steps.forEach(([chk, label], i) => {
-          const sy = 588 + i * 74;
-          roundRect(ctx, 530, sy - 38, 940, 58, 12);
+          const sy = 610 + i * 80;
+          roundRect(ctx, 530, sy - 40, 954, 62, 14);
           ctx.fillStyle = '#d1fae5';
           ctx.fill();
+          ctx.strokeStyle = '#34d399';
+          ctx.lineWidth = 2;
+          ctx.stroke();
           ctx.fillStyle = '#065f46';
           ctx.font = '800 25px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-          ctx.fillText(`${chk}  ${label}`, 554, sy - 1);
+          ctx.fillText(`${chk}  ${label}`, 556, sy);
         });
       }
 
-      // Draw animated pointer cursor during screen interaction (t = 0.05 -> 0.31)
-      if (t >= 0.04 && t < 0.31) {
+      // Draw animated pointer cursor during screen interaction (t = 0.16 -> 0.83)
+      if (t >= 0.16 && t < 0.83) {
         ctx.save();
         ctx.translate(curX, curY);
         if (curDown) {
-          ctx.scale(0.88, 0.88);
-          ctx.strokeStyle = 'rgba(16, 185, 129, 0.75)';
-          ctx.lineWidth = 5;
+          ctx.scale(0.90, 0.90);
+          ctx.strokeStyle = 'rgba(16, 185, 129, 0.85)';
+          ctx.lineWidth = 6;
           ctx.beginPath();
-          ctx.arc(0, 0, 34, 0, Math.PI * 2);
+          ctx.arc(0, 0, 38, 0, Math.PI * 2);
           ctx.stroke();
         }
         ctx.fillStyle = '#0f172a';
@@ -1059,12 +1117,12 @@
         ctx.lineWidth = 4;
         ctx.beginPath();
         ctx.moveTo(0, 0);
-        ctx.lineTo(0, 42);
-        ctx.lineTo(12, 31);
-        ctx.lineTo(22, 48);
-        ctx.lineTo(30, 43);
-        ctx.lineTo(20, 26);
-        ctx.lineTo(34, 26);
+        ctx.lineTo(0, 46);
+        ctx.lineTo(13, 35);
+        ctx.lineTo(23, 56);
+        ctx.lineTo(33, 51);
+        ctx.lineTo(22, 30);
+        ctx.lineTo(38, 30);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
@@ -1074,665 +1132,102 @@
       texture.needsUpdate = true;
     }
 
-    // 3B. Keyboard Well Chiclet Texture (Space-Black Top Case + Matte-Black Recessed Key Well + Backlit Legends)
-    function createKeyboardTexture() {
-      const c = document.createElement('canvas');
-      c.width = 1024;
-      c.height = 640;
-      const ctx = c.getContext('2d');
+    /* ============================================================
+       4. HDR STUDIO SOFTBOX ENVIRONMENT (PMREMGenerator, RGB > 1.0)
+          Verified by DeepInvestigator (@thtbee_ technique)
+       ============================================================ */
+    function buildStudioEnvironment(renderer) {
+      const envScene = new THREE.Scene();
+      envScene.background = new THREE.Color(0x030509);
 
-      // Space-black anodized palmrest deck
-      ctx.fillStyle = '#181c24';
-      ctx.fillRect(0, 0, 1024, 640);
-
-      // Left & right micro-perforated speaker grilles
-      ctx.fillStyle = '#0c0f15';
-      for (let sy = 44; sy < 340; sy += 8) {
-        for (let sx = 18; sx < 52; sx += 7) {
-          ctx.fillRect(sx, sy, 3, 3);
-          ctx.fillRect(1024 - sx - 3, sy, 3, 3);
-        }
-      }
-
-      // Deep matte-black recessed keyboard well
-      roundRect(ctx, 64, 28, 896, 336, 14);
-      ctx.fillStyle = '#07090e';
-      ctx.fill();
-      ctx.strokeStyle = '#262d3d';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-
-      // 6 rows of backlit matte-black chiclet keys with crisp white legends
-      const keyRows = [
-        ['ESC', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '⏏'],
-        ['~', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '⌫'],
-        ['TAB', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '[', ']', '\\'],
-        ['CAPS', 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ';', '\'', 'RETURN'],
-        ['SHIFT', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', ',', '.', '/', 'SHIFT'],
-        ['FN', '⌃', '⌥', '⌘', 'SPACE', '⌘', '⌥', '◀', '▼', '▶'],
-      ];
-      const wellX = 78, wellY = 40, wellW = 868, rowH = 46, gapY = 6;
-      keyRows.forEach((row, r) => {
-        const y = wellY + r * (rowH + gapY);
-        const weights = row.map(k => (k === 'SPACE' ? 4.8 : (k.length > 2 ? 1.65 : 1.0)));
-        const totalWeight = weights.reduce((a, b) => a + b, 0);
-        const gapX = 6;
-        const availW = wellW - gapX * (row.length - 1);
-        let curKeyX = wellX;
-        row.forEach((label, cIdx) => {
-          const kw = (weights[cIdx] / totalWeight) * availW;
-          roundRect(ctx, curKeyX, y, kw, rowH, 6);
-          ctx.fillStyle = '#10141d';
-          ctx.fill();
-          ctx.strokeStyle = 'rgba(186, 230, 253, 0.28)';
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-
-          if (label !== 'SPACE') {
-            ctx.fillStyle = 'rgba(241, 245, 249, 0.72)';
-            ctx.font = '700 13px ui-monospace, SFMono-Regular, Menlo, monospace';
-            ctx.textAlign = 'center';
-            ctx.fillText(label, curKeyX + kw / 2, y + 28);
-          }
-          curKeyX += kw + gapX;
+      const addSoftbox = (w, h, hdrRgb, pos, look) => {
+        const geo = new THREE.PlaneGeometry(w, h);
+        const mat = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(hdrRgb[0], hdrRgb[1], hdrRgb[2]),
+          side: THREE.DoubleSide,
         });
-      });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(pos[0], pos[1], pos[2]);
+        mesh.lookAt(look[0], look[1], look[2]);
+        envScene.add(mesh);
+      };
 
-      // Large Force Touch glass trackpad centered on palmrest
-      roundRect(ctx, 312, 386, 400, 224, 16);
-      ctx.fillStyle = '#131822';
-      ctx.fill();
-      ctx.strokeStyle = '#2d3548';
-      ctx.lineWidth = 2.5;
-      ctx.stroke();
+      // 6 Focused Studio Softbox Strips (HDR RGB > 1.0) against deep obsidian studio void
+      // so anodized aluminum shows rich metallic gradients + sharp specular rim bevels!
+      // 1. Overhead Warm-Neutral Key Strip ([5.5, 5.2, 4.8])
+      addSoftbox(10.5, 2.8, [5.5, 5.2, 4.8], [0, 12.5, -2.5], [0, 0, 0]);
 
-      // Front thumb notch indent on palmrest edge
-      roundRect(ctx, 432, 626, 160, 14, 6);
-      ctx.fillStyle = '#090c12';
-      ctx.fill();
+      // 2. Front-Left Warm Tungsten Grazing Softbox Strip ([5.5, 4.0, 2.8])
+      addSoftbox(7.5, 2.4, [5.5, 4.0, 2.8], [-11.5, 5.2, 7.5], [0, 0.6, 0]);
 
-      const tex = new THREE.CanvasTexture(c);
-      tex.encoding = THREE.sRGBEncoding;
-      tex.anisotropy = 8;
-      return tex;
+      // 3. Front-Right Cool Sky Rim Softbox Strip ([2.2, 4.0, 6.2])
+      addSoftbox(7.5, 2.4, [2.2, 4.0, 6.2], [11.5, 5.5, 7.0], [0, 0.8, 0]);
+
+      // 4. Back-Top Grazing Amber/Gold Rim Strip ([6.5, 4.5, 2.5])
+      addSoftbox(12.0, 2.0, [6.5, 4.5, 2.5], [0, 6.8, -11.5], [0, 0.5, 0]);
+
+      // 5. Left-Side Low Grazing Strip for MagSafe/Thunderbolt Ports ([2.2, 4.0, 6.2])
+      addSoftbox(6.0, 1.4, [2.2, 4.0, 6.2], [-12.0, 1.5, 1.2], [0, 0.25, 0]);
+
+      // 6. Front-Low Grazing Strip for CNC Thumb Notch & Front Bevel ([5.5, 5.2, 4.8])
+      addSoftbox(8.5, 1.3, [5.5, 5.2, 4.8], [0, 1.4, 12.0], [0, 0.2, 2.0]);
+
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      pmrem.compileCubemapShader();
+      const envTex = pmrem.fromScene(envScene, 0.03).texture;
+      pmrem.dispose();
+      return envTex;
     }
 
-    // 3C. Folded DinkusKit Graphic Tee Top Texture (Fabric weave + Chest Graphic + Belly Band)
-    function createFoldedTeeTexture() {
-      const c = document.createElement('canvas');
-      c.width = 1024;
-      c.height = 1024;
-      const ctx = c.getContext('2d');
-
-      // Charcoal combed-cotton base
-      ctx.fillStyle = '#1b202b';
-      ctx.fillRect(0, 0, 1024, 1024);
-
-      // Subtle cotton twill texture lines
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.025)';
-      for (let y = 0; y < 1024; y += 6) {
-        ctx.fillRect(0, y, 1024, 2);
-      }
-
-      // Folded shoulder seams
-      ctx.strokeStyle = '#2d3648';
-      ctx.lineWidth = 8;
-      ctx.strokeRect(28, 28, 968, 968);
-
-      // Ribbed crew collar at top of folded stack
-      ctx.fillStyle = '#11151d';
-      ctx.beginPath();
-      ctx.ellipse(512, 150, 210, 78, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#334155';
-      ctx.lineWidth = 10;
-      ctx.stroke();
-
-      // Woven DinkusKit neck tag
-      roundRect(ctx, 442, 95, 140, 52, 8);
-      ctx.fillStyle = '#f8fafc';
-      ctx.fill();
-      ctx.fillStyle = '#0f172a';
-      ctx.font = '900 24px ui-monospace, Menlo, monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('DINKUS · L', 512, 130);
-
-      // Center Screenprinted DinkusKit Isometric Graphic
-      roundRect(ctx, 212, 270, 600, 470, 32);
-      ctx.fillStyle = '#0f172a';
-      ctx.fill();
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 10;
-      ctx.stroke();
-
-      // Isometric Cube Faces
-      ctx.fillStyle = '#f59e0b';
-      ctx.beginPath();
-      ctx.moveTo(512, 320);
-      ctx.lineTo(672, 400);
-      ctx.lineTo(512, 480);
-      ctx.lineTo(352, 400);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.fillStyle = '#3b82f6';
-      ctx.beginPath();
-      ctx.moveTo(352, 400);
-      ctx.lineTo(512, 480);
-      ctx.lineTo(512, 640);
-      ctx.lineTo(352, 560);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.fillStyle = '#10b981';
-      ctx.beginPath();
-      ctx.moveTo(672, 400);
-      ctx.lineTo(512, 480);
-      ctx.lineTo(512, 640);
-      ctx.lineTo(672, 560);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '900 54px ui-monospace, Menlo, monospace';
-      ctx.fillText('DINKUSKIT TEE', 512, 706);
-
-      // Kraft paper retail size belly band across lower third
-      ctx.fillStyle = '#e2c799';
-      ctx.fillRect(0, 790, 1024, 130);
-      ctx.fillStyle = '#1e293b';
-      ctx.font = '900 44px ui-monospace, Menlo, monospace';
-      ctx.fillText('HEAVYWEIGHT GRAPHIC TEE · SIZE L · $38', 512, 870);
-
-      const tex = new THREE.CanvasTexture(c);
-      tex.encoding = THREE.sRGBEncoding;
-      tex.anisotropy = 8;
-      return tex;
-    }
-
-    // 3D. Thermal Packing Slip Texture
-    function createPackingSlipTexture() {
-      const c = document.createElement('canvas');
-      c.width = 768;
-      c.height = 1024;
-      const ctx = c.getContext('2d');
-
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, 768, 1024);
-
-      ctx.strokeStyle = '#cbd5e1';
-      ctx.lineWidth = 10;
-      ctx.strokeRect(16, 16, 736, 992);
-
-      // Header bar
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(44, 48, 680, 118);
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '900 46px ui-monospace, Menlo, monospace';
-      ctx.fillText('DINKUSKIT PACKING SLIP', 78, 124);
-
-      ctx.fillStyle = '#0f172a';
-      ctx.font = '900 42px ui-monospace, Menlo, monospace';
-      ctx.fillText('ORDER #DK-402', 48, 240);
-
-      ctx.fillStyle = '#059669';
-      ctx.font = '900 34px ui-monospace, Menlo, monospace';
-      ctx.fillText('STATUS: PAID VIA STRIPE ($43.60)', 48, 296);
-
-      ctx.strokeStyle = '#94a3b8';
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.moveTo(48, 336);
-      ctx.lineTo(720, 336);
-      ctx.stroke();
-
-      // Line items
-      ctx.fillStyle = '#0f172a';
-      ctx.font = '800 32px ui-monospace, Menlo, monospace';
-      ctx.fillText('QTY   ITEM DESCRIPTION              PRICE', 48, 396);
-
-      ctx.fillStyle = '#1e293b';
-      ctx.font = '900 34px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-      ctx.fillText('1x    DinkusKit Graphic Tee (L)     $38.00', 48, 468);
-      ctx.fillText('1x    Pitney Bowes 4×6 Ground        $5.60', 48, 532);
-
-      ctx.beginPath();
-      ctx.moveTo(48, 580);
-      ctx.lineTo(720, 580);
-      ctx.stroke();
-
-      ctx.fillStyle = '#0f172a';
-      ctx.font = '900 42px ui-monospace, Menlo, monospace';
-      ctx.fillText('TOTAL PAID:             $43.60', 48, 650);
-
-      // Green Verified Stamp Box
-      roundRect(ctx, 84, 716, 600, 110, 18);
-      ctx.fillStyle = '#dcfce7';
-      ctx.fill();
-      ctx.strokeStyle = '#059669';
-      ctx.lineWidth = 6;
-      ctx.stroke();
-      ctx.fillStyle = '#065f46';
-      ctx.font = '900 38px ui-monospace, Menlo, monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('✓ PACKED FROM OVERHEAD TRAY', 384, 784);
-
-      // Bottom barcode stripes
-      ctx.fillStyle = '#0f172a';
-      for (let x = 96; x < 672; x += 14) {
-        const w = (x % 28 === 0) ? 8 : 4;
-        ctx.fillRect(x, 868, w, 92);
-      }
-
-      const tex = new THREE.CanvasTexture(c);
-      tex.encoding = THREE.sRGBEncoding;
-      tex.anisotropy = 8;
-      return tex;
-    }
-
-    // 3E. Pitney Bowes 4x6 Shipping Label Texture
-    function createShippingLabelTexture(orderNum = 'DK-402', trackNum = 'PB-9400-1082-402') {
-      const c = document.createElement('canvas');
-      c.width = 1024;
-      c.height = 1536;
-      const ctx = c.getContext('2d');
-
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, 1024, 1536);
-
-      ctx.strokeStyle = '#0f172a';
-      ctx.lineWidth = 14;
-      ctx.strokeRect(20, 20, 984, 1496);
-
-      // Top Priority "P" Block + Pitney Bowes Postage Indicia
-      ctx.strokeStyle = '#0f172a';
-      ctx.lineWidth = 10;
-      ctx.strokeRect(48, 48, 250, 250);
-      ctx.fillStyle = '#0f172a';
-      ctx.font = '900 205px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('P', 173, 248);
-
-      // Indicia Box on top right
-      ctx.strokeStyle = '#dc2626';
-      ctx.lineWidth = 6;
-      ctx.strokeRect(610, 56, 360, 165);
-      ctx.fillStyle = '#dc2626';
-      ctx.font = '900 29px ui-monospace, Menlo, monospace';
-      ctx.fillText('US POSTAGE PAID', 790, 104);
-      ctx.fillText('PITNEY BOWES', 790, 146);
-      ctx.fillStyle = '#0f172a';
-      ctx.font = '800 26px ui-monospace, Menlo, monospace';
-      ctx.fillText('4×6 PRIORITY · $5.60', 790, 192);
-
-      // Priority Mail Banner
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(20, 330, 984, 96);
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '900 50px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-      ctx.fillText('USPS PRIORITY MAIL · 4×6 LABEL', 512, 396);
-
-      // Ship From / Ship To
-      ctx.textAlign = 'left';
-      ctx.fillStyle = '#475569';
-      ctx.font = '800 30px ui-monospace, Menlo, monospace';
-      ctx.fillText('FROM: DINKUSKIT WAREHOUSE · 548 MARKET ST · SAN FRANCISCO CA', 58, 488);
-
-      ctx.fillStyle = '#0f172a';
-      ctx.font = '900 38px ui-monospace, Menlo, monospace';
-      ctx.fillText('SHIP TO:', 58, 585);
-      ctx.font = '900 56px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-      ctx.fillText('ALEX RIVERA', 58, 658);
-      ctx.font = '800 44px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-      ctx.fillText('742 EVERGREEN TERRACE', 58, 720);
-      ctx.fillText('AUSTIN TX 78701-1402', 58, 782);
-
-      // Order badge
-      roundRect(ctx, 58, 825, 460, 74, 14);
-      ctx.fillStyle = '#dbeafe';
-      ctx.fill();
-      ctx.fillStyle = '#1e3a8a';
-      ctx.font = '900 38px ui-monospace, Menlo, monospace';
-      ctx.fillText(`ORDER #${orderNum}`, 86, 875);
-
-      // Heavy 1D Tracking Barcode Block
-      ctx.strokeStyle = '#0f172a';
-      ctx.lineWidth = 8;
-      ctx.beginPath();
-      ctx.moveTo(20, 945);
-      ctx.lineTo(1004, 945);
-      ctx.stroke();
-
-      ctx.fillStyle = '#0f172a';
-      ctx.font = '900 36px ui-monospace, Menlo, monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('USPS TRACKING # · PITNEY BOWES API', 512, 1006);
-
-      // Crisp 1D Barcode Bars
-      for (let x = 84; x < 940; x += 16) {
-        const bit = ((x * 37) % 11);
-        const w = bit > 6 ? 11 : (bit > 2 ? 6 : 3);
-        ctx.fillRect(x, 1038, w, 290);
-      }
-
-      ctx.font = '900 44px ui-monospace, Menlo, monospace';
-      ctx.fillText(trackNum, 512, 1396);
-
-      const tex = new THREE.CanvasTexture(c);
-      tex.encoding = THREE.sRGBEncoding;
-      tex.anisotropy = 8;
-      return tex;
-    }
-
-    // 3F. Corrugated Cardboard Kraft Texture
-    function createCorrugatedKraftTexture(sideStencil = true) {
-      const c = document.createElement('canvas');
-      c.width = 1024;
-      c.height = 1024;
-      const ctx = c.getContext('2d');
-
-      // Warm kraft paper base
-      ctx.fillStyle = '#c89d66';
-      ctx.fillRect(0, 0, 1024, 1024);
-
-      // Corrugated fluting ribs + organic fiber grain
-      for (let y = 0; y < 1024; y += 8) {
-        ctx.fillStyle = (y % 16 === 0) ? 'rgba(92, 61, 30, 0.08)' : 'rgba(255, 245, 225, 0.06)';
-        ctx.fillRect(0, y, 1024, 4);
-      }
-      for (let i = 0; i < 1800; i++) {
-        const rx = (i * 197) % 1024;
-        const ry = (i * 353) % 1024;
-        ctx.fillStyle = (i % 2 === 0) ? 'rgba(70, 44, 18, 0.09)' : 'rgba(255, 236, 205, 0.08)';
-        ctx.fillRect(rx, ry, 14, 3);
-      }
-
-      ctx.strokeStyle = 'rgba(82, 52, 24, 0.35)';
-      ctx.lineWidth = 12;
-      ctx.strokeRect(6, 6, 1012, 1012);
-
-      if (sideStencil) {
-        // Stencil branding on box front/back walls
-        ctx.strokeStyle = '#291d12';
-        ctx.lineWidth = 8;
-        ctx.strokeRect(110, 310, 804, 410);
-
-        ctx.fillStyle = '#291d12';
-        ctx.font = '900 78px ui-monospace, Menlo, monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText('◆ DINKUSKIT', 512, 465);
-
-        ctx.font = '800 46px ui-monospace, Menlo, monospace';
-        ctx.fillText('APPAREL & GOODS · ORD #DK-402', 512, 555);
-        ctx.fillText('HANDLE WITH CARE · KEEP DRY', 512, 640);
-      }
-
-      const tex = new THREE.CanvasTexture(c);
-      tex.encoding = THREE.sRGBEncoding;
-      tex.anisotropy = 4;
-      return tex;
-    }
-
-    // 3G. Floating 3D "$$$ · ORDER #DK-402 PAID" Badge Texture (Wide 1200x320 to prevent right-edge text clipping)
-    function createChaChingBadgeTexture() {
-      const c = document.createElement('canvas');
-      c.width = 1200;
-      c.height = 320;
-      const ctx = c.getContext('2d');
-
-      roundRect(ctx, 14, 14, 1172, 292, 56);
-      ctx.fillStyle = '#065f46';
-      ctx.fill();
-      ctx.strokeStyle = '#34d399';
-      ctx.lineWidth = 12;
-      ctx.stroke();
-
-      // Gold coin badge on left
-      ctx.fillStyle = '#fbbf24';
-      ctx.beginPath();
-      ctx.arc(148, 160, 86, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#fef08a';
-      ctx.lineWidth = 8;
-      ctx.stroke();
-
-      ctx.fillStyle = '#78350f';
-      ctx.font = '900 74px ui-monospace, Menlo, monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('$$$', 148, 185);
-
-      ctx.textAlign = 'left';
-      ctx.fillStyle = '#fef08a';
-      ctx.font = '900 42px ui-monospace, Menlo, monospace';
-      ctx.fillText('CHA-CHING! · STRIPE PAID', 268, 126);
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '900 54px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-      ctx.fillText('ORDER #DK-402 · $43.60', 268, 214);
-
-      const tex = new THREE.CanvasTexture(c);
-      tex.encoding = THREE.sRGBEncoding;
-      tex.anisotropy = 4;
-      return tex;
-    }
-
-    // 3H. Warm Oak Butcher-Block Workbench Texture
-    function createWorkbenchOakTexture() {
-      const c = document.createElement('canvas');
-      c.width = 1024;
-      c.height = 512;
-      const ctx = c.getContext('2d');
-
-      const plankColors = ['#b07d4b', '#a57242', '#ba8754', '#9e6c3d', '#b4814e', '#a87545', '#bc8a57', '#a16f40'];
-      const plankH = 512 / plankColors.length;
-      plankColors.forEach((col, idx) => {
-        const y0 = idx * plankH;
-        ctx.fillStyle = col;
-        ctx.fillRect(0, y0, 1024, plankH);
-
-        // Wood grain streaks along plank
-        for (let g = 0; g < 48; g++) {
-          const gy = y0 + ((g * 19) % plankH);
-          const gx = (g * 73 + idx * 131) % 900;
-          const gw = 60 + ((g * 37) % 140);
-          ctx.fillStyle = (g % 2 === 0) ? 'rgba(62, 36, 14, 0.10)' : 'rgba(245, 208, 164, 0.08)';
-          ctx.fillRect(gx, gy, gw, 2);
-        }
-
-        // Butcher-block plank seam line
-        ctx.fillStyle = 'rgba(54, 31, 12, 0.32)';
-        ctx.fillRect(0, y0, 1024, 2);
-      });
-
-      const tex = new THREE.CanvasTexture(c);
-      tex.encoding = THREE.sRGBEncoding;
-      tex.wrapS = THREE.RepeatWrapping;
-      tex.wrapT = THREE.RepeatWrapping;
-      tex.repeat.set(3, 1.5);
-      tex.anisotropy = 8;
-      return tex;
-    }
-
-    // 3I. Soft Ambient Occlusion Contact Shadow Texture
     function createContactShadowTexture() {
-      const c = document.createElement('canvas');
-      c.width = 256;
-      c.height = 256;
-      const ctx = c.getContext('2d');
-      const grad = ctx.createRadialGradient(128, 128, 18, 128, 128, 124);
-      grad.addColorStop(0.0, 'rgba(8, 11, 18, 0.72)');
-      grad.addColorStop(0.55, 'rgba(8, 11, 18, 0.36)');
-      grad.addColorStop(1.0, 'rgba(8, 11, 18, 0.0)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, 256, 256);
-      const tex = new THREE.CanvasTexture(c);
-      return tex;
-    }
-
-    // 3J. Pitney Bowes 4x6 Thermal Printer Front Faceplate Texture
-    function createPbPrinterFaceTexture() {
-      const c = document.createElement('canvas');
-      c.width = 768;
-      c.height = 440;
-      const ctx = c.getContext('2d');
-
-      ctx.fillStyle = '#192130';
-      ctx.fillRect(0, 0, 768, 440);
-
-      ctx.strokeStyle = '#334155';
-      ctx.lineWidth = 8;
-      ctx.strokeRect(10, 10, 748, 420);
-
-      // Top blue Pitney Bowes header strip
-      ctx.fillStyle = '#2563eb';
-      ctx.fillRect(14, 14, 740, 76);
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '900 30px ui-monospace, Menlo, monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText('PITNEY BOWES · 4×6 THERMAL APPLICATOR', 36, 62);
-
-      // Left OLED Status Screen
-      roundRect(ctx, 36, 118, 430, 190, 16);
-      ctx.fillStyle = '#064e3b';
-      ctx.fill();
-      ctx.strokeStyle = '#10b981';
-      ctx.lineWidth = 4;
-      ctx.stroke();
-
-      ctx.fillStyle = '#6ee7b7';
-      ctx.font = '800 22px ui-monospace, Menlo, monospace';
-      ctx.fillText('● ONLINE · USPS PRIORITY API', 58, 162);
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '900 26px ui-monospace, Menlo, monospace';
-      ctx.fillText('ORD #DK-402 · 4×6 LABEL', 58, 208);
-      ctx.fillStyle = '#fde047';
-      ctx.font = '800 22px ui-monospace, Menlo, monospace';
-      ctx.fillText('TRK: PB-9400-1082-402', 58, 252);
-      ctx.fillStyle = '#a7f3d0';
-      ctx.font = '700 19px ui-monospace, Menlo, monospace';
-      ctx.fillText('POSTAGE PAID: $5.60 · VERIFIED', 58, 288);
-
-      // Right Thermal Roll Inspection Window
-      roundRect(ctx, 496, 118, 236, 190, 16);
-      ctx.fillStyle = '#0f172a';
-      ctx.fill();
-      ctx.strokeStyle = '#475569';
-      ctx.lineWidth = 4;
-      ctx.stroke();
-
-      // Label roll graphic inside window
-      ctx.fillStyle = '#f8fafc';
-      ctx.beginPath();
-      ctx.arc(614, 213, 68, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#334155';
-      ctx.beginPath();
-      ctx.arc(614, 213, 26, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Bottom dispense slot bezel
-      roundRect(ctx, 110, 342, 548, 56, 12);
-      ctx.fillStyle = '#090d14';
-      ctx.fill();
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = '800 20px ui-monospace, Menlo, monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('▼ PNEUMATIC TAMP PAD · 4×6 TOP STAMP ▼', 384, 377);
-
-      const tex = new THREE.CanvasTexture(c);
-      tex.encoding = THREE.sRGBEncoding;
-      tex.anisotropy = 4;
-      return tex;
-    }
-
-    // 3K. Thermal Packing Slip Printer Front Faceplate Texture
-    function createSlipPrinterFaceTexture() {
       const c = document.createElement('canvas');
       c.width = 512;
       c.height = 512;
       const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, 512, 512);
 
-      ctx.fillStyle = '#1b2230';
-      ctx.fillRect(0, 0, 512, 512);
-      ctx.strokeStyle = '#334155';
-      ctx.lineWidth = 10;
-      ctx.strokeRect(10, 10, 492, 492);
-
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(28, 36, 456, 92);
-      ctx.fillStyle = '#38bdf8';
-      ctx.font = '900 30px ui-monospace, Menlo, monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('PACKING SLIP PRINTER', 256, 92);
-
-      roundRect(ctx, 44, 158, 424, 180, 18);
-      ctx.fillStyle = '#064e3b';
+      // Soft dark rounded-rect contact shadow matching MacBook footprint
+      ctx.save();
+      ctx.filter = 'blur(24px)';
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.94)';
+      roundRect(ctx, 56, 82, 400, 348, 48);
       ctx.fill();
-      ctx.strokeStyle = '#10b981';
-      ctx.lineWidth = 5;
-      ctx.stroke();
-
-      ctx.fillStyle = '#fef08a';
-      ctx.font = '900 30px ui-monospace, Menlo, monospace';
-      ctx.fillText('ORDER #DK-402', 256, 220);
-      ctx.fillStyle = '#ecfdf5';
-      ctx.font = '800 24px ui-monospace, Menlo, monospace';
-      ctx.fillText('1x GRAPHIC TEE [L] · $38', 256, 268);
-      ctx.fillStyle = '#6ee7b7';
-      ctx.font = '800 22px ui-monospace, Menlo, monospace';
-      ctx.fillText('✓ AUTO-DROP INTO BOX', 256, 312);
-
-      // Green LED + Feed Button
-      roundRect(ctx, 136, 378, 240, 74, 16);
-      ctx.fillStyle = '#10b981';
-      ctx.fill();
-      ctx.fillStyle = '#064e3b';
-      ctx.font = '900 28px ui-monospace, Menlo, monospace';
-      ctx.fillText('● SLIP READY', 256, 425);
+      ctx.restore();
 
       const tex = new THREE.CanvasTexture(c);
-      tex.encoding = THREE.sRGBEncoding;
-      tex.anisotropy = 4;
       return tex;
     }
 
-    // 3L. Outbound Postal Tote Front Stencil Sign Texture
-    function createToteSignTexture() {
+    function createStudioDeskTexture() {
       const c = document.createElement('canvas');
       c.width = 1024;
-      c.height = 256;
+      c.height = 1024;
       const ctx = c.getContext('2d');
 
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(0, 0, 1024, 256);
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 10;
-      ctx.strokeRect(10, 10, 1004, 236);
+      const g = ctx.createRadialGradient(512, 512, 20, 512, 512, 512);
+      g.addColorStop(0, '#131926');
+      g.addColorStop(0.50, '#0b0f18');
+      g.addColorStop(1, '#04060b');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 1024, 1024);
 
-      ctx.fillStyle = '#38bdf8';
-      ctx.font = '900 42px ui-monospace, Menlo, monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('OUTBOUND POSTAL TOTE · PITNEY BOWES 4×6', 512, 98);
-
-      ctx.fillStyle = '#fef08a';
-      ctx.font = '900 36px ui-monospace, Menlo, monospace';
-      ctx.fillText('✓ 6 PACKED, KRAFT-TAPED & BARCODE-LABELED BOXES', 512, 162);
-
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = '800 26px ui-monospace, Menlo, monospace';
-      ctx.fillText('ORDERS #DK-397 .. #DK-402 READY FOR CARRIER PICKUP', 512, 212);
+      // Subtle architectural grid rings on the dark studio pedestal
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.08)';
+      ctx.lineWidth = 2;
+      [210, 325, 440].forEach(r => {
+        ctx.beginPath();
+        ctx.arc(512, 512, r, 0, Math.PI * 2);
+        ctx.stroke();
+      });
 
       const tex = new THREE.CanvasTexture(c);
       tex.encoding = THREE.sRGBEncoding;
-      tex.anisotropy = 4;
+      tex.anisotropy = 8;
       return tex;
     }
 
     /* ============================================================
-       4. THREE.JS PBR STUDIO SCENE INITIALIZATION
+       5. INITIALIZE THREE.JS SCENE, STUDIO PEDESTAL & .GLB MACBOOK
        ============================================================ */
     const stageEl = document.getElementById('dk-hero-stage');
     const canvas = document.getElementById('dk-webgl-canvas');
@@ -1743,643 +1238,244 @@
       antialias: true,
       alpha: false,
       powerPreference: 'high-performance',
-      preserveDrawingBuffer: true,
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 2, 2));
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.96;
-    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.setPixelRatio(2);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.physicallyCorrectLights = true;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.08;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x111621);
-    scene.fog = new THREE.FogExp2(0x111621, 0.011);
+    scene.background = new THREE.Color(0x060911);
+    scene.fog = new THREE.FogExp2(0x060911, 0.028);
+    scene.environment = buildStudioEnvironment(renderer);
 
-    // Controlled Dark Studio Softbox PMREM Environment (prevents overexposing Space-Black aluminum & warm oak)
-    const pmremGen = new THREE.PMREMGenerator(renderer);
-    pmremGen.compileEquirectangularShader();
-    const envScene = new THREE.Scene();
-    envScene.background = new THREE.Color(0x0c1017);
-    const panelGeo = new THREE.PlaneGeometry(18, 8);
-    const topLightPanel = new THREE.Mesh(panelGeo, new THREE.MeshBasicMaterial({ color: 0x526077 }));
-    topLightPanel.position.set(0, 15, 2);
-    topLightPanel.rotation.x = Math.PI / 2;
-    envScene.add(topLightPanel);
-    const warmSidePanel = new THREE.Mesh(panelGeo, new THREE.MeshBasicMaterial({ color: 0x6b533b }));
-    warmSidePanel.position.set(-16, 6, 8);
-    warmSidePanel.rotation.y = Math.PI / 3;
-    envScene.add(warmSidePanel);
-    const coolRimPanel = new THREE.Mesh(panelGeo, new THREE.MeshBasicMaterial({ color: 0x2d4a73 }));
-    coolRimPanel.position.set(16, 8, -8);
-    coolRimPanel.rotation.y = -Math.PI / 3;
-    envScene.add(coolRimPanel);
-    scene.environment = pmremGen.fromScene(envScene, 0.04).texture;
+    const camera = new THREE.PerspectiveCamera(34, 1080 / 555, 0.1, 100);
 
-    const camera = new THREE.PerspectiveCamera(34, 1080 / 550, 0.1, 160);
-
-    // Balanced Studio 3-Point PBR Lighting with Crisp Shadows
-    const hemiLight = new THREE.HemisphereLight(0xdbeafe, 0x111827, 0.38);
+    // Controlled studio key & grazing rim lights so keycaps & CNC bevels pop without washing out aluminum
+    const hemiLight = new THREE.HemisphereLight(0x94a3b8, 0x060911, 0.35);
     scene.add(hemiLight);
 
-    const keyLight = new THREE.DirectionalLight(0xfff7ed, 1.18);
-    keyLight.position.set(-5, 17, 12);
+    const keyLight = new THREE.DirectionalLight(0xfff7ed, 1.85);
+    keyLight.position.set(-5.5, 9.0, 7.0);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.width = 2048;
     keyLight.shadow.mapSize.height = 2048;
-    keyLight.shadow.camera.near = 2;
-    keyLight.shadow.camera.far = 48;
-    keyLight.shadow.camera.left = -22;
-    keyLight.shadow.camera.right = 22;
-    keyLight.shadow.camera.top = 14;
-    keyLight.shadow.camera.bottom = -10;
-    keyLight.shadow.bias = -0.0004;
+    keyLight.shadow.camera.near = 1.0;
+    keyLight.shadow.camera.far = 26.0;
+    const d = 6.5;
+    keyLight.shadow.camera.left = -d;
+    keyLight.shadow.camera.right = d;
+    keyLight.shadow.camera.top = d;
+    keyLight.shadow.camera.bottom = -d;
+    keyLight.shadow.bias = -0.0005;
     scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.32);
-    fillLight.position.set(14, 9, 12);
-    scene.add(fillLight);
+    const coolRimLight = new THREE.DirectionalLight(0x38bdf8, 1.45);
+    coolRimLight.position.set(7.5, 5.0, -5.5);
+    scene.add(coolRimLight);
 
-    const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.36);
-    rimLight.position.set(0, 11, -14);
-    scene.add(rimLight);
+    const frontEdgeLight = new THREE.PointLight(0xe2e8f0, 1.25, 14);
+    frontEdgeLight.position.set(-1.5, 1.6, 5.5);
+    scene.add(frontEdgeLight);
 
-    // Shared PBR Materials
-    const matWorkbenchOak = new THREE.MeshStandardMaterial({
-      map: createWorkbenchOakTexture(),
-      roughness: 0.68,
-      metalness: 0.05,
-    });
-    const matDarkSteel = new THREE.MeshStandardMaterial({ color: 0x1c2331, roughness: 0.36, metalness: 0.72 });
-    const matBrushedSteel = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.28, metalness: 0.82 });
-    // True Space-Black Anodized Aluminum per spec (metalness: 0.78, roughness: 0.24)
-    const matSpaceBlackAlum = new THREE.MeshStandardMaterial({ color: 0x161922, roughness: 0.24, metalness: 0.78 });
-    const matScreenBezel = new THREE.MeshStandardMaterial({ color: 0x07090d, roughness: 0.18, metalness: 0.35 });
-    const matTitaniumLogo = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.14, metalness: 0.94 });
-    const matContactShadow = new THREE.MeshBasicMaterial({
-      map: createContactShadowTexture(),
-      transparent: true,
-      depthWrite: false,
-      opacity: 0.82,
-    });
-    const matKraftSide = new THREE.MeshStandardMaterial({
-      map: createCorrugatedKraftTexture(true),
-      roughness: 0.78,
-      metalness: 0.04,
-    });
-    const matKraftPlain = new THREE.MeshStandardMaterial({
-      map: createCorrugatedKraftTexture(false),
-      roughness: 0.80,
-      metalness: 0.04,
-    });
-    const matKraftInterior = new THREE.MeshStandardMaterial({ color: 0x9c7243, roughness: 0.86, metalness: 0.02 });
-    const matKraftTape = new THREE.MeshStandardMaterial({ color: 0xa16207, roughness: 0.62, metalness: 0.05 });
-    const matTeeCharcoal = new THREE.MeshStandardMaterial({ color: 0x1b202b, roughness: 0.85, metalness: 0.02 });
-    const matTeeTop = new THREE.MeshStandardMaterial({
-      map: createFoldedTeeTexture(),
-      roughness: 0.78,
-      metalness: 0.04,
-    });
-    const matPackingSlip = new THREE.MeshStandardMaterial({
-      map: createPackingSlipTexture(),
+    // Dark Obsidian Architectural Studio Pedestal at y = 0
+    const deskGeo = new THREE.CylinderGeometry(9.2, 9.5, 0.36, 64);
+    const deskMat = new THREE.MeshPhysicalMaterial({
+      map: createStudioDeskTexture(),
+      color: new THREE.Color(0x111722),
       roughness: 0.55,
-      metalness: 0.02,
+      metalness: 0.15,
+      clearcoat: 0.12,
+      clearcoatRoughness: 0.40,
+      envMapIntensity: 0.45,
+    });
+    const deskMesh = new THREE.Mesh(deskGeo, deskMat);
+    deskMesh.position.set(0, -0.18, -0.2);
+    deskMesh.receiveShadow = true;
+    scene.add(deskMesh);
+
+    // Contact shadow plane directly under the MacBook's 4 rubber feet (y = 0.002)
+    const contactShadowMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(7.4, 5.3),
+      new THREE.MeshBasicMaterial({
+        map: createContactShadowTexture(),
+        transparent: true,
+        opacity: 0.92,
+        depthWrite: false,
+      })
+    );
+    contactShadowMesh.rotation.x = -Math.PI / 2;
+    contactShadowMesh.position.set(0, 0.002, -0.12);
+    scene.add(contactShadowMesh);
+
+    // Subtle Studio Pedestal Emerald Pulse Ring (lights up on Stripe Paid Cha-Ching!)
+    const ringGeo = new THREE.RingGeometry(3.85, 4.02, 64);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0x10b981,
       side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.0,
     });
-    const matShippingLabel = new THREE.MeshStandardMaterial({
-      map: createShippingLabelTexture('DK-402', 'PB-9400-1082-402'),
-      roughness: 0.42,
-      metalness: 0.03,
-    });
+    const studioRingMesh = new THREE.Mesh(ringGeo, ringMat);
+    studioRingMesh.rotation.x = -Math.PI / 2;
+    studioRingMesh.position.set(0, 0.004, -0.15);
+    scene.add(studioRingMesh);
 
-    /* ============================================================
-       5. WORKBENCH, CONVEYOR LINE & FIBER-OPTIC DATA RAIL
-       ============================================================ */
-    const worldGroup = new THREE.Group();
-    scene.add(worldGroup);
+    // Screen Canvas Texture (1600x1040)
+    const screenSurface = createMacBookScreenSurface(renderer);
 
-    // Main Warm Oak Butcher-Block Workbench Slab (x = -17..+10.5)
-    const benchGeo = new THREE.BoxGeometry(27.5, 0.8, 10.5);
-    const benchMesh = new THREE.Mesh(benchGeo, matWorkbenchOak);
-    benchMesh.position.set(-3.25, -0.4, 0);
-    benchMesh.receiveShadow = true;
-    worldGroup.add(benchMesh);
+    // Load the 29,287-triangle M-Series MacBook Pro .glb from window.SHAHDIN_MAC_GLB_B64
+    let macHingeNode = null;
+    let macGlbReady = false;
 
-    // Dark Steel Front Bevel Rail
-    const frontRail = new THREE.Mesh(new THREE.BoxGeometry(27.6, 0.28, 0.36), matDarkSteel);
-    frontRail.position.set(-3.25, -0.14, 5.15);
-    worldGroup.add(frontRail);
+    function decodeBase64ToArrayBuffer(b64) {
+      const binStr = window.atob(b64);
+      const len = binStr.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binStr.charCodeAt(i);
+      }
+      return bytes.buffer;
+    }
 
-    // Glowing Fiber-Optic Order Data Rail linking MacBook (x=-9.5) to Packing Station (x=-1.2)
-    const railChannel = new THREE.Mesh(new THREE.BoxGeometry(9.2, 0.07, 0.28), matDarkSteel);
-    railChannel.position.set(-5.3, 0.03, 1.9);
-    worldGroup.add(railChannel);
+    function loadMacBookGlb() {
+      if (!window.SHAHDIN_MAC_GLB_B64 || !window.THREE || !THREE.GLTFLoader) {
+        document.documentElement.setAttribute('data-errors', 'missing-glb-or-loader');
+        return;
+      }
+      const glbBuffer = decodeBase64ToArrayBuffer(window.SHAHDIN_MAC_GLB_B64);
+      const loader = new THREE.GLTFLoader();
+      loader.parse(
+        glbBuffer,
+        '',
+        gltf => {
+          const root = gltf.scene;
+          // Rule 1: Scale & Ground Offset so rubber feet rest cleanly on y = 0
+          const scale = 6.2 / 31.461;
+          root.scale.set(scale, scale, scale);
+          root.position.set(0, 1.2713 * scale, 0);
 
-    const matPulseOrb = new THREE.MeshBasicMaterial({ color: 0x10b981 });
-    const pulseOrb = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.14, 0.22), matPulseOrb);
-    pulseOrb.position.set(-9.2, 0.07, 1.9);
-    worldGroup.add(pulseOrb);
+          const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
-    // Roller Conveyor Frame (from x = -4.2 to x = +9.4)
-    const convFrameBack = new THREE.Mesh(new THREE.BoxGeometry(13.8, 0.65, 0.26), matDarkSteel);
-    convFrameBack.position.set(2.6, 0.32, -2.05);
-    convFrameBack.castShadow = true;
-    worldGroup.add(convFrameBack);
+          // Rule 3: Preserve Embedded 114 KB Micro-Brushed Normal Map from the glTF 'aluminium' material
+          let origNormalMap = null;
+          root.traverse(obj => {
+            if (obj.name === 'screen') {
+              macHingeNode = obj;
+            }
+            if (obj.isMesh && obj.material && obj.material.normalMap && !origNormalMap) {
+              origNormalMap = obj.material.normalMap;
+            }
+          });
+          if (origNormalMap) {
+            origNormalMap.anisotropy = maxAniso;
+          }
 
-    const convFrameFront = new THREE.Mesh(new THREE.BoxGeometry(13.8, 0.65, 0.26), matDarkSteel);
-    convFrameFront.position.set(2.6, 0.32, 2.05);
-    convFrameFront.castShadow = true;
-    worldGroup.add(convFrameFront);
+          // Sleek Space-Silver / Titanium Anodized Aluminum (contrasts against dark studio floor
+          // AND makes the 78 dark charcoal 3D keycaps & obsidian Apple logo pop unmistakably!)
+          const matAnodizedAluminum = new THREE.MeshPhysicalMaterial({
+            color: new THREE.Color(0x6e7683),
+            metalness: 0.88,
+            roughness: 0.24,
+            normalMap: origNormalMap,
+            normalScale: new THREE.Vector2(0.45, 0.45),
+            clearcoat: 0.15,
+            clearcoatRoughness: 0.22,
+            envMapIntensity: 1.45,
+          });
 
-    // Contact shadow under conveyor bed
-    const convShadow = new THREE.Mesh(new THREE.PlaneGeometry(14.6, 4.8), matContactShadow);
-    convShadow.rotation.x = -Math.PI / 2;
-    convShadow.position.set(2.6, 0.012, 0);
-    worldGroup.add(convShadow);
+          // Rule 4A: Matte Charcoal PBT Keycap Dielectric for the 78 sculpted 3D keycaps,
+          // speaker grilles, MagSafe/Thunderbolt port cutouts, and 4 rubber feet
+          const matKeycaps = new THREE.MeshPhysicalMaterial({
+            color: new THREE.Color(0x090b10),
+            metalness: 0.04,
+            roughness: 0.72,
+            clearcoat: 0.0,
+            clearcoatRoughness: 0.45,
+            envMapIntensity: 0.28,
+          });
 
-    // 22 Brushed Steel Conveyor Rollers
-    const rollers = [];
-    const rollerGeo = new THREE.CylinderGeometry(0.19, 0.19, 3.85, 20);
-    for (let i = 0; i < 22; i++) {
-      const rx = -3.9 + i * 0.62;
-      const rMesh = new THREE.Mesh(rollerGeo, matBrushedSteel);
-      rMesh.rotation.x = Math.PI / 2;
-      rMesh.position.set(rx, 0.48, 0);
-      rMesh.castShadow = true;
-      rMesh.receiveShadow = true;
-      worldGroup.add(rMesh);
-      rollers.push(rMesh);
+          // Rule 4B: Glossy Obsidian Glass for the Display Bezel & Lid Apple Emblem
+          const matBezelGlass = new THREE.MeshPhysicalMaterial({
+            color: new THREE.Color(0x07090e),
+            metalness: 0.35,
+            roughness: 0.08,
+            clearcoat: 0.95,
+            clearcoatRoughness: 0.06,
+            envMapIntensity: 1.60,
+          });
+
+          // Rule 5: Retina Display — Emissive Clearcoat Glass (Zero Diffuse Washout)
+          const matRetinaScreen = new THREE.MeshPhysicalMaterial({
+            color: new THREE.Color(0x020305),
+            emissive: new THREE.Color(0xffffff),
+            emissiveMap: screenSurface.texture,
+            emissiveIntensity: 1.0,
+            roughness: 0.12,
+            metalness: 0.0,
+            clearcoat: 0.45,
+            clearcoatRoughness: 0.08,
+            envMapIntensity: 0.35,
+          });
+
+          // Assign materials by glTF material name + hierarchy (immune to GLTFLoader createUniqueName suffixes)
+          root.traverse(obj => {
+            if (!obj.isMesh) return;
+            obj.castShadow = true;
+            obj.receiveShadow = true;
+            const matName = (obj.material && obj.material.name) || '';
+
+            let inScreenLid = false;
+            let p = obj.parent;
+            while (p) {
+              if (p.name === 'screen') {
+                inScreenLid = true;
+                break;
+              }
+              p = p.parent;
+            }
+
+            if (matName === 'matte' || obj.name === 'matte') {
+              obj.material = matRetinaScreen;
+            } else if (matName === 'aluminium') {
+              obj.material = matAnodizedAluminum;
+            } else if (matName === 'blackmatte') {
+              obj.material = inScreenLid ? matBezelGlass : matKeycaps;
+            }
+          });
+
+          scene.add(root);
+          macGlbReady = true;
+          renderCurrentFrame();
+        },
+        err => {
+          document.documentElement.setAttribute('data-errors', 'gltf-parse-error:' + String(err));
+        }
+      );
     }
 
     /* ============================================================
-       6. STATION 1: SPACE-BLACK 16" MACBOOK PRO + LIVE SCREEN
-       ============================================================ */
-    const macGroup = new THREE.Group();
-    macGroup.position.set(-11.2, 0.02, 0.55);
-    macGroup.rotation.y = 0.22;
-    worldGroup.add(macGroup);
-
-    // Soft Contact Shadow Pad directly under MacBook on Warm Oak Workbench
-    const macShadow = new THREE.Mesh(new THREE.PlaneGeometry(6.8, 4.9), matContactShadow);
-    macShadow.rotation.x = -Math.PI / 2;
-    macShadow.position.set(0.1, -0.008, 0.12);
-    macGroup.add(macShadow);
-
-    // Four machined rubber feet under MacBook base
-    const footGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.04, 16);
-    [[-2.2, -1.4], [2.2, -1.4], [-2.2, 1.4], [2.2, 1.4]].forEach(([fx, fz]) => {
-      const foot = new THREE.Mesh(footGeo, matScreenBezel);
-      foot.position.set(fx, 0.02, fz);
-      macGroup.add(foot);
-    });
-
-    // Space-Black Aluminum Unibody Base
-    const macW = 5.4, macD = 3.65, macBaseH = 0.22;
-    const macBase = new THREE.Mesh(new THREE.BoxGeometry(macW, macBaseH, macD), matSpaceBlackAlum);
-    macBase.position.set(0, macBaseH / 2 + 0.02, 0);
-    macBase.castShadow = true;
-    macBase.receiveShadow = true;
-    macGroup.add(macBase);
-
-    // Keyboard & Trackpad Surface Plane (matte finish so sky reflection never washes out keys)
-    const kbPlane = new THREE.Mesh(
-      new THREE.PlaneGeometry(macW - 0.24, macD - 0.20),
-      new THREE.MeshStandardMaterial({ map: createKeyboardTexture(), roughness: 0.65, metalness: 0.12 })
-    );
-    kbPlane.rotation.x = -Math.PI / 2;
-    kbPlane.position.set(0, macBaseH + 0.026, 0.04);
-    macGroup.add(kbPlane);
-
-    // Hinged Retina Lid Pivot Group at back edge of base (z = -macD / 2)
-    const lidPivot = new THREE.Group();
-    lidPivot.position.set(0, macBaseH + 0.02, -macD / 2 + 0.06);
-    macGroup.add(lidPivot);
-
-    const macLidH = 0.14;
-    const macLidShell = new THREE.Mesh(new THREE.BoxGeometry(macW, macLidH, macD), matSpaceBlackAlum);
-    macLidShell.position.set(0, macLidH / 2, macD / 2);
-    macLidShell.castShadow = true;
-    lidPivot.add(macLidShell);
-
-    // Glossy Black Display Glass Bezel Frame on inner face of lid
-    const bezelPlane = new THREE.Mesh(new THREE.PlaneGeometry(macW - 0.08, macD - 0.08), matScreenBezel);
-    bezelPlane.rotation.x = Math.PI / 2;
-    bezelPlane.position.set(0, -0.002, macD / 2);
-    lidPivot.add(bezelPlane);
-
-    // Polished Titanium DinkusKit Diamond Emblem on Top of Closed Lid
-    const lidEmblem = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.018, 0.58), matTitaniumLogo);
-    lidEmblem.rotation.y = Math.PI / 4;
-    lidEmblem.position.set(0, macLidH + 0.01, macD / 2);
-    lidPivot.add(lidEmblem);
-
-    // Live 1600x1000 Screen Mesh on Inner Face of Lid
-    const screenSurface = createMacBookScreenSurface();
-    const matScreen = new THREE.MeshBasicMaterial({ map: screenSurface.texture });
-    const screenPlane = new THREE.Mesh(new THREE.PlaneGeometry(macW - 0.28, macD - 0.28), matScreen);
-    screenPlane.rotation.x = Math.PI / 2;
-    screenPlane.position.set(0, -0.006, macD / 2);
-    lidPivot.add(screenPlane);
-
-    // Floating 3D "$$$ · ORDER #DK-402 PAID" Badge beside MacBook (3.35 x 0.89 matches 1200x320 aspect)
-    const chaChingPlane = new THREE.Mesh(
-      new THREE.PlaneGeometry(3.35, 0.89),
-      new THREE.MeshBasicMaterial({ map: createChaChingBadgeTexture(), transparent: true })
-    );
-    chaChingPlane.position.set(-7.35, 2.35, 0.85);
-    chaChingPlane.rotation.y = 0.08;
-    worldGroup.add(chaChingPlane);
-
-    /* ============================================================
-       7. STATION 2: OVERHEAD MERCH TRAY, FOLDED GRAPHIC TEE,
-          PACKING SLIP PRINTER & 4-FLAP CORRUGATED BOX
-       ============================================================ */
-    // Overhead Merch Inventory Gantry & Angled Tray (Positioned at y=3.35 above packing station so it's clearly visible in frame!)
-    const shelfGroup = new THREE.Group();
-    shelfGroup.position.set(-1.2, 0, -2.25);
-    worldGroup.add(shelfGroup);
-
-    // Twin steel gantry columns supporting the overhead inventory shelf
-    [-1.95, 1.95].forEach(gx => {
-      const col = new THREE.Mesh(new THREE.BoxGeometry(0.24, 4.2, 0.24), matDarkSteel);
-      col.position.set(gx, 2.1, 0);
-      col.castShadow = true;
-      shelfGroup.add(col);
-    });
-
-    // Angled Brushed-Steel Gravity Merch Tray
-    const trayPivot = new THREE.Group();
-    trayPivot.position.set(0, 3.35, 0.48);
-    trayPivot.rotation.x = 0.34; // Angled downward toward the open box
-    shelfGroup.add(trayPivot);
-
-    const trayBed = new THREE.Mesh(new THREE.BoxGeometry(4.1, 0.12, 2.6), matBrushedSteel);
-    trayBed.castShadow = true;
-    trayBed.receiveShadow = true;
-    trayPivot.add(trayBed);
-
-    // Side guardrails on overhead tray
-    [-2.0, 2.0].forEach(rx => {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.34, 2.6), matDarkSteel);
-      rail.position.set(rx, 0.20, 0);
-      trayPivot.add(rail);
-    });
-
-    // Overhead Sign Banner: "OVERHEAD MERCH INVENTORY · GRAPHIC TEES"
-    const signCanvas = document.createElement('canvas');
-    signCanvas.width = 1024;
-    signCanvas.height = 192;
-    const sctx = signCanvas.getContext('2d');
-    sctx.fillStyle = '#0f172a';
-    sctx.fillRect(0, 0, 1024, 192);
-    sctx.strokeStyle = '#38bdf8';
-    sctx.lineWidth = 8;
-    sctx.strokeRect(8, 8, 1008, 176);
-    sctx.fillStyle = '#38bdf8';
-    sctx.font = '900 40px ui-monospace, Menlo, monospace';
-    sctx.textAlign = 'center';
-    sctx.fillText('OVERHEAD MERCH SHELF · GRAPHIC TEE [SIZE L]', 512, 82);
-    sctx.fillStyle = '#fef08a';
-    sctx.font = '800 34px ui-monospace, Menlo, monospace';
-    sctx.fillText('DROP-IN APPAREL INVENTORY TRAY', 512, 144);
-    const signTex = new THREE.CanvasTexture(signCanvas);
-    signTex.encoding = THREE.sRGBEncoding;
-    const shelfBanner = new THREE.Mesh(
-      new THREE.BoxGeometry(4.1, 0.64, 0.12),
-      new THREE.MeshBasicMaterial({ map: signTex })
-    );
-    shelfBanner.position.set(0, 4.18, 0.25);
-    shelfGroup.add(shelfBanner);
-
-    // Helper: Creates a 3D Folded DinkusKit Graphic Tee stack
-    function createFoldedTeeMesh() {
-      const g = new THREE.Group();
-      const w = 1.85, h = 0.34, d = 1.55;
-      const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), matTeeCharcoal);
-      body.castShadow = true;
-      body.receiveShadow = true;
-      g.add(body);
-
-      const topGraphic = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.04, d - 0.04), matTeeTop);
-      topGraphic.rotation.x = -Math.PI / 2;
-      topGraphic.position.set(0, h / 2 + 0.005, 0);
-      g.add(topGraphic);
-      return g;
-    }
-
-    // Reserve stack of 3 folded graphic tees staying visibly on the overhead shelf
-    for (let i = 0; i < 3; i++) {
-      const reserveTee = createFoldedTeeMesh();
-      reserveTee.position.set(0, 0.24 + i * 0.36, -0.25 - i * 0.12);
-      trayPivot.add(reserveTee);
-    }
-
-    // Active Hero Folded DinkusKit Graphic Tee (slides off overhead shelf into open box!)
-    const activeTee = createFoldedTeeMesh();
-    worldGroup.add(activeTee);
-
-    // Thermal Packing Slip Dispenser (stands beside packing station at x = -3.85, z = -1.35)
-    const slipPrinterGroup = new THREE.Group();
-    slipPrinterGroup.position.set(-3.85, 0.02, -1.35);
-    worldGroup.add(slipPrinterGroup);
-
-    const slipShadow = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 2.4), matContactShadow);
-    slipShadow.rotation.x = -Math.PI / 2;
-    slipShadow.position.set(0, 0.005, 0);
-    slipPrinterGroup.add(slipShadow);
-
-    const slipBody = new THREE.Mesh(new THREE.BoxGeometry(1.55, 1.85, 1.45), matDarkSteel);
-    slipBody.position.set(0, 0.925, 0);
-    slipBody.castShadow = true;
-    slipPrinterGroup.add(slipBody);
-
-    const slipFace = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.42, 1.42),
-      new THREE.MeshBasicMaterial({ map: createSlipPrinterFaceTexture() })
-    );
-    slipFace.position.set(0, 1.02, 0.735);
-    slipPrinterGroup.add(slipFace);
-
-    const slipSlot = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.08, 0.20), matBrushedSteel);
-    slipSlot.position.set(0.1, 1.86, 0.32);
-    slipPrinterGroup.add(slipSlot);
-
-    // Active Thermal Packing Slip Mesh
-    const activeSlip = new THREE.Mesh(new THREE.PlaneGeometry(1.15, 1.48), matPackingSlip);
-    activeSlip.castShadow = true;
-    worldGroup.add(activeSlip);
-
-    /* ------------------------------------------------------------
-       HERO CORRUGATED SHIPPING BOX (Open-top 5-wall shell + 4 hinged flaps)
-       ------------------------------------------------------------ */
-    const heroBoxGroup = new THREE.Group();
-    worldGroup.add(heroBoxGroup);
-
-    const boxW = 3.2, boxH = 2.05, boxD = 2.55, wallT = 0.08;
-
-    // Bottom Floor
-    const boxBottom = new THREE.Mesh(new THREE.BoxGeometry(boxW, wallT, boxD), matKraftInterior);
-    boxBottom.position.set(0, wallT / 2, 0);
-    boxBottom.castShadow = true;
-    boxBottom.receiveShadow = true;
-    heroBoxGroup.add(boxBottom);
-
-    // Front & Back Stenciled Walls
-    const frontWall = new THREE.Mesh(new THREE.BoxGeometry(boxW, boxH, wallT), matKraftSide);
-    frontWall.position.set(0, boxH / 2, boxD / 2 - wallT / 2);
-    frontWall.castShadow = true;
-    frontWall.receiveShadow = true;
-    heroBoxGroup.add(frontWall);
-
-    const backWall = new THREE.Mesh(new THREE.BoxGeometry(boxW, boxH, wallT), matKraftSide);
-    backWall.position.set(0, boxH / 2, -boxD / 2 + wallT / 2);
-    backWall.castShadow = true;
-    backWall.receiveShadow = true;
-    heroBoxGroup.add(backWall);
-
-    // Left & Right Side Walls
-    const leftWall = new THREE.Mesh(new THREE.BoxGeometry(wallT, boxH, boxD - wallT * 2), matKraftPlain);
-    leftWall.position.set(-boxW / 2 + wallT / 2, boxH / 2, 0);
-    leftWall.castShadow = true;
-    leftWall.receiveShadow = true;
-    heroBoxGroup.add(leftWall);
-
-    const rightWall = new THREE.Mesh(new THREE.BoxGeometry(wallT, boxH, boxD - wallT * 2), matKraftPlain);
-    rightWall.position.set(boxW / 2 - wallT / 2, boxH / 2, 0);
-    rightWall.castShadow = true;
-    rightWall.receiveShadow = true;
-    heroBoxGroup.add(rightWall);
-
-    // 4 Articulated Top Flap Pivot Groups
-    const flapLeftPivot = new THREE.Group();
-    flapLeftPivot.position.set(-boxW / 2 + wallT / 2, boxH, 0);
-    heroBoxGroup.add(flapLeftPivot);
-    const minorFlapLen = boxW * 0.36;
-    const flapLeftMesh = new THREE.Mesh(new THREE.BoxGeometry(minorFlapLen, wallT, boxD - 0.08), matKraftPlain);
-    flapLeftMesh.position.set(minorFlapLen / 2, 0, 0);
-    flapLeftMesh.castShadow = true;
-    flapLeftPivot.add(flapLeftMesh);
-
-    const flapRightPivot = new THREE.Group();
-    flapRightPivot.position.set(boxW / 2 - wallT / 2, boxH, 0);
-    heroBoxGroup.add(flapRightPivot);
-    const flapRightMesh = new THREE.Mesh(new THREE.BoxGeometry(minorFlapLen, wallT, boxD - 0.08), matKraftPlain);
-    flapRightMesh.position.set(-minorFlapLen / 2, 0, 0);
-    flapRightMesh.castShadow = true;
-    flapRightPivot.add(flapRightMesh);
-
-    const flapBackPivot = new THREE.Group();
-    flapBackPivot.position.set(0, boxH + 0.02, -boxD / 2 + wallT / 2);
-    heroBoxGroup.add(flapBackPivot);
-    const majorFlapLen = boxD / 2 - 0.02;
-    const flapBackMesh = new THREE.Mesh(new THREE.BoxGeometry(boxW - 0.04, wallT, majorFlapLen), matKraftPlain);
-    flapBackMesh.position.set(0, 0, majorFlapLen / 2);
-    flapBackMesh.castShadow = true;
-    flapBackMesh.receiveShadow = true;
-    flapBackPivot.add(flapBackMesh);
-
-    const flapFrontPivot = new THREE.Group();
-    flapFrontPivot.position.set(0, boxH + 0.02, boxD / 2 - wallT / 2);
-    heroBoxGroup.add(flapFrontPivot);
-    const flapFrontMesh = new THREE.Mesh(new THREE.BoxGeometry(boxW - 0.04, wallT, majorFlapLen), matKraftPlain);
-    flapFrontMesh.position.set(0, 0, -majorFlapLen / 2);
-    flapFrontMesh.castShadow = true;
-    flapFrontMesh.receiveShadow = true;
-    flapFrontPivot.add(flapFrontMesh);
-
-    // Kraft Water-Activated Tape Strip across top center seam
-    const kraftTapeMesh = new THREE.Mesh(new THREE.BoxGeometry(boxW + 0.08, 0.03, 0.44), matKraftTape);
-    kraftTapeMesh.position.set(0, boxH + 0.065, 0);
-    heroBoxGroup.add(kraftTapeMesh);
-
-    // Adhered 4x6 Shipping Label on Top of Sealed Box
-    const adheredLabelMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.55, 2.15), matShippingLabel);
-    adheredLabelMesh.rotation.x = -Math.PI / 2;
-    adheredLabelMesh.rotation.z = -Math.PI / 2;
-    adheredLabelMesh.position.set(0.15, boxH + 0.088, 0.12);
-    heroBoxGroup.add(adheredLabelMesh);
-
-    /* ============================================================
-       8. STATION 3: PITNEY BOWES 4×6 THERMAL LABEL PRINTER,
-          MAIL CHUTE & OUTBOUND POSTAL TOTE OF PACKED BOXES
-       ============================================================ */
-    const pbPrinterGroup = new THREE.Group();
-    pbPrinterGroup.position.set(6.2, 0.65, -1.65);
-    worldGroup.add(pbPrinterGroup);
-
-    // Gantry Bridge Over Conveyor at x = 6.2
-    const pbPillarBack = new THREE.Mesh(new THREE.BoxGeometry(0.45, 4.1, 0.45), matDarkSteel);
-    pbPillarBack.position.set(0, 2.05, -0.35);
-    pbPillarBack.castShadow = true;
-    pbPrinterGroup.add(pbPillarBack);
-
-    const pbHeadHousing = new THREE.Mesh(new THREE.BoxGeometry(2.65, 1.48, 2.65), matDarkSteel);
-    pbHeadHousing.position.set(0, 3.65, 1.25);
-    pbHeadHousing.castShadow = true;
-    pbPrinterGroup.add(pbHeadHousing);
-
-    // High-DPI Pitney Bowes Front Display & Roll Window Faceplate
-    const pbFrontPlate = new THREE.Mesh(
-      new THREE.PlaneGeometry(2.52, 1.40),
-      new THREE.MeshBasicMaterial({ map: createPbPrinterFaceTexture() })
-    );
-    pbFrontPlate.position.set(0, 3.65, 2.585);
-    pbPrinterGroup.add(pbFrontPlate);
-
-    // Blue Pitney Bowes Accent Top Cap
-    const pbStripe = new THREE.Mesh(
-      new THREE.BoxGeometry(2.68, 0.18, 2.68),
-      new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.3, metalness: 0.4 })
-    );
-    pbStripe.position.set(0, 4.44, 1.25);
-    pbPrinterGroup.add(pbStripe);
-
-    // Pneumatic Tamp Applicator Arm + Dispensing 4x6 Label
-    const tampArmGroup = new THREE.Group();
-    tampArmGroup.position.set(0.15, 2.95, 1.65);
-    pbPrinterGroup.add(tampArmGroup);
-
-    const tampRod = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.9, 16), matBrushedSteel);
-    tampRod.position.set(0, 0.42, 0);
-    tampArmGroup.add(tampRod);
-
-    const tampPad = new THREE.Mesh(new THREE.BoxGeometry(2.15, 0.12, 1.6), matDarkSteel);
-    tampPad.position.set(0, -0.02, 0);
-    tampArmGroup.add(tampPad);
-
-    const dispensingLabelMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.55, 2.15), matShippingLabel);
-    dispensingLabelMesh.rotation.x = Math.PI / 2;
-    dispensingLabelMesh.rotation.z = Math.PI / 2;
-    dispensingLabelMesh.position.set(0, -0.10, 0);
-    tampArmGroup.add(dispensingLabelMesh);
-
-    // Angled Stainless-Steel Mail Chute at Right End of Conveyor (x = 9.4 -> 12.0)
-    const chuteGroup = new THREE.Group();
-    chuteGroup.position.set(10.55, -0.05, 0);
-    chuteGroup.rotation.z = -0.38;
-    worldGroup.add(chuteGroup);
-
-    const chuteBed = new THREE.Mesh(new THREE.BoxGeometry(3.1, 0.14, 3.4), matBrushedSteel);
-    chuteBed.receiveShadow = true;
-    chuteGroup.add(chuteBed);
-
-    [-1.65, 1.65].forEach(cz => {
-      const chuteWall = new THREE.Mesh(new THREE.BoxGeometry(3.1, 0.55, 0.12), matDarkSteel);
-      chuteWall.position.set(0, 0.28, cz);
-      chuteGroup.add(chuteWall);
-    });
-
-    // Heavy-Duty Outbound Postal Tote / Crate (x = 13.55, y = -1.65)
-    const toteGroup = new THREE.Group();
-    toteGroup.position.set(13.55, -1.65, 0);
-    worldGroup.add(toteGroup);
-
-    const matTotePlastic = new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.48, metalness: 0.12 });
-    const matToteRim = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.38, metalness: 0.3 });
-
-    const toteW = 6.5, toteH = 2.65, toteD = 5.5, toteT = 0.18;
-    const toteFloor = new THREE.Mesh(new THREE.BoxGeometry(toteW, toteT, toteD), matTotePlastic);
-    toteFloor.receiveShadow = true;
-    toteGroup.add(toteFloor);
-
-    const toteFront = new THREE.Mesh(new THREE.BoxGeometry(toteW, toteH, toteT), matTotePlastic);
-    toteFront.position.set(0, toteH / 2, toteD / 2 - toteT / 2);
-    toteFront.castShadow = true;
-    toteFront.receiveShadow = true;
-    toteGroup.add(toteFront);
-
-    // Outbound Tote Front Manifest Sign Plate
-    const toteSign = new THREE.Mesh(
-      new THREE.PlaneGeometry(4.8, 1.2),
-      new THREE.MeshBasicMaterial({ map: createToteSignTexture() })
-    );
-    toteSign.position.set(0, toteH * 0.48, toteD / 2 + 0.015);
-    toteGroup.add(toteSign);
-
-    const toteBack = new THREE.Mesh(new THREE.BoxGeometry(toteW, toteH, toteT), matTotePlastic);
-    toteBack.position.set(0, toteH / 2, -toteD / 2 + toteT / 2);
-    toteBack.castShadow = true;
-    toteGroup.add(toteBack);
-
-    const toteLeft = new THREE.Mesh(new THREE.BoxGeometry(toteT, toteH, toteD), matTotePlastic);
-    toteLeft.position.set(-toteW / 2 + toteT / 2, toteH / 2, 0);
-    toteLeft.castShadow = true;
-    toteGroup.add(toteLeft);
-
-    const toteRight = new THREE.Mesh(new THREE.BoxGeometry(toteT, toteH, toteD), matTotePlastic);
-    toteRight.position.set(toteW / 2 - toteT / 2, toteH / 2, 0);
-    toteRight.castShadow = true;
-    toteGroup.add(toteRight);
-
-    const toteRimFront = new THREE.Mesh(new THREE.BoxGeometry(toteW + 0.2, 0.22, 0.28), matToteRim);
-    toteRimFront.position.set(0, toteH + 0.05, toteD / 2 - 0.05);
-    toteGroup.add(toteRimFront);
-
-    // Helper: Creates an already-packed, kraft-taped, and 4x6-barcode-labeled DinkusKit box inside the Outbound Tote
-    function createPackedLabeledBox(w, h, d, ordId, trackId) {
-      const g = new THREE.Group();
-      const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), matKraftSide);
-      body.castShadow = true;
-      body.receiveShadow = true;
-      g.add(body);
-
-      const tape = new THREE.Mesh(new THREE.BoxGeometry(w + 0.04, 0.03, 0.36), matKraftTape);
-      tape.position.set(0, h / 2 + 0.015, 0);
-      g.add(tape);
-
-      const lblMat = new THREE.MeshStandardMaterial({
-        map: createShippingLabelTexture(ordId, trackId),
-        roughness: 0.42,
-        metalness: 0.03,
-      });
-      const lbl = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 1.85), lblMat);
-      lbl.rotation.x = -Math.PI / 2;
-      lbl.rotation.z = -Math.PI / 2;
-      lbl.position.set(0.1, h / 2 + 0.025, 0.08);
-      g.add(lbl);
-      return g;
-    }
-
-    // 5 Pre-Existing Packed, Kraft-Taped & 4x6-Labeled DinkusKit Boxes in the Outbound Tote
-    // Lower tier of 4 boxes (tops at local y = 0.78 + 0.675 = 1.455 -> world y = -0.195)
-    // Plus 5th box (#DK-401) on back-right of upper tier (local x = 1.48, y = 2.12, z = -0.95)
-    // Leaving the front-left upper tier slot (world x = 12.25, y = -0.19, z = 0.65) open for Order #DK-402!
-    const existingToteBoxes = [
-      { pos: [-1.45, 0.78, -1.18], rot: [0, 0.06, 0], size: [2.65, 1.35, 2.10], ord: 'DK-397', trk: 'PB-9400-1077' },
-      { pos: [1.45, 0.78, -1.12], rot: [0, -0.09, 0], size: [2.65, 1.35, 2.10], ord: 'DK-398', trk: 'PB-9400-1078' },
-      { pos: [-1.40, 0.78, 1.18], rot: [0, -0.05, 0], size: [2.65, 1.35, 2.10], ord: 'DK-399', trk: 'PB-9400-1079' },
-      { pos: [1.45, 0.78, 1.18], rot: [0, 0.10, 0], size: [2.65, 1.35, 2.10], ord: 'DK-400', trk: 'PB-9400-1080' },
-      { pos: [1.42, 2.12, -0.88], rot: [0.02, -0.12, -0.02], size: [2.60, 1.35, 2.05], ord: 'DK-401', trk: 'PB-9400-1081' },
-    ];
-    existingToteBoxes.forEach(cfg => {
-      const b = createPackedLabeledBox(cfg.size[0], cfg.size[1], cfg.size[2], cfg.ord, cfg.trk);
-      b.position.set(cfg.pos[0], cfg.pos[1], cfg.pos[2]);
-      b.rotation.set(cfg.rot[0], cfg.rot[1], cfg.rot[2]);
-      toteGroup.add(b);
-    });
-
-    /* ============================================================
-       9. CLOSE-UP GUIDED CAMERA CHOREOGRAPHY (t = 0.00 -> 1.00)
+       6. SOLO MACBOOK PRO CAMERA CHOREOGRAPHY (t = 0.00 -> 1.00)
+          Framed so the entire 29,287-triangle MacBook Pro (from front thumb
+          scoop & 78 3D keycaps to top Retina bezel) sits cleanly inside the stage!
        ============================================================ */
     const CAM_KEYFRAMES = [
-      // t = 0.00: Hero close-up on the closed Space-Black MacBook Pro on warm oak workbench
-      { t: 0.00, pos: [-9.0, 4.4, 8.8], look: [-10.0, 1.05, 0.1] },
-      // t = 0.08 -> 0.28: Framed close-up on the open MacBook screen (sits cleanly below top HUD bar!)
-      { t: 0.09, pos: [-9.85, 3.15, 6.25], look: [-10.75, 1.72, -0.35] },
-      { t: 0.27, pos: [-9.85, 3.15, 6.25], look: [-10.75, 1.72, -0.35] },
-      // t = 0.33: Frame Stripe Paid screen + floating "$$$ · ORDER #DK-402" badge + emerald rail pulse
-      { t: 0.33, pos: [-8.55, 3.75, 8.15], look: [-9.05, 1.95, -0.15] },
-      // t = 0.44 -> 0.52: Frame BOTH the Overhead Merch Inventory Shelf (with reserve tees) AND open box + Slip Printer
-      { t: 0.44, pos: [-1.15, 5.15, 8.25], look: [-1.35, 2.15, -0.65] },
-      { t: 0.52, pos: [-1.15, 5.15, 8.25], look: [-1.35, 2.15, -0.65] },
-      // t = 0.65: Close-up on 4 Corrugated Flaps folded shut & Kraft Tape sealing the center seam
-      { t: 0.65, pos: [-0.85, 4.9, 6.8], look: [-1.1, 1.65, 0.0] },
-      // t = 0.78 -> 0.82: Frame Pitney Bowes 4x6 Thermal Printer faceplate + 4x6 label applied to box top
-      { t: 0.78, pos: [6.15, 4.85, 8.35], look: [6.15, 2.18, -0.2] },
-      { t: 0.82, pos: [6.5, 4.85, 8.35], look: [6.35, 2.18, -0.2] },
-      // t = 0.95 -> 1.00: Clean hero overview of Outbound Tote (6 packed & labeled boxes), Mail Chute & Workbench
-      { t: 0.95, pos: [11.2, 4.65, 10.6], look: [11.9, 0.35, -0.1] },
-      { t: 1.00, pos: [11.2, 4.65, 10.6], look: [11.9, 0.35, -0.1] },
+      // t = 0.00: Dramatic three-quarter studio close-up of the full closed MacBook Pro
+      // showing CNC edges, front thumb scoop, left MagSafe/Thunderbolt ports, and glossy obsidian lid logo
+      { t: 0.00, pos: [-3.35, 2.75, 6.65], look: [0.0, 0.22, -0.15] },
+      // t = 0.22 -> 0.45: Hero three-quarter angle framing all 78 sculpted 3D keycaps, trackpad,
+      // and the full Liquid Retina display showing template-store Product Page & Add to Cart (probed at t = 0.35)
+      { t: 0.22, pos: [-2.10, 3.65, 7.75], look: [0.0, 1.56, -0.45] },
+      { t: 0.45, pos: [-1.75, 3.55, 7.55], look: [0.0, 1.58, -0.48] },
+      // t = 0.52 -> 0.70: Subtle right three-quarter angle for /cart & Checkout with Stripe (probed at t = 0.60)
+      { t: 0.52, pos: [1.35, 3.48, 7.35], look: [0.0, 1.62, -0.52] },
+      { t: 0.70, pos: [1.15, 3.44, 7.25], look: [0.0, 1.64, -0.52] },
+      // t = 0.84 -> 1.00: Hero showcase angle for Stripe Paid + Cha-Ching! $$$ · ORDER #DK-402 (probed at t = 0.92)
+      { t: 0.84, pos: [-1.35, 3.58, 7.75], look: [0.0, 1.64, -0.48] },
+      { t: 1.00, pos: [-1.35, 3.58, 7.75], look: [0.0, 1.64, -0.48] },
     ];
 
     function computeGuidedCamera(t, orbitYawOffset, orbitPitchOffset) {
@@ -2400,8 +1496,8 @@
       const ly = lerp(k0.look[1], k1.look[1], u);
       const lz = lerp(k0.look[2], k1.look[2], u);
 
-      // Apply user drag orbit offset around lookAt target + portrait mobile distance scale
-      const aspectScale = camera.aspect < 0.92 ? 1.46 : 1.0;
+      // Portrait mobile distance scale so the full MacBook Pro fits 390x844 cleanly
+      const aspectScale = camera.aspect < 0.92 ? 1.52 : 1.0;
       const dx = (px - lx) * aspectScale;
       const dy = (py - ly) * aspectScale;
       const dz = (pz - lz) * aspectScale;
@@ -2409,141 +1505,31 @@
       const sinY = Math.sin(orbitYawOffset);
       const rx = dx * cosY + dz * sinY;
       const rz = -dx * sinY + dz * cosY;
-      const ry = clamp(dy + orbitPitchOffset * 3.5, 1.2, 16.0);
+      const ry = clamp(dy + orbitPitchOffset * 2.8, 0.8, 12.0);
 
       camera.position.set(lx + rx, ly + ry, lz + rz);
       camera.lookAt(lx, ly, lz);
     }
 
     /* ============================================================
-       10. UPDATE SCENE GEOMETRY & SYNCHRONIZED SVG HUD AT TIME t
+       7. UPDATE SCENE & SYNCHRONIZED STUDIO SVG HUD (#fig)
        ============================================================ */
     function updateSceneAtTime(K, orbitYaw, orbitPitch, stageW, stageH) {
-      // 1. MacBook Lid Hinge (0 rad closed -> -1.84 rad open)
-      lidPivot.rotation.x = -K.lidOpen * 1.84;
+      if (macHingeNode) {
+        macHingeNode.rotation.x = K.hingeRotX;
+      }
       updateMacBookScreen(screenSurface, K);
 
-      // 2. Floating "$$$ · ORDER #DK-402 PAID" 3D Badge & Emerald Rail Pulse
-      if (K.chaChingPop > 0.01) {
-        chaChingPlane.visible = true;
-        const sc = Math.max(0.01, K.chaChingPop);
-        chaChingPlane.scale.set(sc, sc, 1);
-        chaChingPlane.position.y = 2.15 + K.chaChingPop * 0.36;
-      } else {
-        chaChingPlane.visible = false;
-      }
+      // Subtle emerald studio ring glow on pedestal when payment is approved
+      ringMat.opacity = K.studioRingGlow * 0.65;
+      const ringScale = 1.0 + K.studioRingGlow * 0.04;
+      studioRingMesh.scale.set(ringScale, ringScale, 1);
 
-      pulseOrb.visible = K.railGlow > 0.02;
-      pulseOrb.position.x = lerp(-9.4, -1.5, K.railPulse);
-
-      // 3. Spin conveyor rollers during box motion
-      const rollerSpin = (K.rollToLabel * 4.5 + K.rollToChute * 4.5);
-      rollers.forEach(r => {
-        r.rotation.y = rollerSpin;
-      });
-
-      // 4. Folded DinkusKit Graphic Tee Trajectory:
-      // Starts on Overhead Merch Tray (-1.2, 3.55, -1.45) -> slides down & lands inside open box
-      const flapTuck = sub(K.majorFlaps, 0.2, 0.85);
-      activeTee.visible = K.majorFlaps < 0.96;
-      if (K.teeSlide < 0.45) {
-        const u = sub(K.teeSlide, 0, 0.45);
-        activeTee.position.set(-1.35, lerp(3.55, 2.85, u), lerp(-1.45, -0.55, u));
-        activeTee.rotation.set(lerp(0.34, 0.44, u), 0, 0);
-      } else {
-        const u = easeOutCubic(sub(K.teeSlide, 0.45, 1.0));
-        const boxPos = getHeroBoxTransform(K);
-        const restY = lerp(boxPos.y + 1.18, boxPos.y + 0.35, flapTuck);
-        activeTee.position.set(
-          boxPos.x - 0.38,
-          lerp(2.85, restY, u),
-          lerp(-0.55, boxPos.z - 0.06, u)
-        );
-        activeTee.rotation.set(lerp(0.44, 0.28 * (1 - flapTuck), u), 0, boxPos.rotZ);
-      }
-
-      // 5. Thermal Packing Slip Trajectory:
-      // Feeds out of Packing Slip Printer (-3.7, 1.95, -1.0) -> arches over box rim -> lands inside open box beside tee
-      const boxT = getHeroBoxTransform(K);
-      if (K.slipFeed < 0.02 || K.majorFlaps >= 0.96) {
-        activeSlip.visible = false;
-      } else {
-        activeSlip.visible = true;
-        const u = K.slipFeed;
-        const arcLift = Math.sin(u * Math.PI) * 1.25;
-        const slipRestY = lerp(boxT.y + 1.28, boxT.y + 0.48, flapTuck);
-        activeSlip.position.set(
-          lerp(-3.65, boxT.x + 0.66, u),
-          lerp(1.95, slipRestY, u) + arcLift,
-          lerp(-1.02, boxT.z + 0.08, u)
-        );
-        activeSlip.rotation.set(
-          lerp(-0.55, -Math.PI / 2 + 0.30 * (1 - flapTuck), u),
-          lerp(0.35, 0, u),
-          lerp(-0.3, -0.06 + boxT.rotZ, u)
-        );
-      }
-
-      // 6. Hero Corrugated Box Position, Scale, 4 Flaps & Kraft Tape
-      heroBoxGroup.position.set(boxT.x, boxT.y, boxT.z);
-      heroBoxGroup.rotation.set(0, boxT.rotY, boxT.rotZ);
-      heroBoxGroup.scale.set(boxT.scale, boxT.scale, boxT.scale);
-
-      // Flap angles: open outward at rest, fold flat (0 rad) when closing
-      flapLeftPivot.rotation.z = lerp(2.05, 0, K.minorFlaps);
-      flapRightPivot.rotation.z = lerp(-2.05, 0, K.minorFlaps);
-      flapBackPivot.rotation.x = lerp(-1.95, 0, K.majorFlaps);
-      flapFrontPivot.rotation.x = lerp(1.95, 0, K.majorFlaps);
-
-      // Kraft Tape Strip scales across top center seam
-      if (K.tapeSeal > 0.01) {
-        kraftTapeMesh.visible = true;
-        kraftTapeMesh.scale.set(Math.max(0.02, K.tapeSeal), 1, 1);
-        kraftTapeMesh.position.x = lerp(-boxW / 2, 0, K.tapeSeal);
-      } else {
-        kraftTapeMesh.visible = false;
-      }
-
-      // 7. Pitney Bowes 4x6 Shipping Label Tamp & Top Adhesion
-      // Tamp presses down 0.745..0.785 and retracts upward by 0.79 so the applied 4x6 label is 100% unobstructed at t=0.79!
-      const tampStroke = (K.t >= 0.74 && K.t <= 0.788) ? Math.sin(sub(K.t, 0.74, 0.788) * Math.PI) : 0;
-      tampArmGroup.position.y = 3.12 - tampStroke * 0.92;
-      dispensingLabelMesh.visible = K.labelFeed > 0.02 && K.labelOnBox < 0.5;
-      adheredLabelMesh.visible = K.labelOnBox >= 0.5;
-
-      // 8. Camera tracking
       computeGuidedCamera(K.t, orbitYaw, orbitPitch);
-
-      // 9. Update synchronized SVG HUD overlay (#fig) matching stageW x stageH
       updateHudSvg(K, stageW, stageH);
     }
 
-    function getHeroBoxTransform(K) {
-      // Station 2 Packing: x = -1.2, y = 0.68, z = 0
-      // Station 3 Labeling: x = +6.2, y = 0.68, z = 0
-      // Mail Chute slide: x = +6.2 -> +10.2, y = 0.68 -> 0.15, rotZ = 0 -> -0.34
-      // Outbound Tote landing: lands directly on top of the lower tier of 4 boxes inside toteGroup
-      // (lower tier top is at world y = -0.195; hero box settles at x = 12.25, y = -0.18, z = 0.55 alongside DK-401!)
-      let x = -1.2, y = 0.68, z = 0.0, rotY = 0.0, rotZ = 0.0, scale = 1.0;
-      if (K.rollToLabel > 0 && K.rollToChute === 0) {
-        x = lerp(-1.2, 6.2, K.rollToLabel);
-      } else if (K.rollToChute > 0 && K.dropInTote === 0) {
-        x = lerp(6.2, 10.2, K.rollToChute);
-        y = lerp(0.68, 0.18, sub(K.rollToChute, 0.55, 1.0));
-        rotZ = lerp(0, -0.34, sub(K.rollToChute, 0.55, 1.0));
-      } else if (K.dropInTote > 0) {
-        const u = K.dropInTote;
-        x = lerp(10.2, 12.25, u);
-        y = lerp(0.18, -0.18, u) + Math.sin(u * Math.PI) * 0.42 + K.settleBounce;
-        z = lerp(0.0, 0.52, u);
-        rotZ = lerp(-0.34, 0.02, u);
-        rotY = lerp(0.0, 0.08, u);
-        scale = lerp(1.0, 0.84, u);
-      }
-      return { x, y, z, rotY, rotZ, scale };
-    }
-
-    function updateHudSvg(K, stageW = 1080, stageH = 550) {
+    function updateHudSvg(K, stageW = 1080, stageH = 555) {
       if (!figSvg) return;
       const W = Math.max(300, Math.round(stageW));
       const H = Math.max(300, Math.round(stageH));
@@ -2552,66 +1538,74 @@
 
       const isCompact = W < 560;
       const t = K.t;
-      let stepBadge = 'AT REST · CLICK MACBOOK TO PLACE ORDER';
-      let stepSub = 'Camera 1: Space-Black MacBook Pro 16" Ready on Warm Oak Workbench';
+
+      let stepBadge = 'AT REST · CLOSED M-SERIES MACBOOK PRO (.GLB)';
+      let stepSub = '29,287 Triangles · Brushed Aluminum Normal Map · HDR Softbox Reflections';
       let accent = '#38bdf8';
 
-      if (t >= 0.02 && t < 0.17) {
-        stepBadge = isCompact ? 'STEP 1A · ADD TEE TO CART ($38)' : 'STEP 1A · TEMPLATE-STORE PRODUCT PAGE (ADD TO CART)';
-        stepSub = 'DinkusKit Heavyweight Graphic Tee ($38.00 · Size L) → Added to Cart (1)';
-        accent = '#3b82f6';
-      } else if (t >= 0.17 && t < 0.25) {
-        stepBadge = isCompact ? 'STEP 1B · /CART → STRIPE CHECKOUT' : 'STEP 1B · CART PAGE (/CART) → CHECKOUT WITH STRIPE';
-        stepSub = '1x Graphic Tee ($38.00) + Pitney Bowes Ground ($5.60) = $43.60 Total';
+      if (t >= 0.02 && t < 0.48) {
+        stepBadge = isCompact
+          ? 'BEAT 1–2 · TEMPLATE-STORE ADD TO CART ($38)'
+          : 'BEAT 1–2 · LID HINGES OPEN → TEMPLATE-STORE PRODUCT PAGE (ADD TO CART)';
+        stepSub = K.isAddedToCart
+          ? 'Size [ L ] Selected · ✓ Added to Cart (1) — $38.00 · 78 Sculpted 3D Keycaps'
+          : 'DinkusKit Heavyweight Graphic Tee ($38.00) · Selecting Size [ L ] & Add to Cart';
+        accent = K.isAddedToCart ? '#10b981' : '#3b82f6';
+      } else if (t >= 0.48 && t < 0.72) {
+        stepBadge = isCompact
+          ? 'BEAT 3 · /CART → CHECKOUT WITH STRIPE'
+          : 'BEAT 3 · DINKUSKIT CART PAGE (/CART) → CHECKOUT WITH STRIPE ($43.60)';
+        stepSub = 'Subtotal: $38.00 + Pitney Bowes 4×6 Ground: $5.60 = $43.60 Total';
         accent = '#6366f1';
-      } else if (t >= 0.25 && t < 0.36) {
-        stepBadge = isCompact ? '$$$ · CHA-CHING! · ORDER #DK-402 PAID' : '$$$ · CHA-CHING! · STRIPE PAID · ORDER #DK-402 ($43.60)';
-        stepSub = 'Payment Approved + Emerald Fiber Pulse to Overhead Merch Shelf';
+      } else if (t >= 0.72 && t < 0.83) {
+        stepBadge = isCompact
+          ? 'BEAT 4A · STRIPE HOSTED CHECKOUT ($43.60)'
+          : 'BEAT 4A · STRIPE HOSTED CHECKOUT · VISA •••• 4242 · PAY $43.60';
+        stepSub = 'Instant Stripe Checkout · Clicking Pay $43.60 🔒';
         accent = '#10b981';
-      } else if (t >= 0.36 && t < 0.53) {
-        stepBadge = isCompact ? 'STEP 2A · OVERHEAD TEE & SLIP IN BOX' : 'STEP 2A · OVERHEAD FOLDED GRAPHIC TEE + PACKING SLIP DROP IN BOX';
-        stepSub = 'Folded Tee slides from Overhead Merch Shelf + Thermal Packing Slip drops inside box';
-        accent = '#f59e0b';
-      } else if (t >= 0.53 && t < 0.68) {
-        stepBadge = isCompact ? 'STEP 2B · 4 FLAPS FOLD & KRAFT TAPE' : 'STEP 2B · 4 CORRUGATED FLAPS FOLD & KRAFT TAPE SEALS SEAM';
-        stepSub = 'Minor & major flaps hinge 90° shut · Reinforced Kraft Tape seals center seam';
-        accent = '#d97706';
-      } else if (t >= 0.68 && t < 0.83) {
-        stepBadge = isCompact ? 'STEP 3A · PITNEY BOWES 4×6 TOP LABEL' : 'STEP 3A · PITNEY BOWES 4×6 SHIPPING LABEL APPLIED TO BOX TOP';
-        stepSub = 'USPS Priority 4×6 Barcode Label (PB-9400-1082) pressed flat onto sealed box';
-        accent = '#38bdf8';
       } else if (t >= 0.83) {
-        stepBadge = isCompact ? 'STEP 3B · DISPATCHED TO OUTBOUND TOTE' : 'STEP 3B · DISPATCHED THROUGH MAIL CHUTE INTO OUTBOUND TOTE';
-        stepSub = 'Order #DK-402 lands in Outbound Postal Tote alongside 5 packed & labeled boxes';
+        stepBadge = isCompact
+          ? '$$$ · CHA-CHING! · ORDER #DK-402 PAID'
+          : 'BEAT 4B · $$$ · CHA-CHING! · PAYMENT APPROVED · ORDER #DK-402 ($43.60)';
+        stepSub = 'Synthesized Cash-Register Chime · Visa •••• 4242 · PB 4×6 Label Queued';
         accent = '#10b981';
       }
 
       const padX = isCompact ? 12 : 24;
       const railW = W - padX * 2;
       const barW = Math.max(8, Math.round(t * railW));
-      const railY = H - (isCompact ? 18 : 24);
+      const railY = H - (isCompact ? 18 : 22);
 
-      let calloutPill = '';
+      // Prompt pill at rest (t < 0.03)
+      let bottomPromptPill = '';
       if (t < 0.03) {
-        const cw = Math.min(W - 24, 340);
+        const cw = Math.min(W - 24, isCompact ? 340 : 430);
         const cx = Math.round((W - cw) / 2);
-        const cy = H - (isCompact ? 64 : 74);
-        calloutPill = `
+        const cy = H - (isCompact ? 64 : 72);
+        bottomPromptPill = `
           <g transform="translate(${cx}, ${cy})">
-            <rect x="0" y="0" width="${cw}" height="40" rx="20" fill="#0f172a" fill-opacity="0.92" stroke="#38bdf8" stroke-width="2"/>
+            <rect x="0" y="0" width="${cw}" height="40" rx="20" fill="#0f172a" fill-opacity="0.90" stroke="#38bdf8" stroke-width="1.8"/>
             <circle cx="22" cy="20" r="5.5" fill="#10b981"/>
-            <text x="${Math.round(cw / 2 + 8)}" y="25" text-anchor="middle" fill="#f8fafc" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="${isCompact ? 11.5 : 13.5}" font-weight="800">Click MacBook to Place Order</text>
+            <text x="${Math.round(cw / 2 + 8)}" y="25" text-anchor="middle" fill="#f8fafc" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="${isCompact ? 10.5 : 13}" font-weight="800">Click MacBook to Open &amp; Complete a Purchase</text>
           </g>
         `;
-      } else if (t >= 0.94) {
-        const cw = Math.min(W - 24, 460);
-        const cx = Math.round((W - cw) / 2);
-        const cy = H - (isCompact ? 64 : 74);
-        calloutPill = `
-          <g transform="translate(${cx}, ${cy})">
-            <rect x="0" y="0" width="${cw}" height="40" rx="20" fill="#064e3b" fill-opacity="0.92" stroke="#34d399" stroke-width="2"/>
-            <circle cx="22" cy="20" r="5.5" fill="#34d399"/>
-            <text x="${Math.round(cw / 2 + 8)}" y="25" text-anchor="middle" fill="#ecfdf5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="${isCompact ? 10.5 : 13}" font-weight="800">Order #DK-402 Dispatched · Click Anywhere to Replay</text>
+      }
+
+      // Sleek studio-grade floating glassmorphic "$$$ · CHA-CHING! · ORDER #DK-402 PAID ($43.60)" toast badge (Beat 4B, t >= 0.83)
+      let chaChingToast = '';
+      if (K.chaChingPop > 0.01) {
+        const pop = clamp(K.chaChingPop, 0, 1.08);
+        const tw = Math.min(W - 18, isCompact ? 344 : 520);
+        const th = isCompact ? 42 : 50;
+        const tx = Math.round((W - tw) / 2);
+        const ty = H - (isCompact ? 70 : 80) + Math.round((1 - Math.min(1, pop)) * 10);
+        const badgeW = isCompact ? 42 : 68;
+        chaChingToast = `
+          <g transform="translate(${tx}, ${ty})">
+            <rect x="0" y="0" width="${tw}" height="${th}" rx="${Math.round(th / 2)}" fill="#064e3b" fill-opacity="0.94" stroke="#34d399" stroke-width="2.2"/>
+            <rect x="7" y="6" width="${badgeW}" height="${th - 12}" rx="${Math.round((th - 12) / 2)}" fill="#10b981"/>
+            <text x="${7 + Math.round(badgeW / 2)}" y="${isCompact ? 26 : 31}" text-anchor="middle" fill="#022c22" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="${isCompact ? 11 : 14}" font-weight="900">$$$</text>
+            <text x="${Math.round((tw + badgeW + 10) / 2)}" y="${isCompact ? 26 : 31}" text-anchor="middle" fill="#fef08a" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="${isCompact ? 10 : 14.5}" font-weight="900">CHA-CHING! · ORDER #DK-402 PAID ($43.60)</text>
           </g>
         `;
       }
@@ -2619,50 +1613,52 @@
       if (isCompact) {
         figSvg.innerHTML = `
           <g id="art">
-            <rect x="10" y="10" width="${W - 20}" height="42" rx="10" fill="#0f172a" fill-opacity="0.84" stroke="${accent}" stroke-width="1.5"/>
+            <rect x="10" y="10" width="${W - 20}" height="44" rx="10" fill="#0f172a" fill-opacity="0.84" stroke="${accent}" stroke-width="1.5"/>
             <circle cx="24" cy="25" r="4.5" fill="${accent}"/>
-            <text x="36" y="29" fill="#f8fafc" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10.5" font-weight="800">${stepBadge}</text>
-            <text x="36" y="44" fill="#94a3b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="700">ORD #DK-402 · t=${f(t)}</text>
-            ${calloutPill}
+            <text x="36" y="29" fill="#f8fafc" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="800">${stepBadge}</text>
+            <text x="36" y="45" fill="#94a3b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="700">29.3K-TRI .GLB · t=${f(t)}</text>
+            ${chaChingToast}
+            ${bottomPromptPill}
             <rect x="${padX}" y="${railY}" width="${railW}" height="7" rx="3.5" fill="#1e293b" fill-opacity="0.88"/>
             <rect x="${padX}" y="${railY}" width="${barW}" height="7" rx="3.5" fill="${accent}"/>
             <circle cx="${padX}" cy="${railY + 3.5}" r="3.5" fill="#f8fafc"/>
             <circle cx="${Math.round(padX + railW * 0.35)}" cy="${railY + 3.5}" r="3.5" fill="#f8fafc"/>
-            <circle cx="${Math.round(padX + railW * 0.68)}" cy="${railY + 3.5}" r="3.5" fill="#f8fafc"/>
-            <circle cx="${padX + railW}" cy="${railY + 3.5}" r="3.5" fill="#f8fafc"/>
+            <circle cx="${Math.round(padX + railW * 0.60)}" cy="${railY + 3.5}" r="3.5" fill="#f8fafc"/>
+            <circle cx="${Math.round(padX + railW * 0.92)}" cy="${railY + 3.5}" r="3.5" fill="#f8fafc"/>
           </g>
         `;
       } else {
-        const pillW = Math.min(620, W - 260);
-        const rightX = W - 224;
+        const pillW = Math.min(545, W - 260);
+        const rightX = W - 234;
         figSvg.innerHTML = `
           <g id="art">
-            <!-- Top-Left Guided Camera Telemetry Pill -->
-            <rect x="20" y="12" width="${pillW}" height="48" rx="11" fill="#0f172a" fill-opacity="0.82" stroke="${accent}" stroke-width="1.6"/>
-            <circle cx="40" cy="29" r="5" fill="${accent}"/>
-            <text x="54" y="33" fill="#f8fafc" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12.5" font-weight="800">${stepBadge}</text>
-            <text x="54" y="50" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, Inter, sans-serif" font-size="11" font-weight="600">${stepSub}</text>
+            <!-- Top-Left Studio Telemetry Pill -->
+            <rect x="18" y="10" width="${pillW}" height="44" rx="11" fill="#0f172a" fill-opacity="0.84" stroke="${accent}" stroke-width="1.6"/>
+            <circle cx="36" cy="25" r="4.5" fill="${accent}"/>
+            <text x="48" y="29" fill="#f8fafc" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="800">${stepBadge}</text>
+            <text x="48" y="45" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, Inter, sans-serif" font-size="10.5" font-weight="600">${stepSub}</text>
 
-            <!-- Top-Right Order & Camera Badge -->
-            <rect x="${rightX}" y="12" width="204" height="34" rx="9" fill="#0f172a" fill-opacity="0.82" stroke="#334155" stroke-width="1.4"/>
-            <text x="${rightX + 102}" y="33" text-anchor="middle" fill="#38bdf8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="800">ORD #DK-402 · t=${f(t)}</text>
+            <!-- Top-Right Asset & Timeline Badge -->
+            <rect x="${rightX}" y="12" width="214" height="34" rx="9" fill="#0f172a" fill-opacity="0.82" stroke="#334155" stroke-width="1.4"/>
+            <text x="${rightX + 107}" y="33" text-anchor="middle" fill="#38bdf8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="800">MACBOOK .GLB · t=${f(t)}</text>
 
-            ${calloutPill}
+            ${chaChingToast}
+            ${bottomPromptPill}
 
             <!-- Bottom Timeline Progress Rail -->
             <rect x="${padX}" y="${railY}" width="${railW}" height="8" rx="4" fill="#1e293b" fill-opacity="0.85"/>
             <rect x="${padX}" y="${railY}" width="${barW}" height="8" rx="4" fill="${accent}"/>
             <circle cx="${padX}" cy="${railY + 4}" r="4" fill="#f8fafc"/>
             <circle cx="${Math.round(padX + railW * 0.35)}" cy="${railY + 4}" r="4" fill="#f8fafc"/>
-            <circle cx="${Math.round(padX + railW * 0.68)}" cy="${railY + 4}" r="4" fill="#f8fafc"/>
-            <circle cx="${padX + railW}" cy="${railY + 4}" r="4" fill="#f8fafc"/>
+            <circle cx="${Math.round(padX + railW * 0.60)}" cy="${railY + 4}" r="4" fill="#f8fafc"/>
+            <circle cx="${Math.round(padX + railW * 0.92)}" cy="${railY + 4}" r="4" fill="#f8fafc"/>
           </g>
         `;
       }
     }
 
     /* ============================================================
-       11. DOM STATUS BAR, INTERACTION & URL SCRUB (?t=... & ?vw=...)
+       8. DOM STATUS BAR, INTERACTION & URL SCRUB (?t=... & ?vw=...)
        ============================================================ */
     function syncDomStatus(K) {
       const pill = document.getElementById('dk-hero-status');
@@ -2670,34 +1666,34 @@
       const c1 = document.getElementById('dk-st-cell-1');
       const c2 = document.getElementById('dk-st-cell-2');
       const c3 = document.getElementById('dk-st-cell-3');
+      const c4 = document.getElementById('dk-st-cell-4');
 
-      if (c1 && c2 && c3) {
-        const u = K.t;
-        c1.classList.toggle('star', u < 0.36 || u >= 0.94);
-        c2.classList.toggle('star', (u >= 0.36 && u < 0.68) || u >= 0.94 || u < 0.02);
-        c3.classList.toggle('star', u >= 0.68 || u < 0.02);
+      const t = K.t;
+      if (c1 && c2 && c3 && c4) {
+        c1.classList.toggle('star', t < 0.15);
+        c2.classList.toggle('star', t >= 0.15 && t < 0.48);
+        c3.classList.toggle('star', t >= 0.48 && t < 0.72);
+        c4.classList.toggle('star', t >= 0.72);
       }
 
       if (!pill || !txt) return;
-      const t = K.t;
       if (t < 0.03) {
         pill.setAttribute('data-phase', 'rest');
-        txt.textContent = 'Click MacBook to Place Order';
-      } else if (t < 0.295) {
+        txt.textContent = 'Click MacBook to Open & Complete a Purchase';
+      } else if (t < 0.48) {
         pill.setAttribute('data-phase', 'storefront');
-        txt.textContent = 'Station 1 · template-store Add to Cart → /cart → Stripe Checkout';
-      } else if (t < 0.36) {
-        pill.setAttribute('data-phase', 'paid');
-        txt.textContent = 'Cha-Ching! $$$ · ORDER #DK-402 Paid ($43.60)';
-      } else if (t < 0.68) {
-        pill.setAttribute('data-phase', 'pack');
-        txt.textContent = 'Station 2 · Overhead Folded Tee + Packing Slip → 4-Flap Fold & Tape';
-      } else if (t < 0.94) {
-        pill.setAttribute('data-phase', 'ship');
-        txt.textContent = 'Station 3 · Pitney Bowes 4×6 Top Label → Mail Chute → Outbound Tote';
+        txt.textContent = K.isAddedToCart
+          ? 'Beat 2 · template-store · ✓ Added to Cart (1) — $38.00'
+          : 'Beat 1–2 · Lid Opens · Selecting Size L & Add to Cart ($38.00)';
+      } else if (t < 0.72) {
+        pill.setAttribute('data-phase', 'cart');
+        txt.textContent = 'Beat 3 · /cart · Subtotal $38 + PB Ground $5.60 → Checkout with Stripe';
+      } else if (t < 0.83) {
+        pill.setAttribute('data-phase', 'cart');
+        txt.textContent = 'Beat 4A · Stripe Hosted Checkout · Visa •••• 4242 · Pay $43.60';
       } else {
         pill.setAttribute('data-phase', 'paid');
-        txt.textContent = 'Order #DK-402 Dispatched · Click Anywhere to Replay';
+        txt.textContent = '$$$ · CHA-CHING! · ORDER #DK-402 PAID ($43.60) · Click to Replay';
       }
     }
 
@@ -2725,7 +1721,7 @@
     function renderCurrentFrame() {
       const rect = stageEl.getBoundingClientRect();
       const w = Math.max(300, Math.round(rect.width || 1080));
-      const h = Math.max(300, Math.round(rect.height || 550));
+      const h = Math.max(300, Math.round(rect.height || 555));
       if (canvas.width !== w * 2 || canvas.height !== h * 2) {
         renderer.setSize(w, h, false);
         camera.aspect = w / h;
@@ -2741,7 +1737,7 @@
       unlockAudio();
       chaChingPlayedInRun = false;
       const runId = ++animId;
-      const durationMs = 10500;
+      const durationMs = 7500;
       const startTime = performance.now();
       currentT = 0.0;
       orbitYaw = 0.0;
@@ -2752,7 +1748,7 @@
         if (runId !== animId) return;
         const elapsed = now - startTime;
         currentT = clamp01(elapsed / durationMs);
-        if (!chaChingPlayedInRun && currentT >= 0.298) {
+        if (!chaChingPlayedInRun && currentT >= 0.83) {
           chaChingPlayedInRun = true;
           playChaChing();
         }
@@ -2785,7 +1781,7 @@
       downX = e.clientX;
       downY = e.clientY;
       if (movedDist > 6) {
-        orbitYaw = clamp(orbitYaw - dx * 0.0055, -0.75, 0.75);
+        orbitYaw = clamp(orbitYaw - dx * 0.0055, -0.85, 0.85);
         orbitPitch = clamp(orbitPitch + dy * 0.004, -0.45, 0.65);
         renderCurrentFrame();
       }
@@ -2806,8 +1802,21 @@
       statusPill.addEventListener('click', () => playFullAnimation());
     }
 
+    document.querySelectorAll('.dk-station-cell[data-jump-t]').forEach(cell => {
+      cell.addEventListener('click', () => {
+        animId++;
+        const targetT = parseFloat(cell.getAttribute('data-jump-t')) || 0;
+        currentT = clamp01(targetT);
+        if (currentT >= 0.83) {
+          playChaChing();
+        }
+        renderCurrentFrame();
+      });
+    });
+
     window.addEventListener('resize', () => renderCurrentFrame());
     renderCurrentFrame();
+    loadMacBookGlb();
   })();
   </script>
 </body>
