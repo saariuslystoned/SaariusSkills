@@ -93,6 +93,8 @@ class PackagingTests(unittest.TestCase):
         self.assertTrue((skill / "SKILL.md").is_file())
         self.assertTrue((skill / "LICENSE").is_file())
         self.assertTrue((skill / "assets" / "vendor" / "three.min.js").is_file())
+        self.assertTrue((skill / "assets" / "vendor" / "playground-screens.js").is_file())
+        self.assertIsNone(re.search(r"\bany\b", (skill / "assets" / "vendor" / "playground-screens.js").read_text(encoding="utf-8")))
         for eng in ("core.js", "multiplane.js", "choreo.js", "tactile-audio.js"):
             self.assertTrue((skill / "assets" / eng).is_file())
             self.assertIsNone(re.search(r"\bany\b", (skill / "assets" / eng).read_text(encoding="utf-8")))
@@ -147,6 +149,7 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("Optional Add-On: Procedural Web Audio Micro-Foley", skill_text)
         self.assertIn("editorial lookbooks / magazine-style story pages", skill_text)
         self.assertIn("Mode A2 — Studio WebGL 3D PBR", skill_text)
+        self.assertIn("Never hand-draw a fake website UI with `ctx.fillRect`", skill_text)
 
         workflow_ref_text = (skill / "references" / "grilltrack-progressive-workflow.md").read_text(encoding="utf-8")
         self.assertIn("Website Placement + Single User Trigger (`chrome: 'stage-only'` Default)", workflow_ref_text)
@@ -249,7 +252,9 @@ class PackagingTests(unittest.TestCase):
             self.assertIn("function mountFigure(", dk_astro_body)
             self.assertIn("THREE.WebGLRenderer", (skill / "assets" / "examples" / "dinkuskit-macbook-pbr.html").read_text(encoding="utf-8"))
             self.assertNotIn('<script src="../vendor/three.min.js"></script>', pbr_html_body)
+            self.assertNotIn('<script src="../vendor/playground-screens.js"></script>', pbr_html_body)
             self.assertIn("THREE.WebGLRenderer", pbr_html_body)
+            self.assertIn("window.DK_PLAYGROUND_SCREENS", pbr_html_body)
             self.assertIn("function createMicroFoley(", fw_html_body)
             self.assertIn("color-scheme: light;", fw_html_body)
             for cid in (

@@ -561,16 +561,18 @@
       const viewY = 100;
       const viewW = 1600;
       const viewH = 940;
+      let drew = false;
       ctx.save();
       ctx.globalAlpha = alpha;
       ctx.beginPath();
       ctx.rect(0, viewY, viewW, viewH);
       ctx.clip();
 
-      ctx.fillStyle = key === 'stripe' ? '#ffffff' : '#f5f0e6';
+      ctx.fillStyle = key === 'stripe' ? '#ffffff' : '#f4f1e9';
       ctx.fillRect(0, viewY, viewW, viewH);
 
       if (entry && entry.img && (entry.ready || (entry.img.complete && entry.img.naturalWidth > 0))) {
+        drew = true;
         if (key === 'stripe') {
           // Stripe desktop layout: sticky left Order Summary (x=0..792) + scrollable right Payment Form (x=792..1600)
           const splitX = 792;
@@ -590,20 +592,21 @@
         }
       }
       ctx.restore();
+      return drew;
     }
 
     function drawPlaygroundToolbarPill(ctx, alpha = 1.0) {
       if (alpha <= 0.01) return;
       ctx.save();
       ctx.globalAlpha = alpha;
-      const pw = 576, ph = 42;
+      const pw = 576, ph = 38;
       const px = Math.round((1600 - pw) / 2);
-      const py = 988;
+      const py = 994;
 
       ctx.shadowColor = 'rgba(0, 0, 0, 0.28)';
       ctx.shadowBlur = 14;
       ctx.shadowOffsetY = 4;
-      roundRect(ctx, px, py, pw, ph, 21);
+      roundRect(ctx, px, py, pw, ph, 19);
       ctx.fillStyle = 'rgba(24, 24, 27, 0.94)';
       ctx.fill();
       ctx.shadowColor = 'transparent';
@@ -612,7 +615,7 @@
       ctx.stroke();
 
       // Gold PLAYGROUND badge
-      roundRect(ctx, px + 10, py + 8, 108, 26, 13);
+      roundRect(ctx, px + 10, py + 6, 108, 26, 13);
       ctx.fillStyle = 'rgba(234, 179, 8, 0.18)';
       ctx.fill();
       ctx.strokeStyle = 'rgba(234, 179, 8, 0.45)';
@@ -621,23 +624,23 @@
       ctx.fillStyle = '#facc15';
       ctx.font = '800 12px ui-monospace, SFMono-Regular, Menlo, monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('PLAYGROUND', px + 64, py + 25);
+      ctx.fillText('PLAYGROUND', px + 64, py + 23);
 
       // Edit toggle + timer
       ctx.textAlign = 'left';
       ctx.fillStyle = '#d4d4d8';
       ctx.font = '600 13.5px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-      ctx.fillText('Edit   |   58m remaining   |', px + 134, py + 26);
+      ctx.fillText('Edit   |   58m remaining   |', px + 134, py + 24);
 
       // Start your real store pill
-      roundRect(ctx, px + 362, py + 8, 174, 26, 13);
+      roundRect(ctx, px + 362, py + 6, 174, 26, 13);
       ctx.fillStyle = 'rgba(234, 179, 8, 0.20)';
       ctx.fill();
       ctx.fillStyle = '#fde047';
       ctx.font = '700 13px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
-      ctx.fillText('Start your real store ↗', px + 376, py + 25);
+      ctx.fillText('Start your real store ↗', px + 376, py + 23);
       ctx.fillStyle = '#a1a1aa';
-      ctx.fillText('✕', px + 548, py + 26);
+      ctx.fillText('✕', px + 548, py + 24);
       ctx.restore();
     }
 
@@ -680,13 +683,13 @@
       const { ctx, texture } = surface;
       const t = K.t;
       if (Math.abs(surface.lastT - t) < 1e-5) return;
-      surface.lastT = t;
 
       const W = 1600, H = 1040;
+      let allReady = true;
 
       // 1. Real Retina Website Viewport (x = 0..1600, y = 100..1040)
       // Coordinates mapped 1.25x from live 1280x752 CSS DOM getBoundingClientRect()
-      let curX = 800, curY = 763, curDown = false;
+      let curX = 800, curY = 688, curDown = false;
       let urlText = 'https://playground.dinkuskit.com/';
       let badgeLabel = 'EMDASH PLAYGROUND';
       let badgeBg = '#dbeafe';
@@ -694,8 +697,8 @@
 
       if (t < 0.25) {
         // STAGE 1: Storefront Home -> Smooth scroll down to #commerce-catalog -> Click Dinkus Demo Heavyweight T-Shirt
-        const scrollY = lerp(0, 1235, K.catalogScroll);
-        drawPlaygroundViewport(ctx, 'storefront', scrollY, 1.0);
+        const scrollY = lerp(0, 1310, K.catalogScroll);
+        allReady = drawPlaygroundViewport(ctx, 'storefront', scrollY, 1.0) && allReady;
 
         // Real DOM shirtCard: CSS (460, 1309.78, 360, 417.75) -> Canvas (575, 100 + 1637.2 - scrollY, 450, 522.2)
         const cardX = 575;
@@ -716,13 +719,13 @@
         // STAGE 2: Product Detail Page (/products/demo-shirt) -> Click Add to cart -> Added to cart. & Cart 1
         urlText = 'https://playground.dinkuskit.com/products/demo-shirt';
         const fade = easeInOut(sub(t, 0.25, 0.275));
-        const scrollY = lerp(0, 45, easeInOut(sub(t, 0.25, 0.30)));
+        const scrollY = lerp(0, 68, easeInOut(sub(t, 0.25, 0.30)));
 
         if (fade < 1.0) {
-          drawPlaygroundViewport(ctx, 'storefront', 1235, 1.0);
+          allReady = drawPlaygroundViewport(ctx, 'storefront', 1310, 1.0) && allReady;
         }
         const screenKey = K.isAddedToCart ? 'productAdded' : 'productBefore';
-        drawPlaygroundViewport(ctx, screenKey, scrollY, fade);
+        allReady = drawPlaygroundViewport(ctx, screenKey, scrollY, fade) && allReady;
 
         // Real DOM addBtn: CSS (836.09, 691.23, 119.77, 40.38) -> Image (1045.1, 864.0, 149.7, 50.5)
         const btnX = 1045.1;
@@ -768,7 +771,7 @@
         if (t < 0.39) {
           const u = easeInOut(sub(t, 0.25, 0.315));
           curX = lerp(800, btnX + btnW * 0.5, u);
-          curY = lerp(763, btnY + btnH * 0.5, u);
+          curY = lerp(688, btnY + btnH * 0.5, u);
           curDown = K.addBtnClick > 0.15 && K.addBtnClick < 0.85;
         } else {
           const u = easeInOut(sub(t, 0.39, 0.435));
@@ -783,12 +786,12 @@
         urlText = 'https://playground.dinkuskit.com/cart';
         badgeLabel = 'CART (1 ITEM · $32)';
         const fade = easeInOut(sub(t, 0.46, 0.485));
-        const scrollY = lerp(40, 225, easeInOut(sub(t, 0.46, 0.54)));
+        const scrollY = lerp(55, 295, easeInOut(sub(t, 0.46, 0.54)));
 
         if (fade < 1.0) {
-          drawPlaygroundViewport(ctx, 'productAdded', 45, 1.0);
+          allReady = drawPlaygroundViewport(ctx, 'productAdded', 68, 1.0) && allReady;
         }
-        drawPlaygroundViewport(ctx, 'cart', scrollY, fade);
+        allReady = drawPlaygroundViewport(ctx, 'cart', scrollY, fade) && allReady;
 
         // Real DOM checkoutBtn: CSS (80, 857.89, 202.23, 44) -> Image (100, 1072.4, 252.8, 55.0)
         const btnX = 100;
@@ -816,7 +819,7 @@
 
         const u = easeInOut(sub(t, 0.47, 0.565));
         curX = lerp(1469, btnX + btnW * 0.5, u);
-        curY = lerp(152, btnY + btnH * 0.5, u);
+        curY = lerp(129, btnY + btnH * 0.5, u);
         curDown = K.cartBtnClick > 0.15 && K.cartBtnClick < 0.85;
         drawPlaygroundToolbarPill(ctx, 1.0);
 
@@ -831,9 +834,10 @@
         const syRight = lerp(70, 255, easeInOut(sub(t, 0.64, 0.72)));
 
         if (fade < 1.0) {
-          drawPlaygroundViewport(ctx, 'cart', 225, 1.0);
+          allReady = drawPlaygroundViewport(ctx, 'cart', 295, 1.0) && allReady;
+          drawPlaygroundToolbarPill(ctx, 1.0 - fade);
         }
-        drawPlaygroundViewport(ctx, 'stripe', syRight, fade);
+        allReady = drawPlaygroundViewport(ctx, 'stripe', syRight, fade) && allReady;
 
         // Real DOM payBtn on Stripe Checkout: Image (900, 1106.25, 472.5, 67.5)
         const btnX = 900;
@@ -847,7 +851,7 @@
 
         const u = easeInOut(sub(t, 0.65, 0.74));
         curX = lerp(226, btnX + btnW * 0.5, u);
-        curY = lerp(975, btnY + btnH * 0.5, u);
+        curY = lerp(905, btnY + btnH * 0.5, u);
         curDown = K.stripePayClick > 0.15 && K.stripePayClick < 0.88;
 
       } else {
@@ -858,12 +862,12 @@
         badgeFg = '#047857';
 
         const fade = easeInOut(sub(t, 0.83, 0.855));
-        const scrollY = lerp(35, 145, easeInOut(sub(t, 0.83, 0.89)));
+        const scrollY = lerp(35, 140, easeInOut(sub(t, 0.83, 0.89)));
 
         if (fade < 1.0) {
-          drawPlaygroundViewport(ctx, 'stripe', 255, 1.0);
+          allReady = drawPlaygroundViewport(ctx, 'stripe', 255, 1.0) && allReady;
         }
-        drawPlaygroundViewport(ctx, 'orderConfirmed', scrollY, fade);
+        allReady = drawPlaygroundViewport(ctx, 'orderConfirmed', scrollY, fade) && allReady;
 
         // Compact Cha-Ching verification pill aligned with "Order confirmed." row (x=980..1264, 480px clear of text)
         const pop = clamp(K.chaChingPop, 0, 1);
@@ -883,7 +887,7 @@
           ctx.fillText('✓ PAID $37 · VISA 4242', 1122, cardBadgeY + 26);
           ctx.restore();
         }
-        drawPlaygroundToolbarPill(ctx, 1.0);
+        drawPlaygroundToolbarPill(ctx, fade);
       }
 
       // 2. macOS Top Menu Bar (y = 0..34, inset within bezel-safe x = 82..1485)
@@ -974,6 +978,7 @@
         ctx.restore();
       }
 
+      surface.lastT = allReady ? t : -1;
       texture.needsUpdate = true;
     }
 
@@ -1083,6 +1088,7 @@
       canvas,
       antialias: true,
       alpha: false,
+      preserveDrawingBuffer: true,
       powerPreference: 'high-performance',
     });
     renderer.setPixelRatio(2);
@@ -1453,21 +1459,30 @@
       }
 
       // Sleek studio-grade floating glassmorphic "$$$ · CHA-CHING! · ORDER #A026B032 PAID ($37.00)" toast badge above the MacBook (Beat 4B, t >= 0.83)
+      const pillW = !isCompact && K.chaChingPop > 0.01 ? 228 : Math.min(460, W - 260);
+      const rightW = !isCompact && K.chaChingPop > 0.01 ? 188 : 208;
+      const rightX = W - rightW - 16;
       let chaChingToast = '';
       if (K.chaChingPop > 0.01) {
         const pop = clamp(K.chaChingPop, 0, 1.08);
-        const tw = Math.min(W - 18, isCompact ? 348 : 488);
+        const leftEnd = 16 + pillW;
+        const availGap = rightX - leftEnd - 20;
+        const tw = isCompact ? Math.min(W - 18, 348) : clamp(availGap, 340, 488);
         const th = isCompact ? 36 : 42;
-        const tx = Math.round((W - tw) / 2);
-        // On desktop (W >= 560) float centered at y=10 above the MacBook; on compact mobile float cleanly at y=H-60 above the timeline rail
+        const idealTx = Math.round((W - tw) / 2);
+        const tx = isCompact
+          ? idealTx
+          : clamp(idealTx, leftEnd + 10, Math.max(leftEnd + 10, rightX - tw - 10));
+        // On desktop (W >= 560) float at y=10 above the MacBook; on compact mobile float cleanly at y=H-60 above the timeline rail
         const ty = (isCompact ? H - 60 : 10) + Math.round((1 - Math.min(1, pop)) * 8);
-        const badgeW = isCompact ? 42 : 62;
+        const badgeW = isCompact ? 42 : tw < 430 ? 50 : 62;
+        const mainFont = isCompact ? 9.8 : tw < 430 ? 11 : 13;
         chaChingToast = `
           <g transform="translate(${tx}, ${ty})">
             <rect x="0" y="0" width="${tw}" height="${th}" rx="${Math.round(th / 2)}" fill="#064e3b" fill-opacity="0.95" stroke="#34d399" stroke-width="2.2"/>
             <rect x="6" y="5" width="${badgeW}" height="${th - 10}" rx="${Math.round((th - 10) / 2)}" fill="#10b981"/>
-            <text x="${6 + Math.round(badgeW / 2)}" y="${isCompact ? 23 : 26}" text-anchor="middle" fill="#022c22" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="${isCompact ? 11 : 13.5}" font-weight="900">$$$</text>
-            <text x="${Math.round((tw + badgeW + 8) / 2)}" y="${isCompact ? 23 : 26}" text-anchor="middle" fill="#fef08a" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="${isCompact ? 9.8 : 13}" font-weight="900">CHA-CHING! · ORDER #A026B032 PAID ($37.00)</text>
+            <text x="${6 + Math.round(badgeW / 2)}" y="${isCompact ? 23 : 26}" text-anchor="middle" fill="#022c22" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="${isCompact ? 11 : 13}" font-weight="900">$$$</text>
+            <text x="${Math.round((tw + badgeW + 8) / 2)}" y="${isCompact ? 23 : 26}" text-anchor="middle" fill="#fef08a" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="${mainFont}" font-weight="900">CHA-CHING! · ORDER #A026B032 PAID ($37.00)</text>
           </g>
         `;
       }
@@ -1491,10 +1506,8 @@
         `;
       } else {
         // When chaChingToast is centered at top (y=10), keep top-left pill compact so it never collides with the centered toast
-        const pillW = K.chaChingPop > 0.01 ? 260 : Math.min(460, W - 260);
         const leftBadgeText = K.chaChingPop > 0.01 ? 'BEAT 4B · STRIPE SANDBOX' : stepBadge;
         const leftSubText = K.chaChingPop > 0.01 ? 'Visa •••• 4242 · Order Confirmed' : stepSub;
-        const rightX = W - 224;
         figSvg.innerHTML = `
           <g id="art">
             <!-- Top-Left Studio Telemetry Pill -->
@@ -1504,8 +1517,8 @@
             <text x="44" y="43" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, Inter, sans-serif" font-size="10" font-weight="600">${leftSubText}</text>
 
             <!-- Top-Right Asset & Timeline Badge -->
-            <rect x="${rightX}" y="11" width="208" height="34" rx="9" fill="#0f172a" fill-opacity="0.82" stroke="#334155" stroke-width="1.4"/>
-            <text x="${rightX + 104}" y="32" text-anchor="middle" fill="#38bdf8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="800">MACBOOK .GLB · t=${f(t)}</text>
+            <rect x="${rightX}" y="11" width="${rightW}" height="34" rx="9" fill="#0f172a" fill-opacity="0.82" stroke="#334155" stroke-width="1.4"/>
+            <text x="${rightX + Math.round(rightW / 2)}" y="32" text-anchor="middle" fill="#38bdf8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="800">MACBOOK .GLB · t=${f(t)}</text>
 
             ${chaChingToast}
             ${bottomPromptPill}
@@ -1581,10 +1594,22 @@
     let currentT = 0.0;
     if (q.has('t')) {
       currentT = clamp01(parseFloat(q.get('t')) || 0);
+    } else if (q.has('press')) {
+      const pressRaw = String(q.get('press') || '');
+      const tMatch = pressRaw.match(/t=([0-9.]+)/);
+      currentT = tMatch ? clamp01(parseFloat(tMatch[1]) || 0.92) : 0.92;
     }
     let animId = 0;
     let orbitYaw = 0.0;
     let orbitPitch = 0.0;
+    if (q.has('yaw')) {
+      const yVal = parseFloat(q.get('yaw')) || 0;
+      orbitYaw = clamp(Math.abs(yVal) > 1.5 ? (yVal * Math.PI) / 180 : yVal, -0.85, 0.85);
+    }
+    if (q.has('pitch')) {
+      const pVal = parseFloat(q.get('pitch')) || 0;
+      orbitPitch = clamp(Math.abs(pVal) > 1.5 ? (pVal * Math.PI) / 180 : pVal, -0.45, 0.65);
+    }
 
     function renderCurrentFrame() {
       const rect = stageEl.getBoundingClientRect();
