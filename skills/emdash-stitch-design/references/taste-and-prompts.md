@@ -23,7 +23,7 @@ Encode these rules in `.stitch/DESIGN.md` before generating screens, and hold th
   - Record locked values (hex codes, sizes, offsets) only in the project's `.stitch/DESIGN.md`, `design.md`, and `src/styles/tokens.css`. This reference holds rules, never another site's locked values: carrying one build's palette or surface system into the next site makes every site look the same.
 - **Typography:**
   - Lock the type pairing in its own round: a distinctive display face with a high-legibility body face, plus a monospace face only where the site's content benefits from one (for example SKUs, versions, or tabular figures with `font-variant-numeric: tabular-nums`). Choose faces for this site's atmosphere, not from a fixed shortlist.
-  - Name only faces the build can serve. If builds run offline or the font provider cannot reach its source, use locally shipped font files or an explicit system stack, and record what actually renders.
+  - Name only faces the build can serve. If builds run offline or the font provider cannot reach its source, use locally shipped font files or an explicit system stack, and record what actually renders. Stitch draws its screenshots on its own servers, which may lack the faces a system stack names, so candidates that differ only in system stacks can look identical there. Judge them from the local render ([grilltrack-visual-cycle.md](grilltrack-visual-cycle.md) §2a) or with shipped font files.
   - Scale headlines with `clamp()`; keep body copy 60–70ch max width.
 - **Banned AI Tells:**
   - No emojis in UI chrome.
@@ -33,7 +33,7 @@ Encode these rules in `.stitch/DESIGN.md` before generating screens, and hold th
   - No horizontal overflow on narrow mobile viewports (`320px–767px`), and no clipped control text: each control's placeholder and label fit its own container at desktop and narrow widths. A page-level overflow check misses both.
   - No shopper-facing copy the content owners did not supply. Facts come from their owner: EmDash for copy, menus and media; Commerce for price, availability, identifiers and checkout readiness. Generated text (CSS `content:`, prefixes, badges, counts) is copy too. Record a missing label as a gap instead of inventing one.
   - No developer, ownership or run notes on the page, such as which system owns which data. They belong in `design.md`.
-  - No label that looks like a control and does nothing. Every header and footer item either works or reads as plain text, with no pill, chip, button or link styling.
+  - No label that looks like a control and does nothing. Every header and footer item either works or reads as plain text, with no pill, chip, button or link styling. An unavailable action follows the same rule: it shows its reason and never looks enabled.
   - No dead-end empty states: an empty cart, collection or search result offers the shopper's next step.
 
 ## 2. Prompt Enhancement Pipeline (`generate-design`)
