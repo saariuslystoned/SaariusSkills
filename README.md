@@ -31,7 +31,15 @@ compares relevant ecommerce platforms before major Commerce or companion-plugin
 decisions in GrillTrack, preserving existing locks and skipping routine fixes.
 [EmDash CI Deploy](skills/emdash-ci-deploy/SKILL.md) covers deployment pipelines,
 isolated targets and verification of the deployed commit while preserving owner
-approval gates. [EmDash Surface FX](skills/emdash-surface-fx/SKILL.md) adds
+approval gates. [EmDash Motion Studio](skills/emdash-motion-studio/SKILL.md)
+runs a progressive GrillTrack animation workflow (starting with 5 start-to-finish
+stage frameworks before building and grilling one core piece at a time) across
+Mode A1 illustrated 3D isometric cutaways (Colorfigures), Mode A2 Studio WebGL
+3D PBR stages (`Three.js`), Mode B 3-layer multiplane occlusion stages with
+Pigment Drift watercolor washes, Mode C choreographed timeline stages, and
+optional Mode D tactile foil/tear-off & Ephemera receipt/stamp passes that bind
+one-way to `tokens.css` and compile to `.astro` components or standalone HTML.
+[EmDash Surface FX](skills/emdash-surface-fx/SKILL.md) adds
 page-level Bayer/halftone shaders (`dithercn` port), viewport GPU pooling,
 Pretext obstacle text layout, Ephemera receipts/rubber stamps, NumberFlow
 counters, RoughNotation ink callouts, and Tier 1/2/3 DinkusKit storefront

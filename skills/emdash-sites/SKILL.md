@@ -26,6 +26,17 @@ Read these corrections before copying examples from that pin:
 - Email deliver hook: `email:deliver` requires configured verified sender `from`,
   verifies HTTP `response.ok`, and throws sanitized errors without leaking body,
   tokens, or addresses (`references/plugin-surfaces.md`).
+- Media Library vs. `public/` assets (`building-emdash-site`, `emdash-cli`):
+  files placed only in `public/` never appear in `/_emdash/admin` Media Library.
+  Declare editable website imagery as `"type": "image"` (with optional
+  `darkVariant`), seed via `$media` in `seed/seed.json` (or upload via
+  `npx emdash media upload` and attach `{ id, alt }`), render with `<Image />`
+  from `"emdash/ui"`, and allow anonymous `GET`/`HEAD` reads on
+  `/_emdash/api/media/file/<safe-key>` in any outer `/_emdash/*` middleware
+  gate (including for `getSiteSettings()` `logo`/`favicon` URLs). Keep runtime
+  3D `.glb` geometry in `public/models/...` paired with a Media Library `.webp`
+  fallback poster that stays visible until `onModelLoaded` mounts the mesh
+  (`references/content-ownership.md`, `references/cloudflare-hosting.md`).
 
 ## Establish the slice
 
@@ -51,9 +62,9 @@ Read these corrections before copying examples from that pin:
 | --- | --- | --- |
 | Registry-installed admin feature | Sandboxed plugin with Block Kit UI | Actual packaged install, configured runner, user action and durable result |
 | Native admin integration | Supported React or Block Kit extension; Kumo and Lingui for native React | Real host navigation, authorization, form/error behavior and locale/layout proof |
-| Editable public pages | Upstream content/page blocks plus site rendering; declare content ownership; normally the CMS owns content and the repository owns structure | Editor save/publish and the public page; the live content-source marker; the mirrored record when configured |
+| Editable public pages | Upstream content/page blocks plus site rendering; declare content and Media Library ownership (`type: "image"` + `$media` in seed rather than unexplained static `public/` images); normally the CMS owns content/media and the repository owns structure/runtime code assets (e.g., `public/models/*.glb`) | Editor save/publish and the public page; Media Library items visible in `/_emdash/admin` and served on the public route; the live content-source marker; the mirrored record when configured |
 | Connected service | Server-owned identity, scoped authorization and transport | Actual installed-plugin request and service result; fixtures labeled separately |
-| Cloudflare-hosted site | Version-matched Workers adapter, explicit content initialization and chosen auth mode | Fresh-database smoke, protected admin, intended public routes and published CMS content |
+| Cloudflare-hosted site | Version-matched Workers adapter, explicit content/media initialization and chosen auth mode (allowing anonymous `GET`/`HEAD` on `/_emdash/api/media/file/<key>` when serving Media Library assets) | Fresh-database smoke, protected admin, intended public routes, public media delivery and published CMS content |
 
 For commerce, read [URLs and commerce](references/urls-and-commerce.md).
 Agree on the [verification scope](references/verification.md) before deployment.

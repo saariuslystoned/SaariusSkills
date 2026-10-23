@@ -52,10 +52,12 @@ Before a first or changed deployment:
   screen becomes the site's administrator, the owner does that step, not an agent.
 - When a change adds a value one service issues and another requires, deploy the
   issuing service first and check it before deploying the one that requires it.
-- Prove the built artifact with a production crawl, page-content checks and one
-  real user path on desktop and mobile. A merge approval is not deployment
-  approval; deployment approval applies to the exact commit and expires when it
-  changes.
+- Prove the built artifact with a production crawl, page-content checks, Media
+  Library image delivery checks (`/_emdash/api/media/file/<safe-key>` returning
+  HTTP 200 when the site renders CMS-managed images or `getSiteSettings()`
+  logos/favicons), and one real user path on desktop and mobile. A merge
+  approval is not deployment approval; deployment approval applies to the exact
+  commit and expires when it changes.
 
 See [Deploy stamp and verification](references/deploy-stamp-and-verify.md) for
 the complete release checklist, evidence requirements and local-state recovery

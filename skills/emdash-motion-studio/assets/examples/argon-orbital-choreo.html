@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Argon Orbital Telemetry — Choreographed 3D Stage</title>
+</head>
+<body>
+<script src="choreo.js"></script>
+<script>
+/* ============================================================
+   Mode C Showcase: Argon Orbital Constellation & Optical Crosslink Stage
+   Demonstrates:
+   - 4-Cue Timeline Choreography (Transfer Injection -> Plane Phasing ->
+     Optical Crosslink -> Zenith Mesh Lock)
+   - 3D Camera Keyframe Interpolation (lerpCam) + Depth-Sorted 3D Projection
+   - Live Telemetry HUD Counters + Deterministic ?t=0..1 Scrubbing
+   ============================================================ */
+
+const CAM_KEYS = [
+  { at: 0.00, yaw: 24,  pitch: 22, zoom: 1.00, target: [0, 0, 0] },
+  { at: 0.35, yaw: 68,  pitch: 34, zoom: 1.08, target: [0, 0, 0] },
+  { at: 0.70, yaw: 122, pitch: 46, zoom: 1.15, target: [0, 0, 0] },
+  { at: 1.00, yaw: 164, pitch: 28, zoom: 1.04, target: [0, 0, 0] },
+];
+
+const ORBITS = [
+  { id: 'ALPHA', radius: 175, inc: 38, asc: 15,  col: '#4fd1c5', sats: 4 },
+  { id: 'BETA',  radius: 215, inc: 56, asc: 105, col: '#f6ad55', sats: 5 },
+  { id: 'GAMMA', radius: 252, inc: 72, asc: 210, col: '#63b3ed', sats: 6 },
+];
+
+function orbitPoint(radius, incDeg, ascDeg, thetaRad){
+  const inc = incDeg * Math.PI / 180;
+  const asc = ascDeg * Math.PI / 180;
+  const x0 = radius * Math.cos(thetaRad);
+  const y0 = radius * Math.sin(thetaRad) * Math.cos(inc);
+  const z0 = radius * Math.sin(thetaRad) * Math.sin(inc);
+  return [
+    x0 * Math.cos(asc) - y0 * Math.sin(asc),
+    x0 * Math.sin(asc) + y0 * Math.cos(asc),
+    z0,
+  ];
+}
+
+mountChoreo({
+  title: 'Optical Mesh Constellation',
+  subtitle: 'MODE C · CHOREOGRAPHED 3D TELEMETRY STAGE',
+  viewBox: [1100, 560],
+  duration: 12,
+  mode: 'autoplay',
+  cues: [
+    {
+      id: 'inject',
+      label: '01 · Transfer Injection',
+      range: [0.00, 0.25],
+      summary: 'Low-earth transfer vehicle separates and expands into the primary Alpha orbital plane.',
+    },
+    {
+      id: 'phasing',
+      label: '02 · Plane Phasing',
+      range: [0.25, 0.55],
+      summary: 'Inclined Beta (56°) and Gamma (72°) shells precess into synchronized ground-track phase.',
+    },
+    {
+      id: 'crosslink',
+      label: '03 · Optical Crosslink',
+      range: [0.55, 0.80],
+      summary: 'Inter-satellite laser transceivers acquire phase lock across adjacent orbital shells.',
+    },
+    {
+      id: 'zenith',
+      label: '04 · Zenith Mesh Lock',
+      range: [0.80, 1.00],
+      summary: 'Full 15-node optical mesh closes routing loop with sub-4ms cross-shell latency.',
+    },
+  ],
+  hud(st, t){
+    const linkK = subRange(t, 0.50, 0.85);
+    const activeNodes = Math.round(4 + 11 * easeInOutCubic(subRange(t, 0.05, 0.65)));
+    return [
+      { label: 'ACTIVE NODES', value: `${activeNodes}/15`, unit: 'SATS' },
+      { label: 'OPTICAL LINKS', value: Math.round(linkK * 24), unit: 'ISL' },
+      { label: 'THROUGHPUT', value: (1.2 + 17.6 * easeInOutCubic(linkK)).toFixed(1), unit: 'TBPS' },
+      { label: 'LATENCY', value: (18.4 - 14.8 * easeInOutCubic(linkK)).toFixed(1), unit: 'MS' },
+    ];
+  },
+  scene(st, t, h){
+    const cam = h.lerpCam(CAM_KEYS, t);
+    const cx = 550, cy = 275;
+    const items = [];
+
+    // Background technical grid & reticle
+    let bg = `
+      <defs>
+        <radialGradient id="ch-core-glow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#4fd1c5" stop-opacity="0.24"/>
+          <stop offset="65%" stop-color="#2b6cb0" stop-opacity="0.06"/>
+          <stop offset="100%" stop-color="#0e131a" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <circle cx="${cx}" cy="${cy}" r="260" fill="url(#ch-core-glow)"/>
+      <g stroke="#223042" stroke-width="1" fill="none">
+        <circle cx="${cx}" cy="${cy}" r="110" stroke-dasharray="3 6"/>
+        <circle cx="${cx}" cy="${cy}" r="220" stroke-dasharray="2 8"/>
+        <line x1="${cx - 320}" y1="${cy}" x2="${cx + 320}" y2="${cy}"/>
+        <line x1="${cx}" y1="${cy - 230}" x2="${cx}" y2="${cy + 230}"/>
+      </g>
+    `;
+
+    // Central geodesic planet sphere (latitude + longitude wireframe rings)
+    const R_EARTH = 88;
+    for (const lat of [-50, -25, 0, 25, 50]){
+      const rLat = R_EARTH * Math.cos(lat * Math.PI / 180);
+      const zLat = R_EARTH * Math.sin(lat * Math.PI / 180);
+      for (let i = 0; i < 36; i++){
+        const a0 = (i / 36) * Math.PI * 2, a1 = ((i + 1) / 36) * Math.PI * 2;
+        const p0 = h.project3D([rLat * Math.cos(a0), rLat * Math.sin(a0), zLat], cam, cx, cy);
+        const p1 = h.project3D([rLat * Math.cos(a1), rLat * Math.sin(a1), zLat], cam, cx, cy);
+        const dMid = (p0[2] + p1[2]) / 2;
+        items.push({
+          depth: dMid,
+          svg: `<line x1="${p0[0].toFixed(1)}" y1="${p0[1].toFixed(1)}" x2="${p1[0].toFixed(1)}" y2="${p1[1].toFixed(1)}"
+                      stroke="${lat === 0 ? '#4fd1c5' : '#3b526b'}" stroke-width="${lat === 0 ? 1.4 : 0.9}"
+                      opacity="${dMid > 0 ? 0.65 : 0.18}"/>`,
+        });
+      }
+    }
+
+    // Orbital shells + satellite nodes
+    const allSatPositions = [];
+    ORBITS.forEach((orb, orbIdx) => {
+      const reveal = h.easeInOutCubic(h.subRange(t, orbIdx * 0.12, orbIdx * 0.12 + 0.32));
+      if (reveal <= 0.01) return;
+      const curR = h.lerp(R_EARTH + 12, orb.radius, reveal);
+      const segs = 48;
+      for (let i = 0; i < segs; i++){
+        const a0 = (i / segs) * Math.PI * 2, a1 = ((i + 1) / segs) * Math.PI * 2;
+        const q0 = h.project3D(orbitPoint(curR, orb.inc, orb.asc, a0), cam, cx, cy);
+        const q1 = h.project3D(orbitPoint(curR, orb.inc, orb.asc, a1), cam, cx, cy);
+        const dMid = (q0[2] + q1[2]) / 2;
+        items.push({
+          depth: dMid,
+          svg: `<line x1="${q0[0].toFixed(1)}" y1="${q0[1].toFixed(1)}" x2="${q1[0].toFixed(1)}" y2="${q1[1].toFixed(1)}"
+                      stroke="${orb.col}" stroke-width="${dMid > 0 ? 1.7 : 1.0}"
+                      opacity="${(reveal * (dMid > 0 ? 0.85 : 0.28)).toFixed(2)}"/>`,
+        });
+      }
+
+      for (let s = 0; s < orb.sats; s++){
+        const theta = (s / orb.sats) * Math.PI * 2 + t * Math.PI * 2 * (1.2 - orbIdx * 0.2);
+        const pt3 = orbitPoint(curR, orb.inc, orb.asc, theta);
+        const [sx, sy, depth] = h.project3D(pt3, cam, cx, cy);
+        allSatPositions.push({ id: `${orb.id}-${s + 1}`, pt3, sx, sy, depth, col: orb.col, reveal });
+        const rDot = depth > 0 ? 5.2 : 3.6;
+        items.push({
+          depth: depth + 2,
+          svg: `
+            <g opacity="${reveal.toFixed(2)}">
+              <circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="${(rDot * 2.1).toFixed(1)}" fill="${orb.col}" opacity="0.22"/>
+              <circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="${rDot.toFixed(1)}" fill="#0e131a" stroke="${orb.col}" stroke-width="2"/>
+              ${depth > 0 && s === 0 ? `<text x="${(sx + 9).toFixed(1)}" y="${(sy + 3).toFixed(1)}" fill="${orb.col}" font-size="9.5" font-weight="700">${orb.id}-${s + 1}</text>` : ''}
+            </g>
+          `,
+        });
+      }
+    });
+
+    // Optical Crosslink Laser Vectors (Cue 03 & Cue 04)
+    const linkAlpha = h.easeInOutCubic(h.subRange(t, 0.52, 0.78));
+    if (linkAlpha > 0.02){
+      for (let i = 0; i < allSatPositions.length; i++){
+        for (let j = i + 1; j < allSatPositions.length; j++){
+          const A = allSatPositions[i], B = allSatPositions[j];
+          const dist3D = Math.hypot(A.pt3[0] - B.pt3[0], A.pt3[1] - B.pt3[1], A.pt3[2] - B.pt3[2]);
+          if (dist3D < 210){
+            const dMid = (A.depth + B.depth) / 2;
+            items.push({
+              depth: dMid,
+              svg: `<line x1="${A.sx.toFixed(1)}" y1="${A.sy.toFixed(1)}" x2="${B.sx.toFixed(1)}" y2="${B.sy.toFixed(1)}"
+                          stroke="#81e6d9" stroke-width="1.3" stroke-dasharray="4 3"
+                          opacity="${(linkAlpha * 0.68).toFixed(2)}"/>`,
+            });
+          }
+        }
+      }
+    }
+
+    items.sort((a, b) => a.depth - b.depth);
+    return bg + items.map(it => it.svg).join('');
+  },
+});
+</script>
+</body>
+</html>
