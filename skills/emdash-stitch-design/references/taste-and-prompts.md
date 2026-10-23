@@ -4,7 +4,7 @@ Adapted from `google-labs-code/stitch-skills` (`taste-design`, `design-md`, `gen
 
 ## 1. Anti-Slop `DESIGN.md` Rules (`taste-design`)
 
-Encode these rules in `.stitch/DESIGN.md` before generating screens:
+Encode these rules in `.stitch/DESIGN.md` before generating screens, and hold the implemented source to them:
 
 - **Atmosphere Axes:**
   - **Density:** 1–3 (Gallery Airy) · 4–7 (Balanced Storefront) · 8–10 (Cockpit Dense; use monospace for numbers).
@@ -14,6 +14,10 @@ Encode these rules in `.stitch/DESIGN.md` before generating screens:
   - Ban "AI Purple/Blue Neon" gradients and outer button glows.
   - Never use pure `#000000`; use a warm off-black, charcoal, or deep ink chosen for this site's palette.
   - Give every color a semantic name + hex code + functional role, and map the locked Stitch palette into `@layer base` in `src/styles/tokens.css` using `light-dark(<light>, <dark>)`. (Circumstantially on starter templates, demo playgrounds, or staging sites built to preview multiple colorways for prospects, also retain 2–3 runner-up Stitch palettes as `:root[data-preset="..."]` blocks.)
+  - Compute contrast; never estimate it. Measure every foreground/background token pair the build uses (accent on canvas, muted text on each surface, sale and strike text, disabled-but-explained text, chips, control boundaries, and the focus ring against its neighbour) in each appearance mode that ships. Hold each pair to WCAG 2.x AA: 4.5:1 for body text and control labels, 3:1 for large text, UI boundaries and focus rings. Record each ratio in `design.md`. Node runs in every EmDash repo:
+    ```bash
+    node -e 'const L=h=>{const c=[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4);return .2126*c[0]+.7152*c[1]+.0722*c[2]};const[a,b]=[L(process.argv[1]),L(process.argv[2])].sort((x,y)=>x-y);console.log(((b+.05)/(a+.05)).toFixed(2))' '#FGHEX' '#BGHEX'
+    ```
 - **Surfaces, Borders, and Shadows Come From This Site's Lock:**
   - Derive surface tones, border weights, corner radii, and shadow style from the palette and atmosphere locked for this site, and grill them with candidates like any other variable.
   - Record locked values (hex codes, sizes, offsets) only in the project's `.stitch/DESIGN.md`, `design.md`, and `src/styles/tokens.css`. This reference holds rules, never another site's locked values: carrying one build's palette or surface system into the next site makes every site look the same.
@@ -26,7 +30,11 @@ Encode these rules in `.stitch/DESIGN.md` before generating screens:
   - No fabricated metrics (`99.98% SLA`, `10k+ customers`) or `LABEL // 2026` filler tags.
   - No invented cart/checkout/buy buttons when the slice contract forbids them.
   - No duplicated theme/preset switchers in both header and footer. Where a switcher lives is a grill decision for this site.
-  - No horizontal overflow on narrow mobile viewports (`320px–767px`).
+  - No horizontal overflow on narrow mobile viewports (`320px–767px`), and no clipped control text: each control's placeholder and label fit its own container at desktop and narrow widths. A page-level overflow check misses both.
+  - No shopper-facing copy the content owners did not supply. Facts come from their owner: EmDash for copy, menus and media; Commerce for price, availability, identifiers and checkout readiness. Generated text (CSS `content:`, prefixes, badges, counts) is copy too. Record a missing label as a gap instead of inventing one.
+  - No developer, ownership or run notes on the page, such as which system owns which data. They belong in `design.md`.
+  - No label that looks like a control and does nothing. Every header and footer item either works or reads as plain text, with no pill, chip, button or link styling.
+  - No dead-end empty states: an empty cart, collection or search result offers the shopper's next step.
 
 ## 2. Prompt Enhancement Pipeline (`generate-design`)
 
