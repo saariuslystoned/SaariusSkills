@@ -31,16 +31,18 @@ compares relevant ecommerce platforms before major Commerce or companion-plugin
 decisions in GrillTrack, preserving existing locks and skipping routine fixes.
 [EmDash CI Deploy](skills/emdash-ci-deploy/SKILL.md) covers deployment pipelines,
 isolated targets and verification of the deployed commit while preserving owner
-approval gates. All seven use the same plugin installation paths
-below; see [EmDash packaging](docs/emdash-skills.md) for the upstream pin,
-standalone installation and version-specific corrections.
+approval gates. [EmDash Surface FX](skills/emdash-surface-fx/SKILL.md) adds
+page-level Bayer/halftone shaders (`dithercn` port), viewport GPU pooling,
+Pretext obstacle text layout, Ephemera receipts/rubber stamps, NumberFlow
+counters, RoughNotation ink callouts, and Tier 1/2/3 DinkusKit storefront
+guardrails. All use the same plugin installation paths below; see
+[EmDash packaging](docs/emdash-skills.md) for the upstream pin, standalone
+installation and version-specific corrections.
 
-[DinkusKit Live Test](skills/dinkuskit-live-test/SKILL.md) runs one saved
-Playwright test against a live DinkusKit test store, from a Stripe TEST checkout
-to a Pitney Bowes sandbox label and Commerce marking the order Completed, and
-hands back its proof. It signs in with emailed links and codes it reads from a
-read-only test inbox, so a run needs nobody. [Status](skills/dinkuskit-live-test/references/status.md)
-records what has passed live.
+[DinkusKit Live Test](skills/dinkuskit-live-test/SKILL.md) points agents at
+[dinkuskit/live-journeys](https://github.com/dinkuskit/live-journeys), which holds
+the saved Playwright journeys that prove the DinkusKit plugins on a live test
+store, their runner and the Live journeys workflow.
 
 ## Archived: Puppet and Herdr-Puppet
 

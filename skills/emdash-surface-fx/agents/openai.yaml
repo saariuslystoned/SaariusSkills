@@ -1,0 +1,6 @@
+interface:
+  display_name: "EmDash Surface FX"
+  short_description: "Add page-level dithering, WebGL shaders, viewport GPU pooling, obstacle text layout, stationery receipts/stamps, and micro-interactions to EmDash Astro & DinkusKit sites"
+  default_prompt: "Use $emdash-surface-fx to add page-level dither shaders (dithercn port), SVG dither patterns/masks, Ephemera receipts/rubber stamps, Pretext obstacle text flow, NumberFlow counters, RoughNotation callouts, and viewport-pooled WebGL effects to an EmDash Astro or DinkusKit storefront."
+policy:
+  allow_implicit_invocation: true

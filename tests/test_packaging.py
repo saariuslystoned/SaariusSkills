@@ -20,7 +20,7 @@ HARNESS2_SKILL = ROOT / "skills" / "harness2"
 class PackagingTests(unittest.TestCase):
     def test_emdash_skills_discoverable_with_licenses(self) -> None:
         upstream = ("building-emdash-site", "creating-plugins", "emdash-cli", "upgrading-emdash")
-        names = ("emdash-sites", "emdash-commerce", "emdash-ci-deploy", "emdash-stitch-design", *upstream)
+        names = ("emdash-sites", "emdash-commerce", "emdash-ci-deploy", "emdash-stitch-design", "emdash-surface-fx", *upstream)
         cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
         codex = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())
         self.assertEqual(codex["skills"], "./skills/")
@@ -31,6 +31,50 @@ class PackagingTests(unittest.TestCase):
                 self.assertEqual((ROOT / "skills" / name / "LICENSE").read_bytes(),
                                  (ROOT / "vendor/emdash-skills/LICENSE").read_bytes())
                 self.assertTrue((ROOT / "skills" / name / "UPSTREAM.md").is_file())
+
+    def test_emdash_surface_fx_resources_are_packaged(self) -> None:
+        import re
+
+        skill = ROOT / "skills" / "emdash-surface-fx"
+        self.assertTrue((skill / "SKILL.md").is_file())
+        self.assertTrue((skill / "LICENSE").is_file())
+        self.assertTrue((skill / "agents" / "openai.yaml").is_file())
+        self.assertTrue((skill / "references" / "teknium-catalog-and-astro-recipes.md").is_file())
+        showcase = skill / "assets" / "examples" / "dinkuskit-surface-fx-showcase.html"
+        self.assertTrue(showcase.is_file())
+        showcase_text = showcase.read_text(encoding="utf-8")
+        self.assertIn('<script src="../ephemera.js"></script>', showcase_text)
+        self.assertNotIn("emdash-motion-studio/assets/tactile-audio.js", showcase_text)
+        self.assertIsNone(re.search(r"\bany\b", showcase_text))
+
+        for sfx_eng in ("dither.js", "viewport-pool.js", "surface-micro.js", "ephemera.js"):
+            p = skill / "assets" / sfx_eng
+            self.assertTrue(p.is_file(), sfx_eng)
+            self.assertIsNone(re.search(r"\bany\b", p.read_text(encoding="utf-8")), sfx_eng)
+
+        surface_micro_text = (skill / "assets" / "surface-micro.js").read_text(encoding="utf-8")
+        self.assertIn("data-rough-path", surface_micro_text)
+        self.assertIn("getTotalLength", surface_micro_text)
+
+        ephemera_text = (skill / "assets" / "ephemera.js").read_text(encoding="utf-8")
+        self.assertIn("function mountReceipt(", ephemera_text)
+        self.assertIn("function renderBarcodeSvg(", ephemera_text)
+        self.assertIn("function mountRubberStamp(", ephemera_text)
+
+        sfx_meta = (skill / "agents" / "openai.yaml").read_text(encoding="utf-8")
+        self.assertIn("allow_implicit_invocation: true", sfx_meta)
+        self.assertIn("$emdash-surface-fx", sfx_meta)
+
+        skill_text = (skill / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("High-Leverage Website Placement Guide (Strong Defaults + Open Experimentation)", skill_text)
+        self.assertIn("purely reveals the coupon code + copies it to clipboard", skill_text)
+        self.assertIn("mountHoverTilt", skill_text)
+        self.assertIn("@chenglou/pretext", skill_text)
+        self.assertIn("editorial lookbooks / magazine-style story pages", skill_text)
+        self.assertIn("assets/ephemera.js", skill_text)
+
+        ref_text = (skill / "references" / "teknium-catalog-and-astro-recipes.md").read_text(encoding="utf-8")
+        self.assertIn("assets/ephemera.js", ref_text)
 
     def test_emdash_ci_deploy_resources_are_packaged(self) -> None:
         skill = ROOT / "skills" / "emdash-ci-deploy"
@@ -230,38 +274,21 @@ class PackagingTests(unittest.TestCase):
         self.assertNotIn("os.system", helper)
         self.assertNotIn('"serial": serial', helper)
 
-    def test_dinkuskit_live_test_is_packaged_and_reads_mail_only(self) -> None:
+    def test_dinkuskit_live_test_points_at_live_journeys(self) -> None:
         skill = (DINKUSKIT_LIVE_TEST_SKILL / "SKILL.md").read_text(encoding="utf-8")
         metadata = (
             DINKUSKIT_LIVE_TEST_SKILL / "agents" / "openai.yaml"
         ).read_text(encoding="utf-8")
-        runner = DINKUSKIT_LIVE_TEST_SKILL / "runner"
-        mail = (runner / "scripts" / "gog-mail.sh").read_text(encoding="utf-8")
-        env = (runner / "support" / "env.mjs").read_text(encoding="utf-8")
-        settings = (runner / "support" / "settings-file.mjs").read_text(
-            encoding="utf-8"
-        )
-        self.assertLessEqual(len(skill.splitlines()), 500)
         self.assertIn("$dinkuskit-live-test", metadata)
         self.assertIn("allow_implicit_invocation: true", metadata)
-        for name in ("setup.md", "status.md"):
-            self.assertTrue((DINKUSKIT_LIVE_TEST_SKILL / "references" / name).is_file())
-        for name in ("package.json", "package-lock.json", "playwright.config.mjs"):
-            self.assertTrue((runner / name).is_file(), name)
-        for name in ("buy-and-ship.spec.mjs", "storefront.spec.mjs", "cart.spec.mjs", "manage-products.spec.mjs",
-                     "full-catalog.spec.mjs", "mark-completed.spec.mjs", "problems.spec.mjs", "store-admin-label.spec.mjs"):
-            self.assertTrue((runner / "tests" / name).is_file(), name)
-        for name in ("shipping-admin.mjs", "shipping-text.mjs"):
-            self.assertTrue((runner / "support" / name).is_file(), name)
-        self.assertIn("Never pay twice", skill)
-        self.assertIn("Never record Ship's print link", skill)
-        self.assertIn("4242 4242 4242 4242", skill)
-        # The test inbox is read, never written, and no machine's inbox or store is built in.
-        self.assertIn("gog --readonly --gmail-no-send", mail)
-        self.assertNotIn("gmail send", mail)
-        self.assertIn("${DINKUS_E2E_MAIL_ACCOUNT:?", mail)
-        self.assertIn('read("DINKUS_E2E_STORE")', env)
-        self.assertIn("DINKUS_E2E_[A-Z0-9_]+", settings)
+        # The journeys, runner and workflow live in dinkuskit/live-journeys; only the pointer stays here.
+        self.assertIn("https://github.com/dinkuskit/live-journeys/blob/main/SKILL.md", skill)
+        self.assertIn("\ndescription: ", skill.split("\n---\n", 1)[0])
+        for rule in ("4242 4242 4242 4242", "Never pay twice", "read-only", "Never record Ship's print link"):
+            self.assertIn(rule, skill)
+        self.assertFalse((DINKUSKIT_LIVE_TEST_SKILL / "runner").exists())
+        self.assertFalse((DINKUSKIT_LIVE_TEST_SKILL / "references").exists())
+        self.assertFalse((ROOT / ".github" / "workflows" / "live-journeys.yml").exists())
 
     def test_antigravity_acp_skill_is_packaged(self) -> None:
         skill = (ANTIGRAVITY_SKILL / "SKILL.md").read_text(encoding="utf-8")

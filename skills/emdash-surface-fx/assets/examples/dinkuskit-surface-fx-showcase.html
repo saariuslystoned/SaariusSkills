@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light" data-errors="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta
+    name="motion-probes"
+    content="hero_light_t025:t=0.25@1180,860;stamped_shipped_t075:t=0.75&stamp=shipped@1180,860;dark_theme_tokens:t=0.50&theme=dark@1180,860;mobile_390x844:t=0.50&vw=390@390,844"
+  />
+  <title>DinkusKit Surface FX Showcase — dithercn + Ephemera + Pretext + Tickers</title>
+  <style>
+    @layer base {
+      :root {
+        color-scheme: light dark;
+        --color-canvas: light-dark(#f4f0e6, #11161f);
+        --color-surface: light-dark(#faf7f0, #18202c);
+        --color-ink: light-dark(#1d2430, #ece8de);
+        --color-muted: light-dark(#686256, #939cab);
+        --color-border: light-dark(#d6cfc0, #2b3648);
+        --color-accent: light-dark(#c84b31, #e89b2d);
+      }
+      :root[data-theme="light"] {
+        color-scheme: light;
+        --color-canvas: #f4f0e6;
+        --color-surface: #faf7f0;
+        --color-ink: #1d2430;
+        --color-muted: #686256;
+        --color-border: #d6cfc0;
+        --color-accent: #c84b31;
+      }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --color-canvas: #11161f;
+        --color-surface: #18202c;
+        --color-ink: #ece8de;
+        --color-muted: #939cab;
+        --color-border: #2b3648;
+        --color-accent: #e89b2d;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--color-canvas);
+      color: var(--color-ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 18px 22px 28px;
+      transition: background 180ms ease, color 180ms ease;
+    }
+
+    .sfx-shell {
+      max-width: 1120px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* Top Control & Telemetry Bar */
+    .sfx-topbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 14px;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 10px;
+    }
+
+    .sfx-brand {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      font: 700 12px/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .sfx-pill {
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: var(--color-canvas);
+      border: 1px solid var(--color-border);
+      font: 600 11px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
+      color: var(--color-muted);
+    }
+
+    .sfx-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .sfx-btn {
+      appearance: none;
+      border: 1px solid var(--color-ink);
+      background: var(--color-surface);
+      color: var(--color-ink);
+      font: 700 11px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
+      letter-spacing: 0.05em;
+      padding: 7px 11px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .sfx-btn.is-primary {
+      background: var(--color-accent);
+      border-color: var(--color-accent);
+      color: #fffaf0;
+    }
+
+    /* 1. Dither Shader Hero + SVG Pattern Blueprint */
+    .sfx-hero {
+      position: relative;
+      border: 1.5px solid var(--color-ink);
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--color-surface);
+      min-height: 228px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+      align-items: center;
+      gap: 16px;
+      padding: 22px 24px 34px;
+    }
+
+    .sfx-hero-shader {
+      position: absolute;
+      inset: 0;
+      opacity: 0.24;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .sfx-hero-pattern {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 44%;
+      height: 100%;
+      opacity: 0.12;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .sfx-hero-copy {
+      position: relative;
+      z-index: 1;
+      min-width: 0;
+    }
+
+    .sfx-eyebrow {
+      font: 700 11px/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--color-accent);
+      margin: 0 0 6px;
+    }
+
+    .sfx-hero-title {
+      font-family: Georgia, "Iowan Old Style", serif;
+      font-size: clamp(22px, 2.7vw, 31px);
+      line-height: 1.16;
+      margin: 0 0 10px;
+    }
+
+    .sfx-hero-sub {
+      font-size: 13.5px;
+      line-height: 1.45;
+      color: var(--color-muted);
+      margin: 0 0 14px;
+      max-width: 52ch;
+    }
+
+    .sfx-kpi-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      padding-top: 8px;
+      border-top: 1px dashed var(--color-border);
+    }
+
+    .sfx-kpi {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .sfx-kpi-lbl {
+      font: 600 10px/1.1 ui-monospace, "SFMono-Regular", Menlo, monospace;
+      letter-spacing: 0.08em;
+      color: var(--color-muted);
+      text-transform: uppercase;
+    }
+
+    .sfx-kpi-val {
+      font: 800 18px/1.15 ui-monospace, "SFMono-Regular", Menlo, monospace;
+      font-variant-numeric: tabular-nums;
+      color: var(--color-ink);
+    }
+
+    .sfx-hero-fig {
+      position: relative;
+      z-index: 1;
+      min-width: 0;
+      background: var(--color-canvas);
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      padding: 8px;
+    }
+
+    .sfx-hero-fig svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .sfx-dither-divider {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 18px;
+      background: var(--color-ink);
+      opacity: 0.16;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* 2. Lower Two-Column Grid: Editorial Obstacle + Product Tilt vs Ephemera Receipt */
+    .sfx-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .sfx-panel {
+      min-width: 0;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      padding: 18px 20px;
+    }
+
+    .sfx-panel-hdr {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--color-border);
+      font: 700 11px/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+    }
+
+    /* 3D Hover-Tilt Product Card */
+    .sfx-tilt-card {
+      position: relative;
+      display: grid;
+      grid-template-columns: 128px minmax(0, 1fr);
+      gap: 14px;
+      align-items: center;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+      background: var(--color-canvas);
+      border: 1.5px solid var(--color-ink);
+      border-radius: 10px;
+      transform: perspective(760px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+      transition: transform 120ms ease-out;
+      overflow: hidden;
+    }
+
+    .sfx-tilt-card::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(
+        circle at var(--glare-x, 50%) var(--glare-y, 50%),
+        rgba(255, 248, 220, 0.22),
+        transparent 60%
+      );
+    }
+
+    .sfx-card-thumb {
+      width: 128px;
+      height: 86px;
+      border: 1px solid var(--color-border);
+      border-radius: 6px;
+      overflow: hidden;
+      background: var(--color-surface);
+    }
+
+    .sfx-card-thumb canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .sfx-card-title {
+      font-weight: 700;
+      font-size: 15px;
+      margin: 0 0 5px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sfx-card-badge {
+      font: 700 10.5px/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--color-ink);
+      padding: 2px 7px;
+      cursor: pointer;
+    }
+
+    .sfx-card-meta {
+      font-size: 12.5px;
+      color: var(--color-muted);
+      margin: 0;
+    }
+
+    /* Obstacle Text Stage */
+    .sfx-obstacle-wrap {
+      position: relative;
+      min-width: 0;
+      overflow: hidden;
+      padding: 12px 14px;
+      background: var(--color-canvas);
+      border: 1px dashed var(--color-border);
+      border-radius: 8px;
+      font-family: Georgia, "Iowan Old Style", serif;
+      font-size: 14.5px;
+      color: var(--color-ink);
+    }
+
+    .sfx-obstacle-orb {
+      position: absolute;
+      width: 116px;
+      height: 116px;
+      border-radius: 50%;
+      border: 2px solid var(--color-accent);
+      background: var(--color-surface);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 3px;
+      padding: 8px;
+      font: 800 9.5px/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+      letter-spacing: 0.06em;
+      color: var(--color-accent);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.11);
+      cursor: grab;
+      user-select: none;
+      touch-action: none;
+      z-index: 3;
+      transition: box-shadow 140ms ease, transform 140ms ease;
+    }
+
+    .sfx-obstacle-orb:hover {
+      box-shadow: 0 10px 24px rgba(200, 75, 49, 0.22);
+    }
+
+    .sfx-obstacle-orb:active,
+    .sfx-obstacle-orb.is-dragging {
+      cursor: grabbing;
+      transform: scale(1.04);
+      box-shadow: 0 12px 28px rgba(200, 75, 49, 0.28);
+    }
+
+    .sfx-obstacle-orb svg {
+      width: 44px;
+      height: 36px;
+      display: block;
+      pointer-events: none;
+    }
+
+    .sfx-receipt-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    @media (max-width: 780px) {
+      body {
+        padding: 10px 10px 20px;
+      }
+      .sfx-topbar {
+        padding: 8px 10px;
+      }
+      .sfx-btn {
+        font-size: 10px;
+        padding: 6px 9px;
+      }
+      .sfx-hero,
+      .sfx-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .sfx-hero {
+        padding: 16px 14px 28px;
+      }
+      .sfx-panel {
+        padding: 14px 12px;
+      }
+      .sfx-tilt-card {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .sfx-obstacle-orb {
+        width: 96px;
+        height: 96px;
+        font-size: 8.5px;
+      }
+      .sfx-obstacle-orb svg {
+        width: 36px;
+        height: 30px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="sfx-shell">
+    <header class="sfx-topbar">
+      <div class="sfx-brand">
+        <span>DINKUSKIT · SURFACE FX</span>
+        <span class="sfx-pill" id="sfx-pool-badge">GPU POOL: 2 / 6 LIVE</span>
+        <span class="sfx-pill" id="sfx-theme-badge">TOKENS: LIGHT</span>
+      </div>
+      <div class="sfx-actions">
+        <button class="sfx-btn is-primary" id="btn-print-receipt" type="button">
+          Print Receipt &amp; Stamp
+        </button>
+        <button class="sfx-btn" id="btn-draw-markers" type="button">
+          Draw Marker Callouts
+        </button>
+        <button class="sfx-btn" id="btn-add-kettle" type="button" data-add-to-cart>
+          + Add Kettle ($68)
+        </button>
+        <button class="sfx-btn" id="btn-toggle-theme" type="button">
+          Toggle Light / Dark
+        </button>
+        <button class="sfx-btn" id="btn-toggle-sound" type="button" aria-pressed="false">
+          Sound: Off
+        </button>
+      </div>
+    </header>
+
+    <!-- 1. dithercn WebGL Bayer 8x8 Hero + SVG Dither Blueprint (#fig) -->
+    <section class="sfx-hero" id="sfx-hero-stage">
+      <div class="sfx-hero-shader" id="sfx-hero-shader"></div>
+      <div class="sfx-hero-pattern" id="sfx-hero-pattern"></div>
+
+      <div class="sfx-hero-copy">
+        <p class="sfx-eyebrow">EMDASH SURFACE FX · DITHERCN + EPHEMERA + PRETEXT</p>
+        <h1 class="sfx-hero-title">
+          Ordered <span id="rough-bayer" style="cursor:pointer;">Bayer 8×8 Shaders</span> &amp; Tactile Storefront Stationery
+        </h1>
+        <p class="sfx-hero-sub">
+          Page-level WebGL1 dithering, viewport GPU pooling, obstacle-wrapped editorial typography, and
+          serrated thermal order receipts bound automatically to EmDash
+          <code>src/styles/tokens.css</code> (<code>light-dark()</code>).
+        </p>
+        <div class="sfx-kpi-strip">
+          <div class="sfx-kpi">
+            <span class="sfx-kpi-lbl">CART SUBTOTAL</span>
+            <span class="sfx-kpi-val" id="ticker-subtotal">$60.00</span>
+          </div>
+          <div class="sfx-kpi">
+            <span class="sfx-kpi-lbl">D1 SETTLED ORDERS</span>
+            <span class="sfx-kpi-val" id="ticker-orders">1,284</span>
+          </div>
+          <div class="sfx-kpi">
+            <span class="sfx-kpi-lbl">PROMO CODE</span>
+            <span class="sfx-kpi-val"><span id="rough-promo" style="cursor:pointer;padding:1px 5px;">SAVE20 (-20%)</span></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sfx-hero-fig">
+        <svg id="fig" viewBox="0 0 420 190" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Bayer 8x8 Dither Matrix and EmDash Token Telemetry">
+          <rect x="2" y="2" width="416" height="186" rx="6" fill="none" stroke="currentColor" stroke-opacity="0.22" />
+          <g id="fig-bayer-grid" transform="translate(16, 18)"></g>
+          <g transform="translate(184, 22)" font-family="ui-monospace, Menlo, monospace" font-size="10" fill="currentColor">
+            <text x="0" y="12" font-weight="800" letter-spacing="1">BAYER 8×8 THRESHOLD MATRIX</text>
+            <text x="0" y="28" opacity="0.72">TOKENS.CSS LIGHT-DARK() BRIDGE</text>
+            <line x1="0" y1="36" x2="216" y2="36" stroke="currentColor" stroke-opacity="0.25" stroke-dasharray="3 3" />
+            <rect x="0" y="46" width="14" height="14" rx="2" fill="var(--color-canvas)" stroke="currentColor" />
+            <text x="22" y="57">--color-canvas (Paper / Dark)</text>
+            <rect x="0" y="68" width="14" height="14" rx="2" fill="var(--color-ink)" stroke="currentColor" />
+            <text x="22" y="79">--color-ink (Aizome / Chalk)</text>
+            <rect x="0" y="90" width="14" height="14" rx="2" fill="var(--color-accent)" stroke="currentColor" />
+            <text x="22" y="101">--color-accent (Vermilion / Amber)</text>
+            <path id="fig-wave-path" d="M 0,136 Q 54,114 108,136 T 216,136" fill="none" stroke="var(--color-accent)" stroke-width="2.2" />
+            <circle id="fig-wave-dot" cx="108" cy="136" r="4.5" fill="var(--color-accent)" />
+            <text x="0" y="158" opacity="0.75" id="fig-telemetry-text">POOL: MAX_LIVE=6 DESKTOP / 1 MOBILE</text>
+          </g>
+        </svg>
+      </div>
+
+      <div class="sfx-dither-divider" id="sfx-hero-divider"></div>
+    </section>
+
+    <!-- 2. Two-Column Storefront Surface FX Grid -->
+    <div class="sfx-grid">
+      <section class="sfx-panel">
+        <div class="sfx-panel-hdr">
+          <span>TIER 1 &amp; 2 · 3D CARD TILT + PRETEXT OBSTACLE REFLOW</span>
+          <span>ZERO DOM THRASH</span>
+        </div>
+
+        <article class="sfx-tilt-card" id="sfx-product-card">
+          <div class="sfx-card-thumb" id="sfx-card-dither"></div>
+          <div>
+            <h2 class="sfx-card-title">
+              <span>Aizome Cast Iron Pour-Over Kettle · 0.9L</span>
+              <span class="sfx-card-badge" id="rough-shipping">Free 2-Day Ground</span>
+            </h2>
+            <p class="sfx-card-meta">
+              Sand-cast in Iwate with indigo-quenched finish. Hover to test 25-line CSS-variable
+              3D tilt (<code>--rx</code>, <code>--ry</code>) and ordered Bayer 8×8 pour-over kettle canvas.
+            </p>
+          </div>
+        </article>
+
+        <div class="sfx-obstacle-wrap" id="sfx-obstacle-wrap">
+          <div class="sfx-obstacle-orb" id="sfx-obstacle-orb" style="right: 16px; top: 18px;" title="Drag across paragraph to reflow lines at 60fps">
+            <svg viewBox="0 0 64 50" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <!-- Cast-iron pour-over kettle icon: bail handle, C-handle, brass finial, domed body, gooseneck spout -->
+              <path d="M 20,18 C 20,6 42,6 42,18" fill="none" stroke="var(--color-ink)" stroke-width="2.5" stroke-linecap="round" />
+              <path d="M 19,23 C 9,23 9,38 19,38" fill="none" stroke="var(--color-ink)" stroke-width="3" stroke-linecap="round" />
+              <path d="M 42,34 C 49,34 51,21 57,17 L 60,16" fill="none" stroke="var(--color-ink)" stroke-width="3.2" stroke-linecap="round" />
+              <ellipse cx="31" cy="31" rx="14" ry="11" fill="var(--color-ink)" />
+              <ellipse cx="31" cy="20.5" rx="9.5" ry="3.2" fill="var(--color-ink)" stroke="var(--color-surface)" stroke-width="1" />
+              <circle cx="31" cy="16" r="3" fill="var(--color-accent)" />
+              <line x1="20" y1="31" x2="42" y2="31" stroke="var(--color-accent)" stroke-width="2" />
+              <rect x="21" y="42" width="20" height="3" rx="1.5" fill="var(--color-ink)" />
+            </svg>
+            <span style="color:var(--color-ink);font-weight:800;">DRAG ME</span>
+            <span>REFLOW TEXT</span>
+          </div>
+          <div
+            id="sfx-obstacle-copy"
+            data-obstacle-copy="Every DinkusKit storefront order flows through Cloudflare Workers and D1 without blocking the main thread. Using Pretext-style canvas glyph measurement, this editorial paragraph computes each line width around the draggable pour-over kettle seal in pure arithmetic, keeping drag, scroll, and resize interactions at a locked 60 frames per second."
+          ></div>
+        </div>
+      </section>
+
+      <section class="sfx-panel">
+        <div class="sfx-panel-hdr">
+          <span>MODE D · EPHEMERA RECEIPT, FNV-1A BARCODE &amp; RUBBER STAMP</span>
+          <span>STEPS(28, END)</span>
+        </div>
+        <div class="sfx-receipt-wrap">
+          <div id="sfx-receipt-mount"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="../viewport-pool.js"></script>
+  <script src="../dither.js"></script>
+  <script src="../surface-micro.js"></script>
+  <script src="../ephemera.js"></script>
+  <script>
+    (() => {
+      const params = new URLSearchParams(location.search);
+      const tParam = params.has('t') ? Math.max(0, Math.min(1, parseFloat(params.get('t')) || 0)) : null;
+      const themeParam = params.get('theme');
+      const stampParam = params.get('stamp');
+      if (params.has('vw')) {
+        const vwPx = (parseInt(params.get('vw'), 10) || 390) + 'px';
+        document.documentElement.style.maxWidth = vwPx;
+        document.body.style.maxWidth = vwPx;
+      }
+
+      if (themeParam === 'dark' || themeParam === 'light') {
+        document.documentElement.setAttribute('data-theme', themeParam);
+      }
+
+      /* Populate #fig Bayer 8x8 SVG preview cells so verify_motion.py audits rich vector primitives */
+      const bayerGroup = document.getElementById('fig-bayer-grid');
+      if (bayerGroup && typeof BAYER_8X8 !== 'undefined') {
+        const cell = 18;
+        const cells = [];
+        for (let y = 0; y < 8; y++) {
+          for (let x = 0; x < 8; x++) {
+            const v = BAYER_8X8[y * 8 + x];
+            const op = (0.12 + v * 0.78).toFixed(2);
+            const fill = v > 0.72 ? 'var(--color-accent)' : 'currentColor';
+            cells.push(
+              `<rect x="${x * cell}" y="${y * cell}" width="${cell - 2}" height="${cell - 2}" rx="2" fill="${fill}" fill-opacity="${op}" />`
+            );
+          }
+        }
+        bayerGroup.innerHTML = cells.join('');
+      }
+
+      /* 1. Mount SVG Dither Pattern & CSS Dither Mask Divider */
+      const patHost = document.getElementById('sfx-hero-pattern');
+      if (patHost && typeof ditherPatternSvg === 'function') {
+        patHost.innerHTML = ditherPatternSvg({ id: 'hero-bayer-pat', density: 0.42, cellSize: 4 });
+      }
+      const divHost = document.getElementById('sfx-hero-divider');
+      if (divHost && typeof ditherMaskStyle === 'function') {
+        const mask = ditherMaskStyle({ steps: 6, cellSize: 3 });
+        divHost.style.cssText += ';' + mask.cssText;
+      }
+
+      /* 2. Mount Hero WebGL1 / 2D Bayer 8x8 Shader & Thumbnail Dither Canvas */
+      const initialTime = tParam !== null ? tParam * 6.0 : 1.2;
+      const heroShader = mountDitherShader('#sfx-hero-shader', {
+        width: 960,
+        height: 250,
+        pixelScale: 3,
+        initialTime,
+      });
+      const thumbDither = ditherImageCanvas('#sfx-card-dither', {
+        width: 128,
+        height: 86,
+        pixelScale: 2,
+        time: initialTime,
+      });
+
+      /* 3. Mount 3D Card Hover Tilt, Rough Callouts, Tickers, and Draggable Obstacle Text */
+      mountHoverTilt('#sfx-product-card', { maxDeg: 7 });
+      const roughBayer = mountRoughCallout('#rough-bayer', {
+        type: 'underline',
+        color: 'var(--color-accent)',
+        strokeWidth: 2.4,
+        duration: 780,
+        delay: 0,
+      });
+      const roughPromo = mountRoughCallout('#rough-promo', {
+        type: 'box',
+        color: 'var(--color-accent)',
+        strokeWidth: 2.4,
+        duration: 780,
+        delay: 260,
+      });
+      const roughShipping = mountRoughCallout('#rough-shipping', {
+        type: 'circle',
+        color: 'var(--color-accent)',
+        strokeWidth: 2.4,
+        duration: 780,
+        delay: 520,
+      });
+      const roughCallouts = [roughBayer, roughPromo, roughShipping].filter(Boolean);
+
+      const subtotalTicker = mountNumberTicker('#ticker-subtotal', {
+        value: 60.0,
+        decimals: 2,
+        prefix: '$',
+      });
+      const ordersTicker = mountNumberTicker('#ticker-orders', {
+        value: 1284,
+        decimals: 0,
+        prefix: '',
+      });
+
+      const obsShiftY = 64;
+      const obstacleCtrl = mountObstacleText('#sfx-obstacle-copy', {
+        obstacleX: 0.78,
+        obstacleY: obsShiftY,
+        obstacleRadius: 66,
+        obstacleSide: 'auto',
+        obstacleEl: '#sfx-obstacle-orb',
+      });
+
+      /* 4. Mount Opt-In Foley & Ephemera Thermal Receipt + FNV-1a Barcode + Rubber Stamp */
+      const foley = createMicroFoley();
+      const isShipped = stampParam === 'shipped' || (tParam !== null && tParam >= 0.7);
+      const receiptCtrl = mountReceipt('#sfx-receipt-mount', {
+        title: 'DINKUSKIT STUDIO DISPATCH',
+        subtitle: 'ORDER RECEIPT · CLOUDFLARE D1 LEDGER',
+        code: isShipped ? 'PB-9400-1108-9274' : 'DK-2026-0841-PB',
+        total: '$60.00',
+        stampText: isShipped ? '[SHIPPED · PB SANDBOX]' : '[PAID · D1]',
+        stampVariant: isShipped ? 'shipped' : 'paid',
+        foley,
+      });
+
+      if (tParam !== null && receiptCtrl) {
+        receiptCtrl.setProgress(tParam < 0.3 ? 0.72 : 1.0);
+        const waveDot = document.getElementById('fig-wave-dot');
+        if (waveDot) {
+          const wx = (24 + tParam * 168).toFixed(1);
+          const wy = (136 + Math.sin(tParam * Math.PI * 2) * 14).toFixed(1);
+          waveDot.setAttribute('cx', wx);
+          waveDot.setAttribute('cy', wy);
+        }
+      }
+
+      /* Update GPU Pool & Theme Status Pills */
+      const syncStatusBadges = () => {
+        const poolBadge = document.getElementById('sfx-pool-badge');
+        if (poolBadge && typeof defaultViewportPool !== 'undefined') {
+          const st = defaultViewportPool.getStats();
+          poolBadge.textContent = `GPU POOL: ${st.liveCount} / ${st.maxLive} LIVE`;
+        }
+        const themeBadge = document.getElementById('sfx-theme-badge');
+        if (themeBadge) {
+          const curTheme = (document.documentElement.getAttribute('data-theme') || 'light').toUpperCase();
+          themeBadge.textContent = `TOKENS: ${curTheme}`;
+        }
+      };
+      syncStatusBadges();
+
+      /* Interactive Controls */
+      let cartTotal = 60.0;
+      let orderCount = 1284;
+      let shippedToggle = isShipped;
+
+      const btnPrint = document.getElementById('btn-print-receipt');
+      if (btnPrint && receiptCtrl) {
+        btnPrint.addEventListener('click', () => {
+          shippedToggle = !shippedToggle;
+          receiptCtrl.stamp(
+            shippedToggle ? '[SHIPPED · PB SANDBOX]' : '[PAID · D1]',
+            shippedToggle ? 'shipped' : 'paid'
+          );
+          receiptCtrl.replayPrint();
+        });
+      }
+
+      const btnMarkers = document.getElementById('btn-draw-markers');
+      if (btnMarkers) {
+        btnMarkers.addEventListener('click', () => {
+          roughCallouts.forEach((rc, idx) => rc.replay(idx * 260));
+          foley.click();
+        });
+      }
+
+      const btnAdd = document.getElementById('btn-add-kettle');
+      if (btnAdd) {
+        btnAdd.addEventListener('click', () => {
+          cartTotal += 68.0;
+          orderCount += 1;
+          if (subtotalTicker) subtotalTicker.setValue(cartTotal);
+          if (ordersTicker) ordersTicker.setValue(orderCount);
+          const totalNode = document.querySelector('[data-receipt-total]');
+          if (totalNode) totalNode.textContent = `$${cartTotal.toFixed(2)}`;
+          if (receiptCtrl) receiptCtrl.stamp('[PAID · STRIPE TEST]', 'paid');
+          roughCallouts.forEach((rc, idx) => rc.replay(idx * 260));
+        });
+      }
+
+      const btnTheme = document.getElementById('btn-toggle-theme');
+      if (btnTheme) {
+        btnTheme.addEventListener('click', () => {
+          const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+          document.documentElement.setAttribute('data-theme', cur);
+          if (thumbDither) thumbDither.draw(initialTime);
+          syncStatusBadges();
+        });
+      }
+
+      const btnSound = document.getElementById('btn-toggle-sound');
+      if (btnSound) {
+        btnSound.addEventListener('click', () => {
+          const next = !foley.isEnabled();
+          foley.setEnabled(next);
+          btnSound.setAttribute('aria-pressed', String(next));
+          btnSound.textContent = `Sound: ${next ? 'On' : 'Off'}`;
+          if (next) foley.click();
+        });
+      }
+
+      window.addEventListener('resize', () => {
+        if (obstacleCtrl) obstacleCtrl.layout();
+      });
+    })();
+  </script>
+</body>
+</html>
