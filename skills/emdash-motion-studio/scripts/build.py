@@ -195,7 +195,7 @@ def inline_engines(page: str, src_path: Path, inline_vendor: bool = False) -> tu
             inlined.append(eng)
 
     if inline_vendor:
-        for vendor_name in ("three.min.js", "GLTFLoader.js", "macbook-pro-glb.js"):
+        for vendor_name in ("three.min.js", "GLTFLoader.js", "macbook-pro-glb.js", "playground-screens.js"):
             vendor_pattern = re.compile(
                 rf'<script\s+src=["\'][^"\']*{re.escape(vendor_name)}["\']\s*>\s*</script>',
                 re.IGNORECASE,
