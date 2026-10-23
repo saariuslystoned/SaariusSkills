@@ -148,3 +148,86 @@ export const surfaceBlocks = defineBlockComponents({
 2. **Pool all GPU canvases:** Register WebGL/2D loop surfaces with `defaultViewportPool.register(el, { start, stop, renderStatic })` so offscreen canvases sleep and mobile devices run at most `MAX_LIVE = 1`.
 3. **Honor `prefers-reduced-motion: reduce`:** Render one deterministic static frame (`renderStatic()`) and skip continuous `requestAnimationFrame` loops, thermal feed clips, and stamp thud keyframes when reduced motion is enabled.
 4. **Verify zero `/\bany\b/u` matches:** Run `rg '\bany\b' src/` before running DinkusKit's `bin/verify-web`.
+
+---
+
+## 5. Pigment Drift Recipes (Card Hover Pigment Bloom + Hero Watercolor Wash)
+
+### A. Product Card Hover Pigment Bloom (`ProductMedia.astro`)
+Layer a zero-JS CSS/SVG radial pigment wash behind product silhouettes so hovering a card blooms the ink and lifts the product off the surface:
+
+```astro
+<div class="commerce-product-media" data-pigment-drift-media>
+  <span class="product-media__pigment-wash" data-pigment-drift="product-media" aria-hidden="true"></span>
+  <img src={resolved.src} alt={resolved.alt} width="640" height="480" loading="lazy" decoding="async" />
+</div>
+
+<style>
+  .commerce-product-media {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    background: var(--store-surface-subtle);
+  }
+  .product-media__pigment-wash {
+    position: absolute;
+    inset: -14%;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.36;
+    background:
+      radial-gradient(circle at 26% 28%, var(--store-accent) 0%, transparent 56%),
+      radial-gradient(circle at 76% 74%, var(--store-ink) 0%, transparent 62%);
+    filter: blur(18px);
+    transform: scale(0.96);
+    transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.55s ease;
+  }
+  .commerce-product-media img {
+    position: relative;
+    z-index: 1;
+    transition: transform 0.48s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  :global(.shop-card:hover) .product-media__pigment-wash,
+  .commerce-product-media:hover .product-media__pigment-wash {
+    opacity: 0.92;
+    transform: scale(1.08) rotate(-1.5deg);
+  }
+  :global(.shop-card:hover) .commerce-product-media img {
+    transform: translateY(-2px) scale(1.025);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .product-media__pigment-wash,
+    .commerce-product-media img {
+      transition: none;
+      transform: none !important;
+    }
+  }
+</style>
+```
+
+### B. Token-Bound Hero Watercolor Wash (`HomeOpener.astro`)
+```astro
+<svg class="home-opener__pigment-wash" viewBox="0 0 1120 420" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+  <defs>
+    <pattern id="home-opener-riso-grain" width="10" height="10" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="0.85" fill="var(--store-ink)" fill-opacity="0.065" />
+      <circle cx="7" cy="7" r="0.75" fill="var(--store-accent)" fill-opacity="0.065" />
+    </pattern>
+    <filter id="home-opener-pigment-drift" x="-12%" y="-12%" width="124%" height="124%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012 0.020" numOctaves="3" seed="17" result="pigmentNoise">
+        <animate attributeName="baseFrequency" values="0.012 0.020;0.016 0.026;0.012 0.020" dur="10s" repeatCount="indefinite" />
+      </feTurbulence>
+      <feDisplacementMap in="SourceGraphic" in2="pigmentNoise" scale="16" xChannelSelector="R" yChannelSelector="G" />
+    </filter>
+  </defs>
+  <rect width="1120" height="420" fill="var(--store-bg)" fill-opacity="0.45" />
+  <rect width="1120" height="420" fill="var(--store-surface-subtle)" fill-opacity="0.52" />
+  <g filter="url(#home-opener-pigment-drift)">
+    <ellipse cx="860" cy="145" rx="285" ry="165" fill="var(--store-accent)" fill-opacity="0.18" />
+    <ellipse cx="695" cy="240" rx="260" ry="150" fill="var(--store-ink)" fill-opacity="0.095" />
+    <ellipse cx="260" cy="110" rx="240" ry="120" fill="var(--store-surface)" fill-opacity="0.72" />
+  </g>
+  <rect width="1120" height="420" fill="url(#home-opener-riso-grain)" />
+</svg>
+```
+
