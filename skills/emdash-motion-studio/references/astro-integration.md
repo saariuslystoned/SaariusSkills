@@ -69,6 +69,10 @@ To let editors place a motion figure inside `pages.layout` blocks (e.g., `home_o
 1. Keep the animation code in `src/components/motion/*.astro` in the repository (the repository owns structure/code; the CMS owns content).
 2. Render the motion component inside the block handler registered with `defineBlockComponents`, passing CMS-authored title or initial state props if desired.
 
+### C. Media Library Ownership vs. `public/models/` 3D Code Assets
+- **CMS-Editable 2D Posters & Screenshots (`/_emdash/admin` Media Library):** Any 2D fallback poster, hero graphic, or device screenshot that editors should inspect or replace in `/_emdash/admin` must be declared as `"type": "image"` on the collection/block schema, seeded via `{ "$media": { "url": "...", "alt": "..." } }` in `seed/seed.json` (or registered idempotently via `POST /_emdash/api/media` with `deduplicate=true` in the site's import script when anonymous `/_emdash/api/media/file/*` is intentionally gated), and rendered with `<Image />` from `"emdash/ui"` (or static `/brand/*.webp` paired with the registered Media Library entry). Static files dropped only into `public/` without Media Library registration never appear in `/_emdash/admin`.
+- **Runtime 3D `.glb` & Vendor Scripts (`public/models/` and `public/vendor/`):** Keep binary glTF 2.0 `.glb` meshes in `public/models/...` and Three.js vendor scripts in `public/vendor/...`. Keep the WebGL stage `[hidden]` until `GLTFLoader.load` finishes mounting the `.glb` (`onModelLoaded`), and clean up the renderer on `onModelError`, so the 2D `.webp` poster (`[data-plugin-cube-fallback]`) serves SSR, `prefers-reduced-motion: reduce`, and progressive loading without flashing an empty box.
+
 ---
 
 ## 4. Accessibility & Performance Guardrails

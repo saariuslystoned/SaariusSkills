@@ -107,6 +107,7 @@ class PackagingTests(unittest.TestCase):
             "dinkuskit-macbook-commerce.html",
             "dinkuskit-macbook-illustrated.html",
             "dinkuskit-macbook-pbr.html",
+            "dinkuskit-plugin-cubes-pbr.html",
             "dinkuskit-macbook-frameworks.html",
             "DinkusKitCommerceMacbook.astro",
         ):
@@ -116,6 +117,9 @@ class PackagingTests(unittest.TestCase):
         )
         self.assertIsNone(
             re.search(r"\bany\b", (skill / "assets" / "examples" / "dinkuskit-macbook-pbr.html").read_text(encoding="utf-8"))
+        )
+        self.assertIsNone(
+            re.search(r"\bany\b", (skill / "assets" / "examples" / "dinkuskit-plugin-cubes-pbr.html").read_text(encoding="utf-8"))
         )
         self.assertIsNone(
             re.search(r"\bany\b", (skill / "assets" / "examples" / "dinkuskit-macbook-illustrated.html").read_text(encoding="utf-8"))
@@ -128,6 +132,7 @@ class PackagingTests(unittest.TestCase):
             "multiplane-and-pigment-drift.md",
             "grilltrack-progressive-workflow.md",
             "tactile-foil-and-web-audio.md",
+            "threejs-studio-pbr.md",
         ):
             self.assertTrue((skill / "references" / ref).is_file())
         for script in ("build.py", "verify_motion.py"):
@@ -149,7 +154,17 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("Optional Add-On: Procedural Web Audio Micro-Foley", skill_text)
         self.assertIn("editorial lookbooks / magazine-style story pages", skill_text)
         self.assertIn("Mode A2 — Studio WebGL 3D PBR", skill_text)
+        self.assertIn("Paired `.glb` 3D Stage + CMS `.webp` Poster (`onModelLoaded` Progressive Reveal)", skill_text)
+        self.assertIn("window.location.protocol === 'file:'", skill_text)
         self.assertIn("Never hand-draw a fake website UI with `ctx.fillRect`", skill_text)
+
+        pbr_ref_text = (skill / "references" / "threejs-studio-pbr.md").read_text(encoding="utf-8")
+        self.assertIn("Paired `.glb` 3D Stage + EmDash Media Library `.webp` Poster", pbr_ref_text)
+        self.assertIn("window.location.protocol === 'file:'", pbr_ref_text)
+
+        sites_skill_text = (ROOT / "skills" / "emdash-sites" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("/_emdash/api/media/file/<safe-key>", sites_skill_text)
+        self.assertIn("onModelLoaded", sites_skill_text)
 
         workflow_ref_text = (skill / "references" / "grilltrack-progressive-workflow.md").read_text(encoding="utf-8")
         self.assertIn("Website Placement + Single User Trigger (`chrome: 'stage-only'` Default)", workflow_ref_text)
@@ -187,6 +202,7 @@ class PackagingTests(unittest.TestCase):
             out_fw_astro = tmp_dir / "DinkusKitMacbookFrameworks.astro"
             out_sfx_astro = tmp_dir / "DinkusKitSurfaceFxShowcase.astro"
             out_pbr_html = tmp_dir / "dinkuskit-macbook-pbr.out.html"
+            out_cubes_html = tmp_dir / "dinkuskit-plugin-cubes-pbr.out.html"
             subprocess.run(
                 ["python3", str(skill / "scripts" / "build.py"), str(skill / "assets" / "examples" / "toaster.html"), str(out_html)],
                 check=True,
@@ -223,6 +239,10 @@ class PackagingTests(unittest.TestCase):
                 ["python3", str(skill / "scripts" / "build.py"), str(skill / "assets" / "examples" / "dinkuskit-macbook-pbr.html"), str(out_pbr_html)],
                 check=True,
             )
+            subprocess.run(
+                ["python3", str(skill / "scripts" / "build.py"), str(skill / "assets" / "examples" / "dinkuskit-plugin-cubes-pbr.html"), str(out_cubes_html)],
+                check=True,
+            )
             html_body = out_html.read_text(encoding="utf-8")
             astro_body = out_astro.read_text(encoding="utf-8")
             mp_astro_body = out_mp_astro.read_text(encoding="utf-8")
@@ -232,6 +252,12 @@ class PackagingTests(unittest.TestCase):
             fw_astro_body = out_fw_astro.read_text(encoding="utf-8")
             sfx_astro_body = out_sfx_astro.read_text(encoding="utf-8")
             pbr_html_body = out_pbr_html.read_text(encoding="utf-8")
+            cubes_src_body = (skill / "assets" / "examples" / "dinkuskit-plugin-cubes-pbr.html").read_text(encoding="utf-8")
+            cubes_html_body = out_cubes_html.read_text(encoding="utf-8")
+            self.assertNotIn('<script src="../vendor/plugin-cubes-glb.js"></script>', cubes_src_body)
+            self.assertIn("window.location.protocol === 'file:'", cubes_src_body)
+            self.assertIn("loader.load(modelUrl, onModelLoaded, undefined, onModelError)", cubes_src_body)
+            self.assertIn("window.DINKUS_PLUGIN_CUBES_GLB_B64", cubes_html_body)
             self.assertIsNone(re.search(r"\bany\b", dk_astro_body))
             self.assertIsNone(re.search(r"\bany\b", sfx_astro_body))
             self.assertIn("function mountDitherShader(", sfx_astro_body)

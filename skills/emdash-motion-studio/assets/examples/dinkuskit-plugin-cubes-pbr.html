@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DinkusKit 3D Plugin Cubes — Mode A2 Studio WebGL PBR + .GLB (v2)</title>
+  <style>
+    :root {
+      --bg: #070b0e;
+      --surface: #101918;
+      --surface-border: #1f312e;
+      --ink: #ecfdf5;
+      --muted: #9db3ac;
+      --commerce: #10b981;
+      --payments: #38bdf8;
+      --inventory: #f59e0b;
+      --ship: #f97316;
+      --accent: #a855f7;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at 20% 15%, rgba(16, 185, 129, 0.14), transparent 45%),
+                  radial-gradient(circle at 80% 80%, rgba(56, 189, 248, 0.10), transparent 50%),
+                  var(--bg);
+      color: var(--ink);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      padding: 2.2rem clamp(1rem, 3.5vw, 3rem);
+    }
+    body.is-mobile-vw {
+      padding: 0.75rem 0.65rem;
+      overflow-x: hidden;
+    }
+    .shell {
+      max-width: 1180px;
+      margin: 0 auto;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.75rem;
+      padding-bottom: 1.15rem;
+      border-bottom: 1px solid var(--surface-border);
+    }
+    .eyebrow {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--commerce);
+      margin: 0 0 0.4rem;
+    }
+    h1 {
+      font-size: clamp(1.65rem, 2.8vw, 2.3rem);
+      letter-spacing: -0.03em;
+      margin: 0;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 0.92rem;
+      margin: 0.4rem 0 0;
+      max-width: 66ch;
+      line-height: 1.45;
+    }
+    .controls {
+      display: flex;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+    }
+    .btn {
+      background: var(--surface);
+      color: var(--ink);
+      border: 1px solid var(--surface-border);
+      padding: 0.55rem 0.95rem;
+      font-size: 0.82rem;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .btn[aria-pressed="true"] {
+      border-color: var(--commerce);
+      box-shadow: 0 0 0 1px var(--commerce) inset;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1.1rem;
+    }
+    @media (max-width: 820px) {
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 520px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    body.is-mobile-vw .grid {
+      grid-template-columns: 1fr;
+      gap: 0.75rem;
+    }
+    .cube-card {
+      background: linear-gradient(180deg, rgba(18, 28, 27, 0.95), rgba(9, 14, 15, 0.98));
+      border: 1px solid var(--surface-border);
+      border-radius: 14px;
+      padding: 1.15rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 14px 32px rgba(0, 0, 0, 0.36);
+    }
+    .cube-card[data-cube-card="Commerce"] {
+      border-color: rgba(16, 185, 129, 0.38);
+      box-shadow: 0 14px 36px rgba(16, 185, 129, 0.14);
+    }
+    .cube-stage {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      max-width: 240px;
+      position: relative;
+      cursor: grab;
+      user-select: none;
+      touch-action: none;
+    }
+    .cube-stage[data-plugin-cube="Commerce"] {
+      filter: drop-shadow(0 8px 22px rgba(16, 185, 129, 0.45));
+    }
+    .cube-stage[data-plugin-cube="Inventory"] {
+      filter: drop-shadow(0 8px 22px rgba(245, 158, 11, 0.42));
+    }
+    .cube-stage[data-plugin-cube="Payments"] {
+      filter: drop-shadow(0 8px 20px rgba(56, 189, 248, 0.38));
+    }
+    .cube-stage[data-plugin-cube="Ship"] {
+      filter: drop-shadow(0 8px 20px rgba(249, 115, 22, 0.36));
+    }
+    .cube-stage:active {
+      cursor: grabbing;
+    }
+    .cube-stage canvas {
+      width: 100% !important;
+      height: 100% !important;
+      display: block;
+    }
+    .cube-meta {
+      width: 100%;
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    .cube-name {
+      font-weight: 700;
+      font-size: 1.02rem;
+      letter-spacing: -0.01em;
+    }
+    .cube-tag {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+    .cube-desc {
+      width: 100%;
+      margin: 0.35rem 0 0;
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="header">
+      <div>
+        <p class="eyebrow">Mode A2 · MacBook-Grade Studio WebGL PBR + Binary .GLB</p>
+        <h1>DinkusKit 3D Plugin Cubes</h1>
+        <p class="sub">Upgraded <code>MeshPhysicalMaterial</code> clearcoat + 6-strip HDR Studio Softbox cubemap + real-time <code>PCFSoftShadowMap</code>: Payments hero sway with animated EMV card dip &amp; cyan reader pulse, Ship closing top flaps &amp; dual-side serrated kraft packing tape, Inventory breathing gill pulsation, and Commerce emerald storefront &amp; roof Dinkus <code>*</code> glow.</p>
+      </div>
+      <div class="controls">
+        <button class="btn" id="toggle-spin" type="button" aria-pressed="true">Studio Motion: ON</button>
+        <button class="btn" id="reset-angles" type="button">Reset Hero Angles</button>
+      </div>
+    </header>
+
+    <section class="grid" data-motion-root>
+      <article class="cube-card" data-cube-card="Payments">
+        <div class="cube-stage" data-plugin-cube="Payments" data-plugin-model="/models/plugins/payments.glb" aria-label="DinkusKit Payments 3D cube"></div>
+        <div class="cube-meta">
+          <span class="cube-name" style="color: var(--payments)">Payments</span>
+          <span class="cube-tag">payments.glb</span>
+        </div>
+        <p class="cube-desc">Hero isometric sway + animated EMV smart-chip card dipping into the glowing cyan POS reader slot with approval pulse.</p>
+      </article>
+
+      <article class="cube-card" data-cube-card="Ship">
+        <div class="cube-stage" data-plugin-cube="Ship" data-plugin-model="/models/plugins/ship.glb" aria-label="DinkusKit Ship 3D cube"></div>
+        <div class="cube-meta">
+          <span class="cube-name" style="color: var(--ship)">Ship</span>
+          <span class="cube-tag">ship.glb</span>
+        </div>
+        <p class="cube-desc">Corrugated dark-kraft carton with animated closing top flaps, continuous orange neon edge inlay, and dual-side serrated kraft tape.</p>
+      </article>
+
+      <article class="cube-card" data-cube-card="Inventory">
+        <div class="cube-stage" data-plugin-cube="Inventory" data-plugin-model="/models/plugins/inventory.glb" aria-label="DinkusKit Inventory 3D cube"></div>
+        <div class="cube-meta">
+          <span class="cube-name" style="color: var(--inventory)">Inventory</span>
+          <span class="cube-tag">inventory.glb</span>
+        </div>
+        <p class="cube-desc">Three CNC-chamfered anodized strata with multi-louver amber-gold gill chambers that breathe and pulsate.</p>
+      </article>
+
+      <article class="cube-card" data-cube-card="Commerce">
+        <div class="cube-stage" data-plugin-cube="Commerce" data-plugin-model="/models/plugins/commerce.glb" aria-label="DinkusKit Commerce 3D cube"></div>
+        <div class="cube-meta">
+          <span class="cube-name" style="color: var(--commerce)">Commerce</span>
+          <span class="cube-tag">commerce.glb</span>
+        </div>
+        <p class="cube-desc">Architectural storefront with recessed roof Dinkus <code>*</code> emerald glow, scalloped mansard awning, and green showroom windows.</p>
+      </article>
+    </section>
+
+    <svg id="fig" viewBox="0 0 100 10" width="1" height="1" style="position:absolute;opacity:0;pointer-events:none" aria-hidden="true">
+      <g id="art">
+        <rect x="0" y="0" width="10" height="10" fill="#10b981" />
+        <rect x="12" y="0" width="10" height="10" fill="#38bdf8" />
+        <rect x="24" y="0" width="10" height="10" fill="#f59e0b" />
+        <rect x="36" y="0" width="10" height="10" fill="#f97316" />
+        <circle cx="55" cy="5" r="4" fill="#a855f7" />
+        <circle cx="67" cy="5" r="4" fill="#ecfdf5" />
+        <path d="M 75 2 L 85 8" stroke="#10b981" stroke-width="2" />
+      </g>
+    </svg>
+  </div>
+
+  <script src="../vendor/three.min.js"></script>
+  <script src="../vendor/GLTFLoader.js"></script>
+  <!-- build.py inline-vendor: ../vendor/plugin-cubes-glb.js -->
+  <script>
+    // Engine marker for build.py compatibility: function mountChoreo(
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('vw')) {
+        const vwNum = parseInt(params.get('vw'), 10);
+        if (vwNum > 0) {
+          document.documentElement.style.maxWidth = vwNum + 'px';
+          document.body.style.maxWidth = vwNum + 'px';
+          if (vwNum <= 640) document.body.classList.add('is-mobile-vw');
+        }
+      }
+
+      const THREE = window.THREE;
+      if (!THREE || !THREE.GLTFLoader) return;
+      const queryYaw = params.has('yaw') ? (parseFloat(params.get('yaw')) * Math.PI) / 180 : null;
+      const queryT = params.has('t') ? parseFloat(params.get('t')) : null;
+
+      function createStudioEnvironment(renderer) {
+        const envScene = new THREE.Scene();
+        envScene.background = new THREE.Color(0x030509);
+
+        function addSoftbox(w, h, hdrRgb, pos, look) {
+          const geo = new THREE.PlaneGeometry(w, h);
+          const mat = new THREE.MeshBasicMaterial({
+            color: new THREE.Color(hdrRgb[0], hdrRgb[1], hdrRgb[2]),
+            side: THREE.DoubleSide,
+          });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.set(pos[0], pos[1], pos[2]);
+          mesh.lookAt(look[0], look[1], look[2]);
+          envScene.add(mesh);
+        }
+
+        addSoftbox(8.5, 2.2, [3.4, 3.2, 3.0], [-10.5, 6.2, -6.5], [0, 0, 0]);
+        addSoftbox(7.5, 2.4, [3.4, 2.5, 1.8], [-11.8, 4.2, 6.8], [0, 0.2, 0]);
+        addSoftbox(7.5, 2.4, [1.8, 3.0, 4.5], [11.8, 4.5, 6.4], [0, 0.3, 0]);
+        addSoftbox(11.0, 1.8, [3.6, 2.8, 1.8], [0, 5.8, -11.8], [0, 0.2, 0]);
+        addSoftbox(6.5, 1.5, [1.6, 2.8, 4.2], [-11.8, 0.8, 1.5], [0, 0.0, 0]);
+        addSoftbox(8.0, 1.4, [3.0, 2.9, 2.7], [0, 0.8, 12.2], [0, 0.0, 1.0]);
+
+        const pmrem = new THREE.PMREMGenerator(renderer);
+        pmrem.compileCubemapShader();
+        const rt = pmrem.fromScene(envScene, 0.0);
+        pmrem.dispose();
+        return rt.texture;
+      }
+
+      function createGlowHaloTexture(rgb, isCommerce) {
+        const c = document.createElement('canvas');
+        c.width = 256;
+        c.height = 256;
+        const ctx = c.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, 256, 256);
+          const r = rgb[0], g = rgb[1], b = rgb[2];
+          const peakAlpha = isCommerce ? 0.76 : 0.58;
+          const grad = ctx.createRadialGradient(128, 128, 10, 128, 128, 122);
+          grad.addColorStop(0.0, 'rgba(' + r + ',' + g + ',' + b + ',' + peakAlpha + ')');
+          grad.addColorStop(0.38, 'rgba(' + r + ',' + g + ',' + b + ',' + (peakAlpha * 0.62) + ')');
+          grad.addColorStop(0.72, 'rgba(' + r + ',' + g + ',' + b + ',' + (peakAlpha * 0.22) + ')');
+          grad.addColorStop(1.0, 'rgba(' + r + ',' + g + ',' + b + ',0)');
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, 256, 256);
+
+          const core = ctx.createRadialGradient(128, 128, 4, 128, 128, 54);
+          core.addColorStop(0.0, 'rgba(3,5,9,0.56)');
+          core.addColorStop(0.65, 'rgba(3,5,9,0.20)');
+          core.addColorStop(1.0, 'rgba(3,5,9,0)');
+          ctx.fillStyle = core;
+          ctx.fillRect(0, 0, 256, 256);
+        }
+        const tex = new THREE.CanvasTexture(c);
+        tex.encoding = THREE.sRGBEncoding;
+        return tex;
+      }
+
+      function upgradeCubeMaterials(root, maxAniso, glowList) {
+        root.traverse(function (node) {
+          if (!node.isMesh || !node.material) return;
+          node.castShadow = true;
+          node.receiveShadow = true;
+
+          const orig = node.material;
+          const matName = orig.name || '';
+          const em = orig.emissive;
+          const emSum = em ? em.r + em.g + em.b : 0;
+
+          if (orig.normalMap) {
+            orig.normalMap.anisotropy = maxAniso;
+          }
+          if (orig.map) {
+            orig.map.anisotropy = maxAniso;
+          }
+          if (orig.emissiveMap) {
+            orig.emissiveMap.anisotropy = maxAniso;
+          }
+
+          const hasTexMap = Boolean(orig.map || orig.emissiveMap);
+          const isKraft = matName.indexOf('kraft') !== -1 || matName.indexOf('tape') !== -1;
+          const isCore = matName.indexOf('core') !== -1 || matName.indexOf('filament') !== -1;
+          const isCollar = matName.indexOf('collar') !== -1 || matName.indexOf('chip') !== -1 || matName.indexOf('lip') !== -1;
+          const isGlow = emSum > 0.08 && !isKraft;
+
+          if (matName === 'commerce_emerald_glass' || matName === 'commerce_asterisk_floor') {
+            node.castShadow = false;
+            node.receiveShadow = false;
+            const isAsterisk = matName === 'commerce_asterisk_floor';
+            const baseEm = em ? em.clone() : new THREE.Color(isAsterisk ? 0.42 : 0.78, 0.94, isAsterisk ? 0.64 : 0.84);
+            const baseInt = isAsterisk ? 1.12 : 1.15;
+            const phys = new THREE.MeshPhysicalMaterial({
+              name: matName,
+              color: orig.color ? orig.color.clone() : new THREE.Color(1, 1, 1),
+              map: orig.map || null,
+              emissive: baseEm.clone(),
+              emissiveMap: orig.emissiveMap || orig.map || null,
+              emissiveIntensity: baseInt,
+              metalness: isAsterisk ? 0.04 : 0.08,
+              roughness: isAsterisk ? 0.16 : 0.14,
+              clearcoat: isAsterisk ? 0.20 : 0.45,
+              clearcoatRoughness: 0.12,
+              envMapIntensity: isAsterisk ? 0.12 : 0.35,
+              side: orig.side,
+            });
+            node.material = phys;
+            glowList.push({ mat: phys, baseEmissive: baseEm, baseIntensity: baseInt, pulseScale: isAsterisk ? 0.35 : 0.45 });
+          } else if (matName === 'payments_card_top') {
+            const baseEm = em ? em.clone() : new THREE.Color(0.78, 0.86, 0.96);
+            const phys = new THREE.MeshPhysicalMaterial({
+              name: matName,
+              color: orig.color ? orig.color.clone() : new THREE.Color(1, 1, 1),
+              map: orig.map || null,
+              emissive: baseEm.clone(),
+              emissiveMap: orig.emissiveMap || orig.map || null,
+              emissiveIntensity: 1.10,
+              metalness: 0.42,
+              roughness: 0.22,
+              normalMap: orig.normalMap || null,
+              normalScale: new THREE.Vector2(0.06, 0.06),
+              clearcoat: 0.32,
+              clearcoatRoughness: 0.16,
+              envMapIntensity: 0.55,
+              side: orig.side,
+            });
+            node.material = phys;
+            glowList.push({ mat: phys, baseEmissive: baseEm, baseIntensity: 1.10, pulseScale: 0.65 });
+          } else if (matName === 'payments_face_panel') {
+            const baseEm = em ? em.clone() : new THREE.Color(0.30, 0.36, 0.42);
+            const phys = new THREE.MeshPhysicalMaterial({
+              name: matName,
+              color: orig.color ? orig.color.clone() : new THREE.Color(1, 1, 1),
+              map: orig.map || null,
+              emissive: baseEm.clone(),
+              emissiveMap: orig.emissiveMap || orig.map || null,
+              emissiveIntensity: 0.95,
+              metalness: 0.52,
+              roughness: 0.24,
+              normalMap: orig.normalMap || null,
+              normalScale: new THREE.Vector2(0.07, 0.07),
+              clearcoat: 0.24,
+              clearcoatRoughness: 0.18,
+              envMapIntensity: 0.65,
+              side: orig.side,
+            });
+            node.material = phys;
+            glowList.push({ mat: phys, baseEmissive: baseEm, baseIntensity: 0.95, pulseScale: 0.40 });
+          } else if (matName === 'inventory_chamber_back') {
+            const baseEm = em ? em.clone() : new THREE.Color(0.62, 0.48, 0.28);
+            const phys = new THREE.MeshPhysicalMaterial({
+              name: matName,
+              color: orig.color ? orig.color.clone() : new THREE.Color(1, 1, 1),
+              map: orig.map || null,
+              emissive: baseEm.clone(),
+              emissiveMap: orig.emissiveMap || orig.map || null,
+              emissiveIntensity: 1.10,
+              metalness: 0.16,
+              roughness: 0.26,
+              clearcoat: 0.0,
+              envMapIntensity: 0.12,
+              side: orig.side,
+            });
+            node.material = phys;
+            glowList.push({ mat: phys, baseEmissive: baseEm, baseIntensity: 0.85, pulseScale: 0.95 });
+          } else if (isKraft) {
+            const isTape = matName.indexOf('tape') !== -1;
+            const baseEm = em ? em.clone() : new THREE.Color(0, 0, 0);
+            const phys = new THREE.MeshPhysicalMaterial({
+              name: matName,
+              color: orig.color ? orig.color.clone() : new THREE.Color(0.08, 0.045, 0.026),
+              map: orig.map || null,
+              emissive: baseEm.clone(),
+              emissiveMap: orig.emissiveMap || (hasTexMap ? orig.map : null),
+              emissiveIntensity: hasTexMap ? (isTape ? 1.05 : 0.95) : 0.0,
+              metalness: 0.06,
+              roughness: isTape ? 0.30 : 0.42,
+              normalMap: orig.normalMap || null,
+              normalScale: new THREE.Vector2(isTape ? 0.06 : 0.08, isTape ? 0.06 : 0.08),
+              clearcoat: isTape ? 0.24 : 0.08,
+              clearcoatRoughness: isTape ? 0.20 : 0.38,
+              envMapIntensity: isTape ? 0.55 : 0.42,
+              side: orig.side,
+            });
+            node.material = phys;
+            if (hasTexMap) {
+              glowList.push({ mat: phys, baseEmissive: baseEm, baseIntensity: isTape ? 1.02 : 0.92, pulseScale: 0.25 });
+            }
+          } else if (isGlow && !isCollar) {
+            const baseEm = em ? em.clone() : new THREE.Color(0.1, 0.8, 0.5);
+            const baseInt = isCore ? 1.45 : 1.20;
+            const phys = new THREE.MeshPhysicalMaterial({
+              name: matName,
+              color: orig.color ? orig.color.clone() : new THREE.Color(0.02, 0.03, 0.04),
+              map: orig.map || null,
+              emissive: baseEm.clone(),
+              emissiveMap: orig.emissiveMap || null,
+              emissiveIntensity: baseInt,
+              metalness: 0.06,
+              roughness: 0.20,
+              clearcoat: 0.0,
+              envMapIntensity: 0.05,
+              side: orig.side,
+            });
+            node.material = phys;
+            glowList.push({ mat: phys, baseEmissive: baseEm, baseIntensity: baseInt, pulseScale: isCore ? 0.85 : 0.65 });
+          } else if (isCollar) {
+            const baseEm = em ? em.clone() : new THREE.Color(0.3, 0.2, 0.05);
+            const phys = new THREE.MeshPhysicalMaterial({
+              name: matName,
+              color: orig.color ? orig.color.clone() : new THREE.Color(0.08, 0.05, 0.02),
+              map: orig.map || null,
+              emissive: baseEm.clone(),
+              emissiveMap: orig.emissiveMap || null,
+              emissiveIntensity: 1.05,
+              metalness: orig.metalness != null ? orig.metalness : 0.48,
+              roughness: orig.roughness != null ? orig.roughness : 0.20,
+              normalMap: orig.normalMap || null,
+              normalScale: new THREE.Vector2(0.07, 0.07),
+              clearcoat: 0.14,
+              clearcoatRoughness: 0.18,
+              envMapIntensity: 0.30,
+              side: orig.side,
+            });
+            node.material = phys;
+            glowList.push({ mat: phys, baseEmissive: baseEm, baseIntensity: 1.0, pulseScale: 0.55 });
+          } else {
+            const phys = new THREE.MeshPhysicalMaterial({
+              name: matName,
+              color: orig.color ? orig.color.clone() : new THREE.Color(0.020, 0.026, 0.040),
+              map: orig.map || null,
+              emissive: em ? em.clone() : new THREE.Color(0, 0, 0),
+              emissiveMap: orig.emissiveMap || null,
+              emissiveIntensity: 1.0,
+              metalness: orig.metalness != null ? orig.metalness : 0.58,
+              roughness: orig.roughness != null ? orig.roughness : 0.25,
+              normalMap: orig.normalMap || null,
+              normalScale: new THREE.Vector2(0.08, 0.08),
+              clearcoat: 0.22,
+              clearcoatRoughness: 0.18,
+              envMapIntensity: 0.72,
+              side: orig.side,
+            });
+            node.material = phys;
+          }
+        });
+      }
+
+      function decodeBase64GLB(b64) {
+        const bin = atob(b64);
+        const len = bin.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+        return bytes.buffer;
+      }
+
+      const ACCENT_COLORS = {
+        Payments: 0x38bdf8,
+        Ship: 0xf97316,
+        Inventory: 0xf59e0b,
+        Commerce: 0x10b981,
+      };
+
+      const HALO_RGBA = {
+        Payments: [56, 189, 248],
+        Ship: [249, 115, 22],
+        Inventory: [245, 158, 11],
+        Commerce: [16, 185, 129],
+      };
+
+      const INITIAL_YAW = {
+        Payments: -0.68,
+        Ship: -0.66,
+        Inventory: -0.66,
+        Commerce: -0.64,
+      };
+
+      const SLOT_COS = Math.cos((15 * Math.PI) / 180);
+      const SLOT_SIN = Math.sin((15 * Math.PI) / 180);
+
+      function smoothstep(edge0, edge1, x) {
+        const u = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+        return u * u * (3 - 2 * u);
+      }
+
+      let spinEnabled = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const instances = [];
+
+      function applyStateAtTime(inst, t, dt, advanceSpin) {
+        if (inst.name === 'Payments') {
+          if (!inst.dragging) {
+            if (queryYaw === null) {
+              const heroTargetYaw = inst.baseYaw + Math.sin(t * 1.15) * 0.15;
+              if (queryT !== null) {
+                inst.pivot.rotation.y = heroTargetYaw;
+              } else if (advanceSpin) {
+                const yawDiff = Math.atan2(
+                  Math.sin(heroTargetYaw - inst.pivot.rotation.y),
+                  Math.cos(heroTargetYaw - inst.pivot.rotation.y)
+                );
+                inst.pivot.rotation.y += yawDiff * 0.08 + inst.velY;
+              } else {
+                inst.pivot.rotation.y += inst.velY;
+              }
+            } else {
+              inst.pivot.rotation.y += inst.velY;
+            }
+            inst.velY *= 0.88;
+            inst.targetX = 0.20 + ((advanceSpin || queryT !== null) ? Math.cos(t * 1.15) * 0.035 : 0);
+          }
+          inst.pivot.rotation.x += (inst.targetX - inst.pivot.rotation.x) * 0.14;
+          inst.pivot.position.y = (advanceSpin || queryT !== null) ? Math.sin(t * 1.8) * 0.028 : 0;
+
+          const cardWave = Math.sin(t * 2.35);
+          const dip = cardWave < 0 ? cardWave * 0.18 : cardWave * 0.08;
+          if (inst.cardRig) {
+            inst.cardRig.position.z = 0.965 + dip * SLOT_COS;
+            inst.cardRig.position.y = -0.06 - dip * SLOT_SIN;
+            inst.cardRig.rotation.z = Math.sin(t * 1.15) * 0.018;
+          }
+          const approvalPulse = Math.pow(Math.max(0, -cardWave), 1.5);
+          for (let g = 0; g < inst.glowMaterials.length; g++) {
+            const gm = inst.glowMaterials[g];
+            gm.mat.emissiveIntensity = gm.baseIntensity + approvalPulse * gm.pulseScale;
+          }
+          inst.rimLight.intensity = 3.2 + approvalPulse * 2.4;
+          inst.fillLight.intensity = 2.4 + approvalPulse * 2.0;
+          inst.haloMat.opacity = 0.74 + approvalPulse * 0.26;
+
+        } else if (inst.name === 'Inventory') {
+          if (!inst.dragging) {
+            if (queryYaw === null) {
+              if (queryT !== null) {
+                inst.pivot.rotation.y = inst.baseYaw + queryT * 2.6;
+              } else if (advanceSpin) {
+                inst.pivot.rotation.y += dt * 0.46 + inst.velY;
+              } else {
+                inst.pivot.rotation.y += inst.velY;
+              }
+            } else {
+              inst.pivot.rotation.y += inst.velY;
+            }
+            inst.velY *= 0.92;
+            inst.targetX += (0.19 - inst.targetX) * 0.06;
+          }
+          inst.pivot.rotation.x += (inst.targetX - inst.pivot.rotation.x) * 0.14;
+
+          const gillLower = Math.pow(Math.sin(t * 2.5) * 0.5 + 0.5, 1.3);
+          const gillUpper = Math.pow(Math.sin(t * 2.5 - 0.42) * 0.5 + 0.5, 1.3);
+          const gillAvg = (gillLower + gillUpper) * 0.5;
+
+          inst.pivot.position.y = (advanceSpin || queryT !== null) ? (gillAvg - 0.5) * 0.042 : 0;
+
+          if (inst.strataBot && inst.strataMid && inst.strataTop) {
+            inst.strataBot.position.y = -0.67 - gillLower * 0.095;
+            inst.strataMid.position.y = (gillUpper - gillLower) * 0.032;
+            inst.strataTop.position.y = 0.67 + gillUpper * 0.105;
+            inst.strataTop.rotation.x = gillUpper * 0.032;
+            inst.strataBot.rotation.x = -gillLower * 0.028;
+          }
+          if (inst.seamLower) {
+            const sxL = 0.98 + gillLower * 0.045;
+            const syL = 0.82 + gillLower * 0.42;
+            inst.seamLower.scale.set(sxL, syL, sxL);
+            inst.seamLower.position.y = -0.34 - gillLower * 0.028;
+          }
+          if (inst.seamUpper) {
+            const sxU = 0.98 + gillUpper * 0.045;
+            const syU = 0.82 + gillUpper * 0.42;
+            inst.seamUpper.scale.set(sxU, syU, sxU);
+            inst.seamUpper.position.y = 0.34 + gillUpper * 0.032;
+          }
+
+          for (let g = 0; g < inst.glowMaterials.length; g++) {
+            const gm = inst.glowMaterials[g];
+            gm.mat.emissiveIntensity = gm.baseIntensity * 0.68 + gillAvg * gm.pulseScale;
+          }
+          inst.rimLight.intensity = 2.0 + gillAvg * 3.6;
+          inst.fillLight.intensity = 1.6 + gillAvg * 3.0;
+          inst.haloMat.opacity = 0.48 + gillAvg * 0.52;
+
+        } else if (inst.name === 'Commerce') {
+          if (!inst.dragging) {
+            if (queryYaw === null) {
+              if (queryT !== null) {
+                inst.pivot.rotation.y = inst.baseYaw + queryT * 2.8;
+              } else if (advanceSpin) {
+                inst.pivot.rotation.y += dt * 0.48 + inst.velY;
+              } else {
+                inst.pivot.rotation.y += inst.velY;
+              }
+            } else {
+              inst.pivot.rotation.y += inst.velY;
+            }
+            inst.velY *= 0.92;
+            inst.targetX += (0.20 - inst.targetX) * 0.06;
+          }
+          inst.pivot.rotation.x += (inst.targetX - inst.pivot.rotation.x) * 0.14;
+          inst.pivot.position.y = (advanceSpin || queryT !== null) ? Math.sin(t * 1.7) * 0.030 : 0;
+
+          const greenPulse = Math.sin(t * 2.2) * 0.5 + 0.5;
+          for (let g = 0; g < inst.glowMaterials.length; g++) {
+            const gm = inst.glowMaterials[g];
+            gm.mat.emissiveIntensity = gm.baseIntensity + greenPulse * gm.pulseScale;
+          }
+          inst.rimLight.intensity = 4.0 + greenPulse * 1.6;
+          inst.fillLight.intensity = 3.2 + greenPulse * 1.4;
+          inst.haloMat.opacity = 0.84 + greenPulse * 0.16;
+
+        } else {
+          if (!inst.dragging) {
+            if (queryYaw === null) {
+              if (queryT !== null) {
+                const uYaw = Math.max(0, queryT - 0.12);
+                inst.pivot.rotation.y = inst.baseYaw + uYaw * Math.PI * 2.0 - Math.sin((uYaw / 0.56) * Math.PI) * 0.68;
+              } else if (advanceSpin) {
+                inst.pivot.rotation.y += dt * 0.48 + inst.velY;
+              } else {
+                inst.pivot.rotation.y += inst.velY;
+              }
+            } else {
+              inst.pivot.rotation.y += inst.velY;
+            }
+            inst.velY *= 0.92;
+            inst.targetX += (0.19 - inst.targetX) * 0.06;
+          }
+          inst.pivot.rotation.x += (inst.targetX - inst.pivot.rotation.x) * 0.14;
+          inst.pivot.position.y = (advanceSpin || queryT !== null) ? Math.sin(t * 1.7) * 0.030 : 0;
+
+          // Ship carton flap-closing + packing-tape application cycle (4.8s period)
+          const animActive = advanceSpin || queryT !== null;
+          const period = 4.8;
+          const shipT = t - inst.phaseOffset;
+          const cyc = animActive ? (((shipT % period) + period) % period) / period : 0.10;
+
+          const leftClose = 1.0 - smoothstep(0.37, 0.45, cyc) + smoothstep(0.48, 0.56, cyc);
+          const rightClose = 1.0 - smoothstep(0.35, 0.43, cyc) + smoothstep(0.51, 0.59, cyc);
+
+          const tapeBackP = 1.0 - smoothstep(0.30, 0.34, cyc) + smoothstep(0.60, 0.64, cyc);
+          const tapeTopP = 1.0 - smoothstep(0.27, 0.31, cyc) + smoothstep(0.63, 0.68, cyc);
+          const tapeFrontP = 1.0 - smoothstep(0.24, 0.28, cyc) + smoothstep(0.67, 0.72, cyc);
+
+          const maxFlapAngle = 1.05;
+          if (inst.flapLeft) {
+            inst.flapLeft.rotation.z = (1 - leftClose) * maxFlapAngle;
+          }
+          if (inst.flapRight) {
+            inst.flapRight.rotation.z = -(1 - rightClose) * maxFlapAngle;
+          }
+
+          if (inst.tapeBack) {
+            inst.tapeBack.visible = tapeBackP > 0.004;
+            inst.tapeBack.scale.set(1, Math.max(0.001, tapeBackP), 1);
+            inst.tapeBack.rotation.x = (1 - tapeBackP) * 0.48;
+          }
+          if (inst.tapeTop) {
+            inst.tapeTop.visible = tapeTopP > 0.004;
+            inst.tapeTop.scale.set(1, 1, Math.max(0.001, tapeTopP));
+          }
+          if (inst.tapeFront) {
+            inst.tapeFront.visible = tapeFrontP > 0.004;
+            inst.tapeFront.scale.set(1, Math.max(0.001, tapeFrontP), 1);
+            inst.tapeFront.rotation.x = -(1 - tapeFrontP) * 0.55;
+          }
+
+          const sealBoost = 1.0 - smoothstep(0.24, 0.34, cyc) + smoothstep(0.66, 0.73, cyc);
+          const shipPulse = (Math.sin(t * 2.1) * 0.5 + 0.5) * 0.65 + sealBoost * 0.55;
+          for (let g = 0; g < inst.glowMaterials.length; g++) {
+            const gm = inst.glowMaterials[g];
+            gm.mat.emissiveIntensity = gm.baseIntensity + shipPulse * gm.pulseScale;
+          }
+          inst.rimLight.intensity = 3.0 + shipPulse * 1.4;
+          inst.fillLight.intensity = 2.4 + shipPulse * 1.1;
+          inst.haloMat.opacity = 0.70 + shipPulse * 0.22;
+        }
+      }
+
+      function mountAllCubes() {
+        const b64Map = window.DINKUS_PLUGIN_CUBES_GLB_B64 || {};
+        document.querySelectorAll('[data-plugin-cube]').forEach(function (stage, idx) {
+          const name = stage.getAttribute('data-plugin-cube') || 'Commerce';
+          const modelUrl = stage.getAttribute('data-plugin-model') || ('/models/plugins/' + String(name).toLowerCase() + '.glb');
+          const b64 = b64Map[name] || b64Map[String(name).toLowerCase()];
+
+          const renderer = new THREE.WebGLRenderer({
+            antialias: true,
+            alpha: true,
+            preserveDrawingBuffer: true,
+            powerPreference: 'high-performance',
+          });
+          renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+          renderer.shadowMap.enabled = true;
+          renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+          renderer.physicallyCorrectLights = true;
+          renderer.toneMapping = THREE.ACESFilmicToneMapping;
+          renderer.toneMappingExposure = 1.06;
+          renderer.outputEncoding = THREE.sRGBEncoding;
+          stage.appendChild(renderer.domElement);
+
+          const scene = new THREE.Scene();
+          scene.environment = createStudioEnvironment(renderer);
+
+          const camera = new THREE.PerspectiveCamera(33, 1, 0.1, 50);
+          camera.position.set(0, 2.35, 5.85);
+          camera.lookAt(0, -0.06, 0.04);
+
+          const hemiLight = new THREE.HemisphereLight(0x94a3b8, 0x030509, 0.18);
+          scene.add(hemiLight);
+
+          const keyLight = new THREE.DirectionalLight(0xfff7ed, 1.15);
+          keyLight.position.set(-4.8, 6.2, 4.2);
+          keyLight.castShadow = true;
+          keyLight.shadow.mapSize.width = 1024;
+          keyLight.shadow.mapSize.height = 1024;
+          keyLight.shadow.camera.near = 1.0;
+          keyLight.shadow.camera.far = 20.0;
+          const d = 2.6;
+          keyLight.shadow.camera.left = -d;
+          keyLight.shadow.camera.right = d;
+          keyLight.shadow.camera.top = d;
+          keyLight.shadow.camera.bottom = -d;
+          keyLight.shadow.bias = -0.0008;
+          scene.add(keyLight);
+
+          const accent = ACCENT_COLORS[name] || 0x10b981;
+          const rimLight = new THREE.PointLight(accent, name === 'Commerce' ? 4.4 : 3.4, 11);
+          rimLight.position.set(-2.5, 2.2, -2.2);
+          scene.add(rimLight);
+
+          const fillLight = new THREE.PointLight(accent, name === 'Commerce' ? 3.8 : 2.6, 9);
+          fillLight.position.set(2.1, -1.2, 2.9);
+          scene.add(fillLight);
+
+          const haloRgb = HALO_RGBA[name] || [16, 185, 129];
+          const haloMat = new THREE.MeshBasicMaterial({
+            map: createGlowHaloTexture(haloRgb, name === 'Commerce'),
+            transparent: true,
+            opacity: name === 'Commerce' ? 0.95 : 0.82,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          });
+          const haloMesh = new THREE.Mesh(new THREE.PlaneGeometry(3.55, 3.55), haloMat);
+          haloMesh.rotation.x = -Math.PI / 2;
+          haloMesh.position.set(0, -1.06, 0);
+          scene.add(haloMesh);
+
+          const pivot = new THREE.Group();
+          pivot.rotation.x = 0.18;
+          const startYaw = queryYaw !== null ? -queryYaw : (INITIAL_YAW[name] || -0.62);
+          pivot.rotation.y = startYaw;
+          scene.add(pivot);
+
+          const state = {
+            name: name,
+            stage: stage,
+            renderer: renderer,
+            scene: scene,
+            camera: camera,
+            pivot: pivot,
+            rimLight: rimLight,
+            fillLight: fillLight,
+            haloMat: haloMat,
+            cardRig: null,
+            slotGlowNode: null,
+            strataBot: null,
+            strataMid: null,
+            strataTop: null,
+            seamLower: null,
+            seamUpper: null,
+            flapLeft: null,
+            flapRight: null,
+            tapeBack: null,
+            tapeTop: null,
+            tapeFront: null,
+            glowMaterials: [],
+            dragging: false,
+            lastX: 0,
+            lastY: 0,
+            velY: 0,
+            targetX: 0.18,
+            baseYaw: startYaw,
+            phaseOffset: idx * 1.35,
+          };
+
+          function resize() {
+            const rect = stage.getBoundingClientRect();
+            const w = Math.max(64, rect.width);
+            const h = Math.max(64, rect.height);
+            renderer.setSize(w, h, false);
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+          }
+          resize();
+          window.addEventListener('resize', resize);
+
+          const maxAniso = renderer.capabilities.getMaxAnisotropy();
+          const loader = new THREE.GLTFLoader();
+          function onModelLoaded(gltf) {
+            const root = gltf.scene;
+            upgradeCubeMaterials(root, maxAniso, state.glowMaterials);
+            root.traverse(function (node) {
+              if (node.name === 'card_assembly' || node.name === 'CreditCardRig') state.cardRig = node;
+              if (node.name === 'slot_glow') state.slotGlowNode = node;
+              if (node.name === 'stratum_bottom') state.strataBot = node;
+              if (node.name === 'stratum_middle' || node.name === 'StrataMiddle') state.strataMid = node;
+              if (node.name === 'stratum_top' || node.name === 'StrataTop') state.strataTop = node;
+              if (node.name === 'seam_lower') state.seamLower = node;
+              if (node.name === 'seam_upper') state.seamUpper = node;
+              if (node.name === 'flap_left') state.flapLeft = node;
+              if (node.name === 'flap_right') state.flapRight = node;
+              if (node.name === 'tape_back') state.tapeBack = node;
+              if (node.name === 'tape_top') state.tapeTop = node;
+              if (node.name === 'tape_front') state.tapeFront = node;
+            });
+            pivot.add(root);
+            const simT = queryT !== null ? queryT * 6.0 + state.phaseOffset : state.phaseOffset;
+            applyStateAtTime(state, simT, 0.016, false);
+            renderer.render(scene, camera);
+          }
+          function onModelError(err) {
+            window.removeEventListener('resize', resize);
+            renderer.domElement.remove();
+            renderer.dispose();
+            document.documentElement.setAttribute('data-errors', 'gltf-load-error:' + String(err));
+          }
+          if (b64) {
+            loader.parse(decodeBase64GLB(b64), '', onModelLoaded, onModelError);
+          } else {
+            loader.load(modelUrl, onModelLoaded, undefined, onModelError);
+          }
+
+          stage.addEventListener('pointerdown', function (e) {
+            state.dragging = true;
+            state.lastX = e.clientX;
+            state.lastY = e.clientY;
+            state.velY = 0;
+            stage.setPointerCapture(e.pointerId);
+          });
+          stage.addEventListener('pointermove', function (e) {
+            if (!state.dragging) return;
+            const dx = e.clientX - state.lastX;
+            const dy = e.clientY - state.lastY;
+            state.lastX = e.clientX;
+            state.lastY = e.clientY;
+            state.pivot.rotation.y += dx * 0.012;
+            state.velY = dx * 0.004;
+            state.targetX = Math.max(-0.45, Math.min(0.65, state.targetX + dy * 0.008));
+          });
+          function endDrag() { state.dragging = false; }
+          stage.addEventListener('pointerup', endDrag);
+          stage.addEventListener('pointercancel', endDrag);
+
+          instances.push(state);
+        });
+      }
+
+      if (window.location.protocol === 'file:' && !window.DINKUS_PLUGIN_CUBES_GLB_B64) {
+        const script = document.createElement('script');
+        script.src = '../vendor/plugin-cubes-glb.js';
+        script.onload = mountAllCubes;
+        script.onerror = mountAllCubes;
+        document.head.appendChild(script);
+      } else {
+        mountAllCubes();
+      }
+
+      const clock = new THREE.Clock();
+      function animate() {
+        requestAnimationFrame(animate);
+        const dt = Math.min(clock.getDelta(), 0.05);
+        const elapsed = clock.getElapsedTime();
+
+        for (let i = 0; i < instances.length; i++) {
+          const inst = instances[i];
+          const t = (queryT !== null ? queryT * 6.0 : elapsed) + inst.phaseOffset;
+          applyStateAtTime(inst, t, dt, spinEnabled && queryT === null);
+          inst.renderer.render(inst.scene, inst.camera);
+        }
+      }
+      animate();
+
+      const toggleBtn = document.getElementById('toggle-spin');
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+      reduceMotion.addEventListener('change', function () {
+        spinEnabled = !reduceMotion.matches;
+        if (toggleBtn) {
+          toggleBtn.setAttribute('aria-pressed', String(spinEnabled));
+          toggleBtn.textContent = 'Studio Motion: ' + (spinEnabled ? 'ON' : 'PAUSED');
+        }
+      });
+      if (toggleBtn) {
+        toggleBtn.addEventListener('click', function () {
+          spinEnabled = !spinEnabled;
+          toggleBtn.setAttribute('aria-pressed', String(spinEnabled));
+          toggleBtn.textContent = 'Studio Motion: ' + (spinEnabled ? 'ON' : 'PAUSED');
+        });
+      }
+      const resetBtn = document.getElementById('reset-angles');
+      if (resetBtn) {
+        resetBtn.addEventListener('click', function () {
+          instances.forEach(function (inst) {
+            inst.pivot.rotation.y = inst.baseYaw;
+            inst.targetX = 0.18;
+            inst.velY = 0;
+          });
+        });
+      }
+    })();
+  </script>
+</body>
+</html>
