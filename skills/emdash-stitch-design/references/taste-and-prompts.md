@@ -12,15 +12,15 @@ Encode these rules in `.stitch/DESIGN.md` before generating screens, and hold th
 - **Color Calibration & Optional Playground Presets:**
   - Maximum 1 primary accent color per palette (saturation < 80%).
   - Ban "AI Purple/Blue Neon" gradients and outer button glows.
-  - Never use pure `#000000`; use a warm off-black, charcoal, or deep ink chosen for this site's palette.
-  - Give every color a semantic name + hex code + functional role, and map the locked Stitch palette into `@layer base` in `src/styles/tokens.css` using `light-dark(<light>, <dark>)`. (Circumstantially on starter templates, demo playgrounds, or staging sites built to preview multiple colorways for prospects, also retain 2–3 runner-up Stitch palettes as `:root[data-preset="..."]` blocks.)
+  - Never use pure `#000000`; take the darkest ink from this site's palette.
+  - Give every color a semantic name + hex code + functional role, and map the locked Stitch palette into `@layer base` in `src/styles/tokens.css` using `light-dark(<light>, <dark>)`.
   - Compute contrast; never estimate it. Measure every foreground/background token pair the build uses (accent on canvas, muted text on each surface, sale and strike text, disabled-but-explained text, chips, control boundaries, and the focus ring against its neighbour) in each appearance mode that ships. Hold each pair to WCAG 2.x AA: 4.5:1 for body text and control labels, 3:1 for large text, UI boundaries and focus rings. Record each ratio in `design.md`. Node runs in every EmDash repo:
     ```bash
     node -e 'const L=h=>{const c=[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4);return .2126*c[0]+.7152*c[1]+.0722*c[2]};const[a,b]=[L(process.argv[1]),L(process.argv[2])].sort((x,y)=>x-y);console.log(((b+.05)/(a+.05)).toFixed(2))' '#FGHEX' '#BGHEX'
     ```
 - **Surfaces, Borders, and Shadows Come From This Site's Lock:**
   - Derive surface tones, border weights, corner radii, and shadow style from the palette and atmosphere locked for this site, and grill them with candidates like any other variable.
-  - Record locked values (hex codes, sizes, offsets) only in the project's `.stitch/DESIGN.md`, `design.md`, and `src/styles/tokens.css`. This reference holds rules, never another site's locked values: carrying one build's palette or surface system into the next site makes every site look the same.
+  - Record locked values (hex codes, sizes, offsets) only in the project's `.stitch/DESIGN.md`, `design.md`, and `src/styles/tokens.css`, never in this reference (SKILL.md step 1).
 - **Typography:**
   - Lock the type pairing in its own round: a distinctive display face with a high-legibility body face, plus a monospace face only where the site's content benefits from one (for example SKUs, versions, or tabular figures with `font-variant-numeric: tabular-nums`). Choose faces for this site's atmosphere, not from a fixed shortlist.
   - Name only faces the build can serve. If builds run offline or the font provider cannot reach its source, use locally shipped font files or an explicit system stack, and record what actually renders. Stitch draws its screenshots on its own servers, which may lack the faces a system stack names, so candidates that differ only in system stacks can look identical there. Judge them from the local render ([grilltrack-visual-cycle.md](grilltrack-visual-cycle.md) §2a) or with shipped font files.
@@ -29,7 +29,6 @@ Encode these rules in `.stitch/DESIGN.md` before generating screens, and hold th
   - No emojis in UI chrome.
   - No fabricated metrics (`99.98% SLA`, `10k+ customers`) or `LABEL // 2026` filler tags.
   - No invented cart/checkout/buy buttons when the slice contract forbids them.
-  - No duplicated theme/preset switchers in both header and footer. Where a switcher lives is a grill decision for this site.
   - No horizontal overflow on narrow mobile viewports (`320px–767px`), and no clipped control text: each control's placeholder and label fit its own container at desktop and narrow widths. A page-level overflow check misses both.
   - No shopper-facing copy the content owners did not supply. Facts come from their owner: EmDash for copy, menus and media; Commerce for price, availability, identifiers and checkout readiness. Generated text (CSS `content:`, prefixes, badges, counts) is copy too. Record a missing label as a gap instead of inventing one.
   - No developer, ownership or run notes on the page, such as which system owns which data. They belong in `design.md`.

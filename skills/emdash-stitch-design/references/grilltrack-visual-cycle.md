@@ -23,6 +23,7 @@ Rather than prompting Stitch in a vacuum, start from the real verified EmDash ro
      stitch capture --tab -o .stitch/captures/checkout-stage.html --json
      ```
 3. **Upload `DESIGN.md` & Route Screen (`stitch upload` or `stitch_upload_file`):**
+   - Find or create the project: `stitch find projects --json` or `stitch create project --title "<title>" --json` (MCP `list_projects` / `create_project`).
    - Upload and apply `.stitch/DESIGN.md` as a Stitch Design System:
      ```bash
      stitch upload design .stitch/DESIGN.md --project <PROJECT_ID> --apply --json
@@ -57,7 +58,7 @@ Rather than prompting Stitch in a vacuum, start from the real verified EmDash ro
      - Wrap each row in a named group in the same PATCH. Add one instance with `type: "GROUP_INSTANCE"`, a new 32-character hex `id`, `label` and `groupName` set to the row's name, and `x`/`y`/`width`/`height` enclosing the row's frames plus about `120px` of padding. Leave the member frames without `groupId` or `groupName`: the canvas counts every frame inside the box as a member, and draws a frame that carries either field as an empty "0 screens" group instead of its screen.
      - Name rows by round or surface and their variable: `R1 · Layout`, `R2 · Palette`, `R3 · Type`, `S1 · Product page`, `S3 · Cart`. When a round locks, add the winner to its name (`R2 · Palette, locked P3`).
      - Record the group IDs you create (for example in `.stitch/canvas-groups.json`). On each re-flow, move their boxes with their rows, strip any `groupId`/`groupName` an older layout left on frames, and send back unchanged every group you did not create, together with the frames inside it. Start your rows below such a group, so none of your frames lands inside its box and joins it.
-     - Checked 2026-10-23: the canvas draws a named box around the frames inside it, and the screens render. Frames carrying `groupId` or `groupName` render as empty groups (the 2026-10-22 check saw only the group names).
+     - Checked 2026-10-23: the canvas draws a named box around the frames inside it, and the screens render. Frames carrying `groupId` or `groupName` render as empty groups.
      - Then ask the user to refresh the canvas tab. An open tab keeps its stale layout until reloaded and can save that layout back over a re-flow, so re-flow with no stale canvas tab open, and GET the project afterwards to confirm the layout stuck.
      - `uploadFileToStitch` in `ai-shed` still performs only atomic `screens:batchCreate`. Layout PATCHes are a separate, explicit step between rounds.
 
@@ -67,20 +68,13 @@ Rather than prompting Stitch in a vacuum, start from the real verified EmDash ro
    - Download its HTML with `stitch download screen <SCREEN_ID> --project <PROJECT_ID> --html --output <DIR>`.
    - Render that file locally at `390×844` with headless Chrome or Playwright.
    - This costs no Stitch credits. Stitch can pin a desktop export to 1280 px with an injected `<style id="stitch-desktop-normalization">` on `html, body`; delete that style before rendering, or the narrow render shows the desktop layout cropped, whatever the design. Use the render to judge hierarchy, content, the nav collapse, hero type scale, grid density and cart and checkout controls at phone width. Check tap targets of at least 44 px and horizontal overflow (`scrollWidth <= clientWidth`) on the implemented page (SKILL.md step 6), not on the export, and never present a Stitch render as a capture of the real site.
-   - Optional, for the user's eye: a 390 px-wide copy of the candidate's canvas frame (an extra `screenInstances` entry for the same `sourceScreen`). Confirm the canvas accepts the added instance before relying on it.
 2. **Mobile pass after the desktop lock (optional):** When a surface's desktop direction locks, offer one mobile-specific round for what reflow can't fix: the nav pattern, a sticky add-to-cart, tap targets, and dense tables or ledgers.
    - Use `stitch generate variant --device MOBILE` (or `edit_screen` with `device: MOBILE`) on the locked desktop screen, or targeted CSS for the breakpoint.
    - Show it as a desktop + mobile pair, lock mobile separately, and record both locks in the GrillTrack ledger.
-   - **When the user is torn between two candidates (e.g., two whole candidates, or one candidate's layout with another's component):**
-     - Do not force a blind choice. Immediately generate a **2–3 screen Tiebreaker / Hybrid round** combining the exact preferred elements and showing them in realistic page context (for example, rendering a footer candidate directly beneath the bottom of a storefront page canvas so surface contrast is obvious).
 
 ## 3. Handling Unbuilt Code or Plugin Features Discovered During Design
 
-When a visual review uncovers a missing capability in the EmDash storefront or a companion plugin (for example, missing PDP quantity selectors, multi-variant batch selection, or structured policy highlight fields):
-
-1. **File an issue on the owning repository (`gh issue create --label smoky-agent`)** with the exact component path, current limitation, and requested behavior.
-2. **Mock the control or state directly in the Stitch screen** so the locked visual design and spacing accommodate the target UX.
-3. **Stay focused on the frontend/UI grill**—never pause the visual design cycle to build plugin or backend features. In a live grill, never start long verification builds until the user's visual grill rounds are complete; in a time- or budget-capped or unattended run, follow the build-as-you-go order in SKILL.md step 3 ("Choose When to Build").
+Follow SKILL.md step 4. Each issue names the exact component path, the current limitation and the requested behaviour.
 
 ## 4. Upstream EmDash Theming & Composition Architecture
 
@@ -109,4 +103,4 @@ Before running the repo's verification (DinkusKit storefronts: `bin/verify-web q
 
 ## 6. Archiving Locked Reference Bundles
 
-At closeout, copy each locked surface's self-contained `.html` source and `=w2560` `.png` screenshot—along with `.stitch/DESIGN.md`, `design.md`, `src/styles/tokens.css`, and `src/styles/theme.css`—into the project's design-asset archive (DinkusKit: `dinkuskit/dinkus-pr-assets`, `<repo>-stitch-<pr>/`) with a SHA-256 manifest table in `README.md` so coding and review agents can reference both the visual renders and exact Stitch HTML/CSS code.
+When a round or surface locks, copy its selected screen's self-contained `.html` and `=w2560` `.png` into the run's archive folder and add one row per file to the SHA-256 manifest table in its `README.md`: file · round or surface · full screen ID · sha256. At closeout, add `.stitch/DESIGN.md`, `design.md`, `src/styles/tokens.css` and `src/styles/theme.css` (screen ID `-`), confirm every locked screen has its rows, and copy the folder into the project's design-asset archive (DinkusKit: `dinkuskit/dinkus-pr-assets`, `<repo>-stitch-<pr>/`) so coding and review agents can reference both the renders and the exact Stitch HTML/CSS.
