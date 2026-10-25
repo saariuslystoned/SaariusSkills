@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pin selected upstream PStack skills and project them beside local custom skills."""
+"""Pin and verify selected upstream PStack skills in vendor/pstack only."""
 
 from __future__ import annotations
 
@@ -19,6 +19,8 @@ UPSTREAM_SKILLS = (
     "how", "maintain-verification-skill", "reflect", "tdd", "unslop", "why",
 )
 CUSTOM_SKILLS = ("bobby-mode", "pstack-playbooks")
+# Repository-owned metadata, never imported from the upstream snapshot.
+LOCAL_METADATA = ("README.md", ".codex-plugin/plugin.json", "plugin.json")
 
 
 def git(source: Path, *args: str) -> bytes:
@@ -47,7 +49,7 @@ def files(root: Path) -> dict[str, bytes]:
 
 
 def safe_owned_paths(root: Path) -> None:
-    for relative in ("vendor", "vendor/pstack", "pstack", "pstack/skills", "pstack/custom", "pstack/custom/skills"):
+    for relative in ("vendor", "vendor/pstack", "skills"):
         if (root / relative).is_symlink():
             raise ValueError(f"refusing symlink: {root / relative}")
 
@@ -97,53 +99,16 @@ def read_vendor(root: Path) -> tuple[dict[str, bytes], dict]:
         manifest = json.loads(vendor.pop("UPSTREAM.json"))
     except (KeyError, json.JSONDecodeError) as exc:
         raise ValueError("missing or invalid vendor/pstack/UPSTREAM.json") from exc
-    vendor.pop("README.md", None)
+    for relative in LOCAL_METADATA:
+        vendor.pop(relative, None)
     if manifest.get("upstream") != UPSTREAM_REPO or manifest.get("skills") != list(UPSTREAM_SKILLS):
         raise ValueError("unexpected PStack provenance or selected skill set")
+    required = {"LICENSE", *(f"skills/{name}/SKILL.md" for name in UPSTREAM_SKILLS)}
+    if not required <= vendor.keys():
+        raise ValueError(f"missing selected upstream files: {sorted(required - vendor.keys())}")
     if {path: sha256(data) for path, data in sorted(vendor.items())} != manifest.get("files"):
         raise ValueError("PStack vendor drift: files differ from UPSTREAM.json")
     return vendor, manifest
-
-
-def expected_packages(root: Path, vendor: dict[str, bytes], manifest: dict) -> dict[str, dict[str, bytes]]:
-    result = {}
-    for name in UPSTREAM_SKILLS:
-        prefix = f"skills/{name}/"
-        package = {path[len(prefix):]: data for path, data in vendor.items() if path.startswith(prefix)}
-        if "SKILL.md" not in package:
-            raise ValueError(f"missing upstream skill: {name}")
-        package["LICENSE"] = vendor["LICENSE"]
-        package["UPSTREAM.md"] = (
-            f"# Upstream source\n\nVerbatim skill content by Lauren Tan (MIT) from\n"
-            f"https://github.com/cursor/plugins/tree/{manifest['commit']}/pstack/skills/{name}\n\n"
-            "The package adds LICENSE and this notice. Edit the upstream pin through\n"
-            "scripts/sync-pstack-skills; local custom skills have separate sources.\n"
-        ).encode()
-        result[name] = package
-    custom_files = files(root / "pstack/custom")
-    if "LICENSE" not in custom_files:
-        raise ValueError("missing pstack/custom/LICENSE")
-    custom_license = custom_files["LICENSE"]
-    for name in CUSTOM_SKILLS:
-        package = files(root / "pstack/custom/skills" / name)
-        if "SKILL.md" not in package:
-            raise ValueError(f"missing custom skill source: {name}")
-        package["LICENSE"] = custom_license
-        package["SOURCE.md"] = (
-            f"# Local source\n\nThis is a Saarius customization, not an upstream PStack skill.\n"
-            f"Edit pstack/custom/skills/{name}/, then run scripts/sync-pstack-skills --package.\n"
-            "Upstream refreshes do not replace this source.\n"
-        ).encode()
-        result[name] = package
-    return result
-
-
-def validate_packages(root: Path, expected: dict[str, dict[str, bytes]]) -> list[str]:
-    destination = root / "pstack/skills"
-    existing = {p.name for p in destination.iterdir() if p.is_dir()} if destination.exists() else set()
-    if existing - expected.keys():
-        raise ValueError(f"unexpected packaged skills: {sorted(existing - expected.keys())}")
-    return [name for name, content in expected.items() if files(destination / name) != content]
 
 
 def write_tree(destination: Path, content: dict[str, bytes]) -> None:
@@ -160,72 +125,68 @@ def write_tree(destination: Path, content: dict[str, bytes]) -> None:
 
 
 def discovery(root: Path) -> None:
-    names = set(UPSTREAM_SKILLS + CUSTOM_SKILLS)
-    manifest = json.loads((root / "pstack/.codex-plugin/plugin.json").read_text())
+    if (root / "pstack").exists() or (root / "pstack").is_symlink():
+        raise ValueError("obsolete root pstack tree must not exist")
+    manifest = json.loads((root / "vendor/pstack/.codex-plugin/plugin.json").read_text())
     if manifest.get("name") != "pstack-saarius" or manifest.get("skills") != "./skills/":
         raise ValueError("PStack plugin identity or discovery path changed")
+    marketplace = json.loads((root / ".agents/plugins/marketplace.json").read_text())
+    entries = {entry["name"]: entry for entry in marketplace["plugins"]}
+    if entries.get("pstack-saarius", {}).get("source", {}).get("path") != "./vendor/pstack":
+        raise ValueError("PStack marketplace must point directly to vendor/pstack")
+    for path in (".codex-plugin/plugin.json", ".claude-plugin/plugin.json"):
+        main = json.loads((root / path).read_text())
+        if main.get("skills") != ["./skills/", "./vendor/pstack/skills/"]:
+            raise ValueError(f"missing direct PStack discovery: {path}")
     cursor = json.loads((root / ".cursor-plugin/plugin.json").read_text())
-    for name in names:
-        link = root / "skills" / name
-        if not link.is_symlink() or link.readlink() != Path("../pstack/skills") / name:
-            raise ValueError(f"unexpected root discovery link: {name}")
+    for name in UPSTREAM_SKILLS:
+        alias = root / "skills" / name
+        if alias.exists() or alias.is_symlink():
+            raise ValueError(f"upstream skill must exist only in vendor/pstack: {name}")
+        if f"./vendor/pstack/skills/{name}/" not in cursor.get("skills", []):
+            raise ValueError(f"missing direct Cursor discovery entry: {name}")
+        if f"./skills/{name}/" in cursor.get("skills", []):
+            raise ValueError(f"obsolete Cursor discovery entry: {name}")
+    for name in CUSTOM_SKILLS:
+        custom = files(root / "skills" / name)
+        if not {"SKILL.md", "LICENSE"} <= custom.keys():
+            raise ValueError(f"missing local skill source or license: {name}")
         if f"./skills/{name}/" not in cursor.get("skills", []):
-            raise ValueError(f"missing Cursor discovery entry: {name}")
+            raise ValueError(f"missing local Cursor discovery entry: {name}")
 
 
-def package(root: Path = ROOT, check_only: bool = False) -> int:
+def check(root: Path = ROOT) -> int:
     safe_owned_paths(root)
-    vendor, manifest = read_vendor(root)
-    expected = expected_packages(root, vendor, manifest)
-    drift = validate_packages(root, expected)
+    _, manifest = read_vendor(root)
     discovery(root)
-    if check_only and drift:
-        raise ValueError("PStack package drift: " + ", ".join(drift))
-    if not check_only:
-        for name in drift:
-            write_tree(root / "pstack/skills" / name, expected[name])
-    print(f"PStack {'check clean' if check_only else 'packaged'}: 10 upstream + 2 custom skills; {manifest['commit']}")
+    print(f"PStack check clean: 10 upstream + 2 local skills; {manifest['commit']}")
     return 0
 
 
 def update(source: Path, ref: str, root: Path = ROOT, requested_ref: str | None = None) -> int:
     safe_owned_paths(root)
-    # An upstream refresh must not erase later edits to generated output. Local
-    # source edits use explicit --package first; unexpected output edits need
-    # reconciliation instead of silently choosing either copy.
+    # Refuse handwritten vendor changes before replacing the pinned snapshot.
     if (root / "vendor/pstack/UPSTREAM.json").exists():
-        previous, previous_manifest = read_vendor(root)
-        previous_packages = expected_packages(root, previous, previous_manifest)
-        drift = validate_packages(root, previous_packages)
-        if drift:
-            raise ValueError("package drift before upstream refresh; reconcile local sources then --package: " + ", ".join(drift))
+        read_vendor(root)
+    discovery(root)
     vendor, manifest = snapshot(source, ref)
     if requested_ref is not None:
         manifest["ref"] = requested_ref
-    expected = expected_packages(root, vendor, manifest)
-    for name in CUSTOM_SKILLS:
-        actual = files(root / "pstack/skills" / name)
-        original = {path: data for path, data in expected[name].items() if path not in ("LICENSE", "SOURCE.md")}
-        if actual and {path: data for path, data in actual.items() if path not in ("LICENSE", "SOURCE.md")} != original:
-            raise ValueError(f"custom package drift before upstream refresh: {name}")
-    validate_packages(root, expected)
-    discovery(root)
     old_vendor = files(root / "vendor/pstack")
-    if "README.md" in old_vendor:
-        vendor["README.md"] = old_vendor["README.md"]
+    for relative in LOCAL_METADATA:
+        if relative in old_vendor:
+            vendor[relative] = old_vendor[relative]
     vendor["UPSTREAM.json"] = (json.dumps(manifest, indent=2) + "\n").encode()
     write_tree(root / "vendor/pstack", vendor)
-    for name, content in expected.items():
-        write_tree(root / "pstack/skills" / name, content)
-    print(f"PStack updated: 10 upstream + 2 custom skills; {manifest['commit']}")
+    print(f"PStack updated: 10 upstream skills; {manifest['commit']}; local skills untouched")
     return 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--check", action="store_true", help="Check vendor hashes, packaged content and discovery without writes.")
-    mode.add_argument("--package", action="store_true", help="Regenerate package from the verified pin and local custom sources; no network.")
+    mode.add_argument("--check", action="store_true", help="Check vendor hashes, local sources and direct discovery without writes.")
+    mode.add_argument("--package", action="store_true", help="Compatibility alias for --check; no generated package or writes.")
     mode.add_argument("--update", action="store_true", help="Refresh only the ten selected upstream skills, preserving custom sources.")
     parser.add_argument("--source", type=Path, help="Read committed objects from this local upstream clone, ignoring its working files.")
     parser.add_argument("--ref", help="Exact upstream commit or ref; defaults to main (HEAD with --source).")
@@ -234,7 +195,7 @@ def main() -> int:
         parser.error("--source and --ref apply only to --update")
     try:
         if not args.update:
-            return package(check_only=args.check)
+            return check()
         if args.source:
             return update(args.source.resolve(), args.ref or "HEAD")
         with tempfile.TemporaryDirectory(prefix="pstack-upstream-") as temp:
