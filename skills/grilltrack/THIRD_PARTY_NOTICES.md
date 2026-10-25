@@ -70,12 +70,12 @@ disclosure, skill boundary, and evaluation approach.
 
 ## pstack (Cursor)
 
-Pinned source: <https://github.com/cursor/plugins/tree/fadd23794c0075468eb8964b0fd93e06e09486ad/pstack/skills>
+Pinned source: <https://github.com/cursor/plugins/tree/a66a8931c2dd71f1ed6abf6a52b1898a9f389ae4/pstack/skills>
 
-Vendored cherry-picks live under `pstack/skills/` and are symlinked from `skills/`:
+Vendored cherry-picks live only under `vendor/pstack/skills/` and are loaded directly by plugin manifests:
 `architect`, `automate-me`, `blast-radius`, `create-verification-skill`, `how`, `maintain-verification-skill`, `reflect`, `tdd`, `unslop`, `why`.
 
-License: follow the Cursor plugins repository license for those files. Copyright remains with the upstream authors. `bobby-mode` and `pstack-playbooks` are Saarius overlays, not Cursor files.
+License: follow the Cursor plugins repository license for those files. Copyright remains with the upstream authors. `bobby-mode` and `pstack-playbooks` are authored Saarius skills in root `skills/`, not Cursor files.
 
 `backnotprop/pstack` is a third-party mirror and is not the pin.
 

@@ -22,7 +22,7 @@ class PortableSkillTests(unittest.TestCase):
     def test_discovery_metadata_license_and_local_references(self) -> None:
         cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
         for manifest in (".codex-plugin/plugin.json", ".claude-plugin/plugin.json"):
-            self.assertEqual(json.loads((ROOT / manifest).read_text())["version"], "0.7.0")
+            self.assertEqual(json.loads((ROOT / manifest).read_text())["version"], "0.7.1")
         for name in NAMES:
             directory = ROOT / "skills" / name
             body = (directory / "SKILL.md").read_text()
@@ -38,10 +38,10 @@ class PortableSkillTests(unittest.TestCase):
         market = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text())
         entries = {entry["name"]: entry for entry in market["plugins"]}
         self.assertEqual(entries["saarius-skills"]["source"]["path"], "./")
-        self.assertEqual(entries["pstack-saarius"]["source"]["path"], "./pstack")
-        pstack = json.loads((ROOT / "pstack/.codex-plugin/plugin.json").read_text())
+        self.assertEqual(entries["pstack-saarius"]["source"]["path"], "./vendor/pstack")
+        pstack = json.loads((ROOT / "vendor/pstack/.codex-plugin/plugin.json").read_text())
         self.assertEqual(pstack["name"], "pstack-saarius")
-        self.assertEqual(pstack["version"], "0.1.0")
+        self.assertEqual(pstack["version"], "0.2.0")
         self.assertEqual(pstack["skills"], "./skills/")
 
     def test_public_core_contains_no_operator_bindings(self) -> None:

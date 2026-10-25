@@ -20,7 +20,7 @@
       "name": "pstack-saarius",
       "source": {
         "source": "local",
-        "path": "./pstack"
+        "path": "./vendor/pstack"
       },
       "policy": {
         "installation": "AVAILABLE",
