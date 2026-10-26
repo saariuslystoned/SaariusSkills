@@ -1,6 +1,6 @@
 interface:
   display_name: "EmDash Commerce"
-  short_description: "Research major commerce decisions before GrillTrack"
-  default_prompt: "Use $emdash-commerce to compare relevant platforms before proposing the next major Commerce decision in GrillTrack."
+  short_description: "Use platform and REA evidence for commerce decisions"
+  default_prompt: "Use $emdash-commerce to evaluate this DinkusKit decision with relevant platform comparisons and authorized REA evidence, preserving current commitments and unresolved questions."
 policy:
   allow_implicit_invocation: true

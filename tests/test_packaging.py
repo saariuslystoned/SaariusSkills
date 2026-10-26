@@ -87,6 +87,7 @@ class PackagingTests(unittest.TestCase):
     def test_emdash_commerce_resources_are_packaged(self) -> None:
         skill = ROOT / "skills" / "emdash-commerce"
         self.assertTrue((skill / "references" / "source-map.md").is_file())
+        self.assertTrue((skill / "references" / "rea-strategy.md").is_file())
         metadata = (skill / "agents" / "openai.yaml").read_text()
         self.assertIn("allow_implicit_invocation: true", metadata)
         self.assertIn("$emdash-commerce", metadata)
