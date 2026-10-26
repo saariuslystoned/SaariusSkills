@@ -12,6 +12,9 @@ This is instruction and packaging evidence, not deployed runtime proof.
 - Compared the guidance with the approved requirements: current decisions
   govern research use, evidence strength stays visible, existing records own
   unresolved questions, and no workflow/roadmap is a research prerequisite.
+- DinkusKit's public organization vision and scope/planning documents are
+  explicit baseline inputs; conflicts with local charters and owner decisions
+  must be surfaced. This instruction applies only to DinkusKit work.
 - Relative Markdown links resolve. The new text contains no private corpus
   names, paths, revisions, captures, merchant records or vendor code.
 - No manifests, installation, accounts, CI configuration or product runtime
@@ -36,10 +39,16 @@ prove future agent behavior on every task.
 
 - Skill-creator `quick_validate.py skills/emdash-commerce`: passed.
 - `python -m unittest discover -s tests -q`: 180 tests passed in 144.087s
-  on Python 3.12.9; intentional refusal-path diagnostics were followed by `OK`.
+  on Python 3.12.9 at `4cd3e3b`; intentional refusal-path diagnostics were
+  followed by `OK`.
 - `python skills/grilltrack/scripts/grilltrack_ledger.py --help`: passed.
 - `python skills/grilltrack/scripts/validate_picker.py fixtures/frontend-picker/manifest.json`: passed.
 - Relative-link check and `git diff --check`: passed.
+
+After the organization-baseline link addition, repeated skill validation,
+24 packaging tests, relative-link and whitespace checks passed. Both organization
+document URLs resolved through GitHub's contents API. The full suite was not
+repeated for this Markdown-only instruction.
 
 CI and external review results belong to the PR and its exact head. Opening
 the PR does not merge it or update installed skill copies.

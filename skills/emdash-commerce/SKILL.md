@@ -18,6 +18,7 @@ Skip competitor research for a typo, ordinary bug repair, refactor preserving co
 ## Establish the decision baseline
 
 - Read applicable repository instructions, charter, the current `.grilltrack/ledger.json` if present, and only the relevant current types, callers, tests, and proof. Inspect companion repositories only when in scope. Name the repository, branch, commit/version and runtime lane; disclose stale checkouts or candidate-only evidence.
+- For DinkusKit work, also read its organization-level [vision](https://github.com/dinkuskit/.github/blob/main/VISION.md) and [scope and planning](https://github.com/dinkuskit/.github/blob/main/ROADMAP.md). Treat these as direction and planning boundaries, not a feature schedule. Surface conflicts with local charters or current owner decisions rather than assuming every repository is synchronized.
 - Reuse the current decision packet and its owner. Distinguish implemented behavior, persisted locks, explicit user choices awaiting persistence, proposals, deferrals, and unknowns. Preserve accepted choices and authorization, including direct user updates newer than a packet. Surface a mismatch with durable state without silently overwriting either.
 - State the focused question and constraints. Research discoverable facts before asking product questions. Do not turn a prior deferral, such as bundles, into a permanent prohibition or treat a partial module as approval for product adoption.
 
