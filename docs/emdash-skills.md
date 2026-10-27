@@ -1,12 +1,14 @@
 # EmDash skills
 
-The package includes seven discoverable skills:
+The package includes nine discoverable skills:
 
 | Skill | Responsibility |
 | --- | --- |
 | `emdash-sites` | Implementation decisions, draft safety, plugin surfaces and observable verification |
 | `emdash-ci-deploy` | CI target isolation, deployment ordering and commit-aware release verification |
 | `emdash-commerce` | Official-source platform comparisons before major Commerce/companion-plugin GrillTrack proposals or locks |
+| `emdash-surface-fx` | Page-level surface effects, shaders and micro-interactions under DinkusKit storefront guardrails |
+| `emdash-stitch-design` | Google Stitch + GrillTrack visual rounds, translated into upstream EmDash tokens and themes |
 | `building-emdash-site` | Upstream schema, seed, queries and rendering mechanics |
 | `creating-plugins` | Upstream native/sandboxed plugin mechanics |
 | `emdash-cli` | Upstream command-line workflows |
