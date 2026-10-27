@@ -21,6 +21,25 @@ maintenance and bounded issue/PR sweeps. They work without a private repository
 or service. [Portable skill boundaries](docs/portable-skills.md) explain optional
 repo-owned bindings and the local-only Python helpers.
 
+## PStack engineering skills
+
+The ten selected upstream PStack skills live only in
+[`vendor/pstack/skills/`](vendor/pstack/skills/). Codex, Claude Code and Cursor
+manifests discover them there directly; no generated copies or root skill
+symlinks are needed. The authored `bobby-mode` and `pstack-playbooks` skills
+live in root `skills/` and remain part of Saarius Skills.
+
+The optional Codex `pstack-saarius` marketplace entry now points to
+`vendor/pstack/` and contains only the ten upstream skills. The main plugin
+already includes them, so install the standalone entry only when you want
+PStack without the rest of Saarius Skills. Existing installs need a plugin
+refresh to pick up the new layout; this change does not modify installed caches.
+For an AGY path install, add `/path/to/SaariusSkills/vendor/pstack` separately
+for the upstream skills. Any other integration configured with the old root
+`pstack/` path must switch to `vendor/pstack/`.
+
+See [PStack source ownership and refresh](vendor/pstack/README.md).
+
 ## EmDash sites and plugins
 
 [EmDash Sites](skills/emdash-sites/SKILL.md) adds implementation and verification

@@ -23,7 +23,7 @@ class PackagingTests(unittest.TestCase):
         names = ("emdash-sites", "emdash-commerce", "emdash-ci-deploy", "emdash-stitch-design", "emdash-surface-fx", *upstream)
         cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
         codex = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())
-        self.assertEqual(codex["skills"], "./skills/")
+        self.assertEqual(codex["skills"], ["./skills/", "./vendor/pstack/skills/"])
         for name in names:
             self.assertTrue((ROOT / "skills" / name / "SKILL.md").is_file())
             self.assertIn(f"./skills/{name}/", cursor["skills"])
@@ -87,6 +87,7 @@ class PackagingTests(unittest.TestCase):
     def test_emdash_commerce_resources_are_packaged(self) -> None:
         skill = ROOT / "skills" / "emdash-commerce"
         self.assertTrue((skill / "references" / "source-map.md").is_file())
+        self.assertTrue((skill / "references" / "rea-strategy.md").is_file())
         metadata = (skill / "agents" / "openai.yaml").read_text()
         self.assertIn("allow_implicit_invocation: true", metadata)
         self.assertIn("$emdash-commerce", metadata)
@@ -135,7 +136,7 @@ class PackagingTests(unittest.TestCase):
             "$schema": "https://antigravity.google/schemas/v1/plugin.json",
             "name": "saarius-skills",
             "displayName": "Saarius Skills",
-            "version": "0.7.0",
+            "version": "0.7.1",
             "description": "Experimental agent skills, progressive product-decision workflows, and local ACP delegation.",
         }
         market = json.loads(
@@ -145,9 +146,9 @@ class PackagingTests(unittest.TestCase):
         )
         self.assertEqual(root_plugin, expected_root)
         self.assertEqual(plugin["name"], "saarius-skills")
-        self.assertEqual(plugin["version"], "0.7.0")
+        self.assertEqual(plugin["version"], "0.7.1")
         self.assertEqual(root_plugin["version"], plugin["version"])
-        self.assertEqual(plugin["skills"], "./skills/")
+        self.assertEqual(plugin["skills"], ["./skills/", "./vendor/pstack/skills/"])
         self.assertNotEqual(plugin, root_plugin)
         self.assertEqual(plugin["name"], root_plugin["name"])
         self.assertEqual(market["name"], "saarius-skills")
@@ -328,6 +329,12 @@ class PackagingTests(unittest.TestCase):
             f"./skills/{name}/"
             for name in sorted(packaged - {omitted})
         ]
+        expected_skills += [
+            f"./vendor/pstack/skills/{path.name}/"
+            for path in (ROOT / "vendor/pstack/skills").iterdir()
+            if path.is_dir() and (path / "SKILL.md").is_file()
+        ]
+        expected_skills.sort(key=lambda path: path.rstrip("/").rsplit("/", 1)[-1])
         codex = json.loads(
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
@@ -358,13 +365,13 @@ class PackagingTests(unittest.TestCase):
                 "$schema": "https://antigravity.google/schemas/v1/plugin.json",
                 "name": "saarius-skills",
                 "displayName": "Saarius Skills",
-                "version": "0.7.0",
+                "version": "0.7.1",
                 "description": "Experimental agent skills, progressive product-decision workflows, and local ACP delegation.",
             },
         )
         self.assertEqual(codex["name"], "saarius-skills")
-        self.assertEqual(codex["version"], "0.7.0")
-        self.assertEqual(codex["skills"], "./skills/")
+        self.assertEqual(codex["version"], "0.7.1")
+        self.assertEqual(codex["skills"], ["./skills/", "./vendor/pstack/skills/"])
         self.assertEqual(marketplace["name"], "saarius-skills")
         self.assertEqual(marketplace["plugins"][0]["source"]["path"], "./")
 
@@ -391,7 +398,7 @@ class PackagingTests(unittest.TestCase):
             "license",
             "keywords",
         }
-        self.assertLessEqual(set(claude), metadata)
+        self.assertLessEqual(set(claude), metadata | {"skills"})
         self.assertLessEqual(set(codex), metadata | {"skills", "interface"})
         self.assertEqual(set(cursor), {"name", "skills"})
         self.assertFalse((ROOT / ".mcp.json").exists())
@@ -492,8 +499,8 @@ class PackagingTests(unittest.TestCase):
 
         self.assertEqual(claude["name"], "saarius-skills")
         self.assertEqual(claude["version"], codex["version"])
-        # Claude Code always scans skills/; archived skills must not be there.
-        self.assertNotIn("skills", claude)
+        # Both roots are explicit so custom-path replacement and additive loaders work.
+        self.assertEqual(claude["skills"], ["./skills/", "./vendor/pstack/skills/"])
         self.assertNotIn("puppet", packaged)
         self.assertNotIn("herdr-puppet", packaged)
         self.assertIn("cursor-acp-delegation", packaged)
