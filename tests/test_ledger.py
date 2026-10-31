@@ -1111,7 +1111,7 @@ class LedgerCliTests(unittest.TestCase):
         self.init()
         self.focus_and_confirm()
         # 1. Contextual confirmation of a numeric requirement already present in the question succeeds
-        #    even when digit grouping differs ('2,200 bytes' vs '2200 bytes').
+        #    even when digit grouping and surrounding phrasing differ ('2,200 byte reserve' vs 'leave at least 2200 bytes').
         self.run_cli(
             "propose",
             "--id",
@@ -1119,7 +1119,7 @@ class LedgerCliTests(unittest.TestCase):
             "--scope",
             "durable",
             "--question",
-            "Should the public service always listen on port 8443 and leave at least 2,200 bytes?",
+            "Should the public service always listen on port 8443 and keep a 2,200 byte reserve permanently?",
             "--choice",
             "Use port 8443 and leave at least 2200 bytes.",
         )

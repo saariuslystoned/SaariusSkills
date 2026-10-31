@@ -385,8 +385,16 @@ def evaluate_via_openai(
 
 
 def _normalize_metric_token(raw: str) -> str:
-    without_digit_separators = re.sub(r"(?<=\d)[,_](?=\d)", "", raw.strip().lower())
-    return re.sub(r"[\s_-]+", " ", without_digit_separators)
+    cleaned = re.sub(r"(?<=\d)[,_](?=\d)", "", raw.strip().lower())
+    port_match = re.search(r"\bport\s+(\d{4,5})\b", cleaned)
+    if port_match:
+        return f"port:{port_match.group(1)}"
+    size_match = re.search(r"\b(\d+)\s*(bytes?|b|kib)\b", cleaned)
+    if size_match:
+        qty, unit = size_match.group(1), size_match.group(2)
+        canon_unit = "kib" if unit == "kib" else "bytes"
+        return f"size:{qty}:{canon_unit}"
+    return re.sub(r"[\s_-]+", " ", cleaned)
 
 
 def _extract_metric_tokens(text: str) -> set[str]:
