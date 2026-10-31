@@ -1110,7 +1110,8 @@ class LedgerCliTests(unittest.TestCase):
     def test_gatekeeper_allows_contextual_confirmation_and_preserves_saved_scope_on_gate(self) -> None:
         self.init()
         self.focus_and_confirm()
-        # 1. Contextual confirmation of a numeric requirement already present in the question succeeds.
+        # 1. Contextual confirmation of a numeric requirement already present in the question succeeds
+        #    even when digit grouping differs ('2,200 bytes' vs '2200 bytes').
         self.run_cli(
             "propose",
             "--id",
@@ -1118,9 +1119,9 @@ class LedgerCliTests(unittest.TestCase):
             "--scope",
             "durable",
             "--question",
-            "Should the public service always listen on port 8443?",
+            "Should the public service always listen on port 8443 and leave at least 2,200 bytes?",
             "--choice",
-            "Use port 8443.",
+            "Use port 8443 and leave at least 2200 bytes.",
         )
         self.run_cli(
             "lock",
@@ -1161,6 +1162,34 @@ class LedgerCliTests(unittest.TestCase):
         )
         self.assertTrue(gate_out["passed"])
         self.assertEqual(gate_out["declared_scope"], "slice")
+
+        # 3. `slice` scope still rejects bundled extra invariants on a brief reply.
+        bundled_slice_choice = (
+            "Stage the PR in two commits; also enforce a global OAuth PKCE middleware rewrite across all routes; "
+            "and also require every admin view to migrate to a custom WebSocket transport before merge; "
+            "and also lock a strict 15-minute session rotation policy across all environments."
+        )
+        self.run_cli(
+            "propose",
+            "--id",
+            "slice-bundled-002",
+            "--scope",
+            "slice",
+            "--question",
+            "Should we stage the PR in two commits?",
+            "--choice",
+            bundled_slice_choice,
+        )
+        self.run_cli(
+            "lock",
+            "--id",
+            "slice-bundled-002",
+            "--user-reply",
+            "yes",
+            "--gate",
+            "heuristic",
+            expect_code=2,
+        )
 
 
 if __name__ == "__main__":

@@ -381,9 +381,14 @@ def evaluate_via_openai(
     )
 
 
+def _normalize_metric_token(raw: str) -> str:
+    without_digit_separators = re.sub(r"(?<=\d)[,_](?=\d)", "", raw.strip().lower())
+    return re.sub(r"[\s_-]+", " ", without_digit_separators)
+
+
 def _extract_metric_tokens(text: str) -> set[str]:
     return {
-        re.sub(r"[\s,_-]+", " ", match.group(0).strip().lower())
+        _normalize_metric_token(match.group(0))
         for match in _SITUATIONAL_METRIC_RE.finditer(text)
     }
 
@@ -405,7 +410,7 @@ def evaluate_via_heuristic(state: dict[str, Any]) -> dict[str, Any]:
     scope_faithful_prob = 0.95
     reason: str | None = None
 
-    if _TEMPORAL_DEFERRAL_RE.search(combined) and declared_scope == "durable":
+    if _TEMPORAL_DEFERRAL_RE.search(combined) and declared_scope in {"durable", "slice"}:
         decision_type = "deferral"
         overlock_risk = "temporal_deferral_locked_as_rule"
         confidence = 0.90
@@ -413,7 +418,7 @@ def evaluate_via_heuristic(state: dict[str, Any]) -> dict[str, Any]:
         reason = (
             "Choice text describes a temporal deferral ('wait for a later phase' / "
             "'parked until' / 'deferred'), which must use `--scope deferral "
-            "--revisit-when <trigger>` or `defer` rather than locking as a permanent rule."
+            "--revisit-when <trigger>` or `defer` rather than locking as a rule."
         )
     elif unendorsed_metrics and declared_scope == "durable":
         decision_type = "tactical"
@@ -436,14 +441,14 @@ def evaluate_via_heuristic(state: dict[str, Any]) -> dict[str, Any]:
         and len(user_reply.strip()) <= 45
         and len(choice) >= 360
         and choice.count(";") >= 2
-        and declared_scope == "durable"
+        and declared_scope in {"durable", "slice"}
     ):
         overlock_risk = "bundled_extra_invariants"
         confidence = 0.82
         scope_faithful_prob = 0.30
         reason = (
             "Choice bundles multiple semicolon-separated invariants onto a brief "
-            "user reply; split unapproved clauses or scope to `--scope slice`."
+            "user reply; split unapproved clauses before locking."
         )
 
     return _adjudicate_verdict(
@@ -485,6 +490,19 @@ def _adjudicate_verdict(
             passed = False
         elif (
             recommended_scope != "durable"
+            and confidence >= 0.70
+            and scope_faithful_prob < 0.55
+        ):
+            passed = False
+    elif declared_scope == "slice":
+        if overlock_risk in {
+            "bundled_extra_invariants",
+            "temporal_deferral_locked_as_rule",
+            "provisional_direction_locked_as_final",
+        } and (confidence >= 0.78 or scope_faithful_prob < 0.55):
+            passed = False
+        elif (
+            recommended_scope == "deferral"
             and confidence >= 0.70
             and scope_faithful_prob < 0.55
         ):
