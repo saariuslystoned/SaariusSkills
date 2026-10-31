@@ -54,6 +54,8 @@ _TEMPORAL_DEFERRAL_RE = re.compile(
     r"defer(?:red)?\s+(?:to|until)|"
     r"parked\s+(?:until|for\s+later)|"
     r"not\s+in\s+v1\b.*?\blater|"
+    r"not\s+right\s+now\b|"
+    r"revisit\s+(?:in|after|when|later)|"
     r"comes?\s+in\s+phase\s+[234]|"
     r"skip\s+for\s+now"
     r")\b",
