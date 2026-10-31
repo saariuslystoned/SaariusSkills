@@ -1107,6 +1107,61 @@ class LedgerCliTests(unittest.TestCase):
         self.assertIn("old-001", archived_data["decisions"])
         self.assertIn("durable-002", archived_data["history_by_decision"])
 
+    def test_gatekeeper_allows_contextual_confirmation_and_preserves_saved_scope_on_gate(self) -> None:
+        self.init()
+        self.focus_and_confirm()
+        # 1. Contextual confirmation of a numeric requirement already present in the question succeeds.
+        self.run_cli(
+            "propose",
+            "--id",
+            "port-8443-durable",
+            "--scope",
+            "durable",
+            "--question",
+            "Should the public service always listen on port 8443?",
+            "--choice",
+            "Use port 8443.",
+        )
+        self.run_cli(
+            "lock",
+            "--id",
+            "port-8443-durable",
+            "--user-reply",
+            "yes",
+            "--gate",
+            "heuristic",
+        )
+        locked = [
+            item
+            for item in self.read_ledger()["decisions"]
+            if item["id"] == "port-8443-durable"
+        ][0]
+        self.assertEqual(locked["status"], "locked")
+
+        # 2. `gate --id <id>` preserves the saved `slice` scope when `--scope` is omitted.
+        self.run_cli(
+            "propose",
+            "--id",
+            "slice-reserve-001",
+            "--scope",
+            "slice",
+            "--question",
+            "How should we stage this PR?",
+            "--choice",
+            "Keep 2,200 bytes free for this slice.",
+        )
+        gate_out = json.loads(
+            self.run_cli(
+                "gate",
+                "--id",
+                "slice-reserve-001",
+                "--gate",
+                "heuristic",
+            ).stdout
+        )
+        self.assertTrue(gate_out["passed"])
+        self.assertEqual(gate_out["declared_scope"], "slice")
+
 
 if __name__ == "__main__":
     unittest.main()

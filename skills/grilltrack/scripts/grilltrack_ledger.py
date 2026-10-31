@@ -1628,7 +1628,7 @@ def build_parser() -> argparse.ArgumentParser:
     gate.add_argument(
         "--scope",
         choices=sorted(DECISION_SCOPES),
-        default="durable",
+        default=None,
     )
     gate.add_argument("--revisit-when")
     gate.add_argument("--user-reply", help="verbatim user reply")

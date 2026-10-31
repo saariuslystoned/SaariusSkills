@@ -381,12 +381,23 @@ def evaluate_via_openai(
     )
 
 
+def _extract_metric_tokens(text: str) -> set[str]:
+    return {
+        re.sub(r"[\s,_-]+", " ", match.group(0).strip().lower())
+        for match in _SITUATIONAL_METRIC_RE.finditer(text)
+    }
+
+
 def evaluate_via_heuristic(state: dict[str, Any]) -> dict[str, Any]:
     declared_scope = str(state.get("declared_scope") or "durable")
+    question = str(state.get("question") or "")
     choice = str(state.get("choice") or "")
     rationale = str(state.get("rationale") or "")
     user_reply = str(state.get("user_reply") or "")
     combined = f"{choice}\n{rationale}"
+    choice_metrics = _extract_metric_tokens(combined)
+    endorsed_metrics = _extract_metric_tokens(f"{question}\n{user_reply}")
+    unendorsed_metrics = choice_metrics - endorsed_metrics
 
     decision_type = declared_scope if declared_scope in {"durable", "slice", "deferral"} else "durable"
     overlock_risk = "clean"
@@ -404,17 +415,16 @@ def evaluate_via_heuristic(state: dict[str, Any]) -> dict[str, Any]:
             "'parked until' / 'deferred'), which must use `--scope deferral "
             "--revisit-when <trigger>` or `defer` rather than locking as a permanent rule."
         )
-    elif _SITUATIONAL_METRIC_RE.search(combined) and declared_scope == "durable":
-        if not user_reply or not _SITUATIONAL_METRIC_RE.search(user_reply):
-            decision_type = "tactical"
-            overlock_risk = "numeric_measurement_locked_as_law"
-            confidence = 0.88
-            scope_faithful_prob = 0.20
-            reason = (
-                "Choice locks a situational byte/port measurement as a durable rule "
-                "without explicit numeric endorsement in the user reply. Use `--scope slice` "
-                "or remove the point-in-time reserve."
-            )
+    elif unendorsed_metrics and declared_scope == "durable":
+        decision_type = "tactical"
+        overlock_risk = "numeric_measurement_locked_as_law"
+        confidence = 0.88
+        scope_faithful_prob = 0.20
+        reason = (
+            "Choice locks a situational byte/port measurement as a durable rule "
+            "without explicit numeric endorsement in the question or user reply. "
+            "Use `--scope slice` or remove the point-in-time reserve."
+        )
     elif _ONE_OFF_CHORE_RE.search(combined) and declared_scope == "durable":
         decision_type = "slice"
         overlock_risk = "bundled_extra_invariants"
@@ -554,23 +564,19 @@ def evaluate_decision_lock(
             "reason": "Gatekeeper disabled.",
         }
 
-    # Fast local check catches unambiguous deferral/metric overlocks immediately.
-    local_verdict = evaluate_via_heuristic(state)
     if effective_mode == "heuristic":
-        return local_verdict
-    if not local_verdict["passed"]:
-        return local_verdict
+        return evaluate_via_heuristic(state)
 
     if effective_mode in {"auto", "jev"}:
         jev_verdict = evaluate_via_jev(state, env=runtime_env)
         if jev_verdict is not None:
             return jev_verdict
         if effective_mode == "jev":
-            return local_verdict
+            return evaluate_via_heuristic(state)
 
     if effective_mode in {"auto", "openai"}:
         openai_verdict = evaluate_via_openai(state, env=runtime_env)
         if openai_verdict is not None:
             return openai_verdict
 
-    return local_verdict
+    return evaluate_via_heuristic(state)
