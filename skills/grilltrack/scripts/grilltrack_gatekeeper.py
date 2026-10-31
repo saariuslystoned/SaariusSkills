@@ -50,7 +50,8 @@ OVERLOCK_CATEGORIES = (
 
 _TEMPORAL_DEFERRAL_RE = re.compile(
     r"\b(?:"
-    r"wait(?:s|ing)?\s+for\s+(?:a\s+)?later\s+phase|"
+    r"wait(?:s|ing)?\s+for\s+(?:a\s+)?(?:later\s+phase|phase\s+\d+|v\d+)|"
+    r"after\s+v\d+\s+ships\b|"
     r"defer(?:red)?\s+(?:to|until)|"
     r"parked\s+(?:until|for\s+later)|"
     r"not\s+in\s+v1\b.*?\blater|"

@@ -1245,6 +1245,36 @@ class LedgerCliTests(unittest.TestCase):
         self.assertEqual(blocked_reply_deferral.returncode, 2)
         self.assertIn("deferral", blocked_reply_deferral.stderr)
 
+        # 6. Milestone deferrals ('wait for Phase 3', 'after v1 ships') in choice are rejected on durable lock.
+        for idx, phrase in enumerate(
+            ("Browser tools wait for Phase 3.", "Enable browser tools after v1 ships."),
+            start=5,
+        ):
+            decision_id = f"milestone-deferral-00{idx}"
+            self.run_cli(
+                "propose",
+                "--id",
+                decision_id,
+                "--scope",
+                "durable",
+                "--question",
+                "When should browser tools land?",
+                "--choice",
+                phrase,
+            )
+            blocked_milestone = self.run_cli(
+                "lock",
+                "--id",
+                decision_id,
+                "--user-reply",
+                "yes",
+                "--gate",
+                "heuristic",
+                ok=False,
+            )
+            self.assertEqual(blocked_milestone.returncode, 2)
+            self.assertIn("deferral", blocked_milestone.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
