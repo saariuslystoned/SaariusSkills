@@ -52,8 +52,12 @@ for CLI, API, document, device, or other non-frontend cycles.
 4. Choose sequential questioning for dependent or ambiguous decisions, or one
    numbered frontier batch for currently independent questions. Explain a
    non-obvious cadence choice briefly and let the user override it.
-5. Record answers and scoped locks. Preserve dependencies and cumulative
-   context.
+5. Record answers and scoped locks (`--scope durable | slice | deferral`, with
+   `--revisit-when` required for `deferral`). Pass `--user-reply "<verbatim user reply>"`
+   when locking so the live gatekeeper (Jev `jev-1.13.0` primary -> OpenAI
+   Decision API `gpt-6.1-sol` fallback) catches situational measurements,
+   temporal deferrals masquerading as permanent prohibitions, or bundled
+   compound overlocks. Preserve dependencies and cumulative context.
 6. Summarize the focused grill and wait for explicit shared-understanding
    confirmation before implementation.
 7. Implement only the confirmed, bounded domain in the real project.

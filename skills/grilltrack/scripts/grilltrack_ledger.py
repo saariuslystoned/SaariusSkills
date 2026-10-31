@@ -31,6 +31,7 @@ DECISION_STATES = {
     "needs_reverification",
     "deferred",
 }
+DECISION_SCOPES = {"durable", "slice", "deferral"}
 TRACK_STATES = {"active", "paused", "closed"}
 CADENCES = {"sequential", "frontier-batch"}
 REVIEW_RESULTS = {"clean", "findings"}
@@ -432,6 +433,16 @@ def validate_ledger(ledger: Any) -> None:
             raise LedgerError(
                 f"{decision_id}.status must be one of {sorted(DECISION_STATES)}"
             )
+        scope = decision.get("scope", "durable")
+        if scope not in DECISION_SCOPES:
+            raise LedgerError(
+                f"{decision_id}.scope must be one of {sorted(DECISION_SCOPES)}"
+            )
+        revisit_when = decision.get("revisit_when")
+        if scope == "deferral":
+            require_text(revisit_when, f"{decision_id}.revisit_when")
+        elif revisit_when is not None:
+            require_text(revisit_when, f"{decision_id}.revisit_when")
         dependencies = decision.get("dependencies")
         if not isinstance(dependencies, list) or not all(
             isinstance(item, str) for item in dependencies
@@ -495,15 +506,34 @@ def validate_ledger(ledger: Any) -> None:
                 f"{decision_id}.review_classifications requires a review"
             )
 
+    compacted_ids: set[str] = set()
+    raw_compacted = ledger.get("compacted_decision_ids")
+    if raw_compacted is not None:
+        if not isinstance(raw_compacted, list) or not all(
+            isinstance(item, str) for item in raw_compacted
+        ):
+            raise LedgerError("compacted_decision_ids must be an array of ids")
+        for item in raw_compacted:
+            compacted_ids.add(validate_id(item, "compacted_decision_id"))
+        overlap = compacted_ids.intersection(by_id)
+        if overlap:
+            raise LedgerError(
+                "compacted_decision_ids overlaps active decisions: "
+                + ", ".join(sorted(overlap))
+            )
+
+    known_ids = set(by_id).union(compacted_ids)
     for decision_id, decision in by_id.items():
-        missing = [item for item in decision["dependencies"] if item not in by_id]
+        missing = [
+            item for item in decision["dependencies"] if item not in known_ids
+        ]
         if missing:
             raise LedgerError(
                 f"{decision_id} has missing dependencies: {', '.join(missing)}"
             )
         superseded_by = decision.get("superseded_by")
         if decision["status"] == "superseded":
-            if superseded_by not in by_id or superseded_by == decision_id:
+            if superseded_by not in known_ids or superseded_by == decision_id:
                 raise LedgerError(
                     f"{decision_id}.superseded_by must name another decision"
                 )
@@ -518,7 +548,8 @@ def validate_ledger(ledger: Any) -> None:
             return
         visiting.add(decision_id)
         for dependency in by_id[decision_id]["dependencies"]:
-            visit(dependency)
+            if dependency in by_id:
+                visit(dependency)
         visiting.remove(decision_id)
         visited.add(decision_id)
 
@@ -878,18 +909,32 @@ def command_propose(store: Store, args: argparse.Namespace) -> None:
     if not focus:
         raise LedgerError("start a focused grill before proposing a decision")
     decision_id = validate_id(args.id, "decision id")
-    if decision_id in decision_map(ledger):
+    existing = decision_map(ledger)
+    compacted_ids = set(ledger.get("compacted_decision_ids") or [])
+    if decision_id in existing or decision_id in compacted_ids:
         raise LedgerError(f"decision already exists: {decision_id}")
     dependencies = [validate_id(item, "dependency id") for item in args.depends_on]
-    existing = decision_map(ledger)
-    missing = [item for item in dependencies if item not in existing]
+    known = set(existing).union(compacted_ids)
+    missing = [item for item in dependencies if item not in known]
     if missing:
         raise LedgerError("missing dependencies: " + ", ".join(missing))
+    scope = (args.scope or "durable").strip()
+    if scope not in DECISION_SCOPES:
+        raise LedgerError(f"scope must be one of {sorted(DECISION_SCOPES)}")
+    revisit_when: str | None = None
+    if scope == "deferral":
+        revisit_when = require_text(
+            args.revisit_when, "revisit_when (--revisit-when required for --scope deferral)"
+        )
+    elif args.revisit_when is not None:
+        revisit_when = require_text(args.revisit_when, "revisit_when")
     now = utc_now()
     ledger["decisions"].append(
         {
             "id": decision_id,
             "domain": focus["domain"],
+            "scope": scope,
+            "revisit_when": revisit_when,
             "question": require_text(args.question, "question"),
             "choice": require_text(args.choice, "choice"),
             "rationale": args.rationale.strip(),
@@ -914,11 +959,17 @@ def command_propose(store: Store, args: argparse.Namespace) -> None:
             "history": [],
         }
     )
-    store.persist(ledger, "decision_proposed", {"decision_id": decision_id})
+    store.persist(
+        ledger,
+        "decision_proposed",
+        {"decision_id": decision_id, "scope": scope, "revisit_when": revisit_when},
+    )
     output(ledger, store=store, args=args, decision_id=decision_id)
 
 
 def command_lock(store: Store, args: argparse.Namespace) -> None:
+    from grilltrack_gatekeeper import evaluate_decision_lock
+
     ledger = store.load()
     require_active(ledger)
     decision = get_decision(ledger, args.id)
@@ -929,9 +980,234 @@ def command_lock(store: Store, args: argparse.Namespace) -> None:
         changes["choice"] = require_text(args.choice, "choice")
     if args.rationale is not None:
         changes["rationale"] = args.rationale.strip()
+
+    effective_scope = args.scope or decision.get("scope") or "durable"
+    if effective_scope not in DECISION_SCOPES:
+        raise LedgerError(f"scope must be one of {sorted(DECISION_SCOPES)}")
+    changes["scope"] = effective_scope
+
+    effective_revisit = (
+        args.revisit_when
+        if args.revisit_when is not None
+        else decision.get("revisit_when")
+    )
+    if effective_scope == "deferral":
+        effective_revisit = require_text(
+            effective_revisit,
+            "revisit_when (--revisit-when required when locking --scope deferral)",
+        )
+        changes["revisit_when"] = effective_revisit
+        effective_rationale = changes.get("rationale", decision.get("rationale", ""))
+        deferred_reason = (
+            f"{effective_revisit} ({effective_rationale})"
+            if effective_rationale
+            else effective_revisit
+        )
+        changes["deferred_reason"] = deferred_reason
+        transition(
+            decision,
+            "deferred",
+            "deferral recorded with explicit revisit trigger",
+            changes,
+        )
+        store.persist(
+            ledger,
+            "decision_deferred",
+            {
+                "decision_id": decision["id"],
+                "scope": "deferral",
+                "revisit_when": effective_revisit,
+            },
+        )
+        output(ledger, store=store, args=args, decision_id=decision["id"])
+        return
+
+    if effective_revisit is not None:
+        changes["revisit_when"] = require_text(effective_revisit, "revisit_when")
+
+    effective_choice = changes.get("choice", decision["choice"])
+    effective_rationale = changes.get("rationale", decision.get("rationale", ""))
+    gate_mode = args.gate
+    if gate_mode is None:
+        gate_mode = "auto" if args.user_reply else "heuristic"
+
+    verdict = evaluate_decision_lock(
+        decision_id=decision["id"],
+        domain=decision["domain"],
+        question=decision["question"],
+        choice=effective_choice,
+        rationale=effective_rationale,
+        declared_scope=effective_scope,
+        revisit_when=effective_revisit,
+        user_reply=args.user_reply,
+        mode=gate_mode,
+    )
+    if not verdict["passed"]:
+        if not args.force_lock:
+            raise LedgerError(verdict["reason"])
+        override_reason = require_text(
+            args.override_reason,
+            "override_reason (--override-reason required with --force-lock)",
+        )
+        verdict = dict(verdict)
+        verdict["overridden"] = True
+        verdict["override_reason"] = override_reason
+
+    changes["gate_evaluation"] = verdict
     transition(decision, "locked", "user accepted the scoped decision", changes)
-    store.persist(ledger, "decision_locked", {"decision_id": decision["id"]})
+    store.persist(
+        ledger,
+        "decision_locked",
+        {
+            "decision_id": decision["id"],
+            "scope": effective_scope,
+            "gate_provider": verdict["provider"],
+            "gate_overlock_risk": verdict["overlock_risk"],
+        },
+    )
     output(ledger, store=store, args=args, decision_id=decision["id"])
+
+
+def command_gate(store: Store, args: argparse.Namespace) -> None:
+    from grilltrack_gatekeeper import evaluate_decision_lock
+
+    if args.id:
+        ledger = store.load()
+        decision = get_decision(ledger, args.id)
+        decision_id = decision["id"]
+        domain = decision["domain"]
+        question = args.question or decision["question"]
+        choice = args.choice or decision["choice"]
+        rationale = (
+            args.rationale
+            if args.rationale is not None
+            else decision.get("rationale", "")
+        )
+        scope = args.scope or decision.get("scope") or "durable"
+        revisit_when = args.revisit_when or decision.get("revisit_when")
+    else:
+        decision_id = "candidate"
+        domain = args.domain or "general"
+        question = require_text(args.question, "question")
+        choice = require_text(args.choice, "choice")
+        rationale = (args.rationale or "").strip()
+        scope = args.scope or "durable"
+        revisit_when = args.revisit_when
+
+    verdict = evaluate_decision_lock(
+        decision_id=decision_id,
+        domain=domain,
+        question=question,
+        choice=choice,
+        rationale=rationale,
+        declared_scope=scope,
+        revisit_when=revisit_when,
+        user_reply=args.user_reply,
+        mode=args.gate or "auto",
+    )
+    print(json.dumps(verdict, indent=2, sort_keys=True))
+    if not verdict["passed"]:
+        raise LedgerError(verdict["reason"])
+
+
+def command_compact(store: Store, args: argparse.Namespace) -> None:
+    ledger = store.load()
+    require_mutable(ledger)
+    store.archive_root.mkdir(mode=0o755, exist_ok=True)
+    archive_path = store.archive_root / f"compacted-{ledger['track_id']}.json"
+    archive_ref = f".grilltrack/archive/compacted-{ledger['track_id']}.json"
+
+    existing_archive: dict[str, Any] = {
+        "schema_version": "grilltrack/compacted-archive/v1",
+        "track_id": ledger["track_id"],
+        "decisions": {},
+        "history_by_decision": {},
+        "updated_at": utc_now(),
+    }
+    if archive_path.is_file():
+        try:
+            loaded_arch = json.loads(archive_path.read_text(encoding="utf-8"))
+            if isinstance(loaded_arch, dict):
+                existing_archive.update(loaded_arch)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise LedgerError(f"cannot read compaction archive: {exc}") from exc
+
+    active_decisions: list[dict[str, Any]] = []
+    newly_archived_ids: list[str] = []
+    trimmed_history_count = 0
+
+    for decision in ledger["decisions"]:
+        did = decision["id"]
+        status = decision["status"]
+        scope = decision.get("scope", "durable")
+        should_archive = status == "superseded" or (
+            status == "verified" and scope == "slice"
+        )
+        if should_archive:
+            existing_archive.setdefault("decisions", {})[did] = copy.deepcopy(
+                decision
+            )
+            newly_archived_ids.append(did)
+        else:
+            history = decision.get("history") or []
+            if len(history) > 1:
+                prior_history = existing_archive.setdefault(
+                    "history_by_decision", {}
+                ).setdefault(did, [])
+                prior_history.extend(copy.deepcopy(history[:-1]))
+                decision["history"] = [history[-1]]
+                trimmed_history_count += len(history) - 1
+            active_decisions.append(decision)
+
+    compacted_ids = sorted(
+        set(ledger.get("compacted_decision_ids") or []).union(newly_archived_ids)
+    )
+    if args.dry_run:
+        print(
+            json.dumps(
+                {
+                    "dry_run": True,
+                    "archived_decision_ids": newly_archived_ids,
+                    "total_compacted_decision_ids": len(compacted_ids),
+                    "active_decision_count_after": len(active_decisions),
+                    "trimmed_history_entries": trimmed_history_count,
+                    "archive_ref": archive_ref,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return
+
+    existing_archive["updated_at"] = utc_now()
+    fd, temporary = tempfile.mkstemp(
+        prefix=".compact-", suffix=".json", dir=store.archive_root
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(existing_archive, indent=2, sort_keys=True) + "\n"
+            )
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, archive_path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+    ledger["decisions"] = active_decisions
+    ledger["compacted_decision_ids"] = compacted_ids
+    ledger["compaction_archive_ref"] = archive_ref
+    store.persist(
+        ledger,
+        "ledger_compacted",
+        {
+            "archived_decision_ids": newly_archived_ids,
+            "trimmed_history_entries": trimmed_history_count,
+            "archive_ref": archive_ref,
+        },
+    )
+    output(ledger, store=store, args=args)
 
 
 def command_implement(store: Store, args: argparse.Namespace) -> None:
@@ -1288,6 +1564,16 @@ def build_parser() -> argparse.ArgumentParser:
     propose.add_argument("--question", required=True)
     propose.add_argument("--choice", required=True)
     propose.add_argument("--rationale", default="")
+    propose.add_argument(
+        "--scope",
+        choices=sorted(DECISION_SCOPES),
+        default="durable",
+        help="decision lifetime scope: durable (default), slice (PR/milestone), or deferral (requires --revisit-when)",
+    )
+    propose.add_argument(
+        "--revisit-when",
+        help="explicit trigger condition to revisit a deferred decision (required when --scope deferral)",
+    )
     propose.add_argument("--depends-on", action="append", default=[])
     propose.add_argument("--context-ref")
     propose.add_argument("--baseline-ref")
@@ -1299,8 +1585,71 @@ def build_parser() -> argparse.ArgumentParser:
     lock.add_argument("--id", required=True)
     lock.add_argument("--choice")
     lock.add_argument("--rationale")
+    lock.add_argument(
+        "--scope",
+        choices=sorted(DECISION_SCOPES),
+        help="override decision scope when locking (durable, slice, or deferral)",
+    )
+    lock.add_argument(
+        "--revisit-when",
+        help="revisit condition when locking a deferral decision",
+    )
+    lock.add_argument(
+        "--user-reply",
+        help="verbatim user reply endorsing this lock (enables live Jev / OpenAI gpt-6.1-sol gatekeeper check)",
+    )
+    lock.add_argument(
+        "--gate",
+        choices=("auto", "jev", "openai", "heuristic", "off"),
+        default=None,
+        help="lock gatekeeper mode (default: auto when --user-reply is supplied, else heuristic)",
+    )
+    lock.add_argument(
+        "--force-lock",
+        action="store_true",
+        help="override a gatekeeper overlock rejection (requires --override-reason)",
+    )
+    lock.add_argument(
+        "--override-reason",
+        help="explicit reason for overriding a gatekeeper rejection",
+    )
     add_output_option(lock)
     lock.set_defaults(handler=command_lock)
+
+    gate = subparsers.add_parser(
+        "gate",
+        help="evaluate a proposed decision or candidate choice against the Jev / OpenAI gpt-6.1-sol lock gatekeeper",
+    )
+    gate.add_argument("--id", help="existing decision id in ledger")
+    gate.add_argument("--domain", help="domain name when evaluating without --id")
+    gate.add_argument("--question", help="question text")
+    gate.add_argument("--choice", help="proposed choice text")
+    gate.add_argument("--rationale", help="proposed rationale text")
+    gate.add_argument(
+        "--scope",
+        choices=sorted(DECISION_SCOPES),
+        default="durable",
+    )
+    gate.add_argument("--revisit-when")
+    gate.add_argument("--user-reply", help="verbatim user reply")
+    gate.add_argument(
+        "--gate",
+        choices=("auto", "jev", "openai", "heuristic"),
+        default="auto",
+    )
+    gate.set_defaults(handler=command_gate)
+
+    compact = subparsers.add_parser(
+        "compact",
+        help="archive superseded decisions, verified slice decisions, and verbose per-decision history into .grilltrack/archive/",
+    )
+    compact.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="preview compaction counts without modifying the ledger",
+    )
+    add_output_option(compact)
+    compact.set_defaults(handler=command_compact)
 
     implement = subparsers.add_parser(
         "implement", help="record bounded implementation"

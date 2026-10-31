@@ -908,12 +908,204 @@ class LedgerCliTests(unittest.TestCase):
         commands = (
             "init", "new", "focus", "confirm", "propose", "lock", "implement",
             "verify", "review", "reopen", "supersede", "defer", "recommend",
-            "pause", "resume", "close",
+            "pause", "resume", "close", "compact",
         )
         for command in commands:
             result = self.run_cli(command, "--output", "summary", "--help")
             self.assertEqual(result.returncode, 0, command)
             self.assertIn("--output", result.stdout, command)
+
+    def test_deferral_scope_requires_revisit_when_and_locks_as_deferred(self) -> None:
+        self.init()
+        self.focus_and_confirm()
+        missing_revisit = self.run_cli(
+            "propose",
+            "--id",
+            "webmcp-later-001",
+            "--scope",
+            "deferral",
+            "--question",
+            "Do browser agents get WebMCP tools now?",
+            "--choice",
+            "No. WebMCP tools wait for a later phase.",
+            ok=False,
+        )
+        self.assertEqual(missing_revisit.returncode, 2)
+        self.assertIn("revisit_when", missing_revisit.stderr)
+
+        self.run_cli(
+            "propose",
+            "--id",
+            "webmcp-later-001",
+            "--scope",
+            "deferral",
+            "--revisit-when",
+            "Phase 3 after first real order ships",
+            "--question",
+            "Do browser agents get WebMCP tools now?",
+            "--choice",
+            "No. WebMCP tools wait for a later phase.",
+            "--rationale",
+            "Wait until Phase 1 headless UCP is verified.",
+        )
+        self.run_cli("lock", "--id", "webmcp-later-001")
+        decision = self.read_ledger()["decisions"][0]
+        self.assertEqual(decision["scope"], "deferral")
+        self.assertEqual(decision["status"], "deferred")
+        self.assertIn("Phase 3 after first real order ships", decision["deferred_reason"])
+        self.assertEqual(self.run_cli("validate").stdout.strip(), "valid")
+
+    def test_gatekeeper_blocks_temporal_deferral_and_situational_metric_on_durable_lock(self) -> None:
+        self.init()
+        self.focus_and_confirm()
+        self.run_cli(
+            "propose",
+            "--id",
+            "false-ban-001",
+            "--scope",
+            "durable",
+            "--question",
+            "Do browser agents get WebMCP tools now?",
+            "--choice",
+            "No. WebMCP tools wait for a later phase.",
+        )
+        blocked_deferral = self.run_cli("lock", "--id", "false-ban-001", ok=False)
+        self.assertEqual(blocked_deferral.returncode, 2)
+        self.assertIn("deferral", blocked_deferral.stderr)
+
+        self.run_cli(
+            "propose",
+            "--id",
+            "byte-reserve-001",
+            "--scope",
+            "durable",
+            "--question",
+            "How should we handle coupons under the 128 KiB cap?",
+            "--choice",
+            "Park coupons and leave at least 2200 bytes of headroom under the cap.",
+        )
+        blocked_metric = self.run_cli(
+            "lock",
+            "--id",
+            "byte-reserve-001",
+            "--user-reply",
+            "yes park coupons for now",
+            "--gate",
+            "heuristic",
+            ok=False,
+        )
+        self.assertEqual(blocked_metric.returncode, 2)
+        self.assertIn("situational", blocked_metric.stderr)
+
+        # Override requires --override-reason
+        missing_reason = self.run_cli(
+            "lock",
+            "--id",
+            "byte-reserve-001",
+            "--force-lock",
+            ok=False,
+        )
+        self.assertEqual(missing_reason.returncode, 2)
+        self.assertIn("override_reason", missing_reason.stderr)
+
+        self.run_cli(
+            "lock",
+            "--id",
+            "byte-reserve-001",
+            "--force-lock",
+            "--override-reason",
+            "Explicitly requested temporary test fixture override",
+        )
+        locked = [
+            item
+            for item in self.read_ledger()["decisions"]
+            if item["id"] == "byte-reserve-001"
+        ][0]
+        self.assertEqual(locked["status"], "locked")
+        self.assertTrue(locked["gate_evaluation"]["overridden"])
+
+    def test_compact_archives_superseded_and_verified_slice_decisions_preserving_dependencies(self) -> None:
+        self.init()
+        self.focus_and_confirm()
+        # 1. Verified slice decision
+        self.run_cli(
+            "propose",
+            "--id",
+            "slice-001",
+            "--scope",
+            "slice",
+            "--question",
+            "How to stage this PR?",
+            "--choice",
+            "Stage in two commits.",
+        )
+        self.run_cli("lock", "--id", "slice-001")
+        self.run_cli("implement", "--id", "slice-001", "--ref", "file:slice")
+        self.run_cli("verify", "--id", "slice-001", "--ref", "test:slice")
+
+        # 2. Old decision superseded by durable-002
+        self.add_verified("old-001")
+        self.run_cli(
+            "propose",
+            "--id",
+            "durable-002",
+            "--scope",
+            "durable",
+            "--depends-on",
+            "slice-001",
+            "--question",
+            "Permanent architecture?",
+            "--choice",
+            "Use pure JSON envelope.",
+        )
+        self.run_cli("lock", "--id", "durable-002")
+        self.run_cli(
+            "supersede",
+            "--id",
+            "old-001",
+            "--by",
+            "durable-002",
+            "--reason",
+            "Replaced by pure JSON envelope",
+        )
+        self.run_cli("implement", "--id", "durable-002", "--ref", "file:durable")
+        self.run_cli("verify", "--id", "durable-002", "--ref", "test:durable")
+
+        self.run_cli("compact")
+        ledger = self.read_ledger()
+        active_ids = [item["id"] for item in ledger["decisions"]]
+        self.assertEqual(active_ids, ["durable-002"])
+        self.assertEqual(
+            ledger["compacted_decision_ids"], ["old-001", "slice-001"]
+        )
+        self.assertEqual(len(ledger["decisions"][0]["history"]), 1)
+        self.assertEqual(self.run_cli("validate").stdout.strip(), "valid")
+
+        # Proposing a new decision that depends on a compacted decision succeeds.
+        self.run_cli(
+            "propose",
+            "--id",
+            "dependent-003",
+            "--depends-on",
+            "slice-001",
+            "--question",
+            "Follow-up?",
+            "--choice",
+            "Keep envelope.",
+        )
+        self.assertEqual(self.run_cli("validate").stdout.strip(), "valid")
+
+        archive_file = (
+            self.project
+            / ".grilltrack"
+            / "archive"
+            / "compacted-fixture-track.json"
+        )
+        self.assertTrue(archive_file.is_file())
+        archived_data = json.loads(archive_file.read_text(encoding="utf-8"))
+        self.assertIn("slice-001", archived_data["decisions"])
+        self.assertIn("old-001", archived_data["decisions"])
+        self.assertIn("durable-002", archived_data["history_by_decision"])
 
 
 if __name__ == "__main__":
