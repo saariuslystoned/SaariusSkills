@@ -1180,7 +1180,7 @@ class LedgerCliTests(unittest.TestCase):
             "--choice",
             bundled_slice_choice,
         )
-        self.run_cli(
+        blocked_slice = self.run_cli(
             "lock",
             "--id",
             "slice-bundled-002",
@@ -1188,8 +1188,10 @@ class LedgerCliTests(unittest.TestCase):
             "yes",
             "--gate",
             "heuristic",
-            expect_code=2,
+            ok=False,
         )
+        self.assertEqual(blocked_slice.returncode, 2)
+        self.assertIn("bundled_extra_invariants", blocked_slice.stderr)
 
 
 if __name__ == "__main__":
