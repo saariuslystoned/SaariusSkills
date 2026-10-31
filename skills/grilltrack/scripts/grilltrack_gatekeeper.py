@@ -439,7 +439,7 @@ def evaluate_via_heuristic(state: dict[str, Any]) -> dict[str, Any]:
     elif (
         user_reply
         and len(user_reply.strip()) <= 45
-        and len(choice) >= 360
+        and len(choice) >= 200
         and choice.count(";") >= 2
         and declared_scope in {"durable", "slice"}
     ):
@@ -447,8 +447,9 @@ def evaluate_via_heuristic(state: dict[str, Any]) -> dict[str, Any]:
         confidence = 0.82
         scope_faithful_prob = 0.30
         reason = (
-            "Choice bundles multiple semicolon-separated invariants onto a brief "
-            "user reply; split unapproved clauses before locking."
+            "Choice bundles multiple semicolon-separated invariants "
+            "(overlock_risk=bundled_extra_invariants) onto a brief user reply; "
+            "split unapproved clauses before locking."
         )
 
     return _adjudicate_verdict(
