@@ -393,6 +393,51 @@ def _extract_metric_tokens(text: str) -> set[str]:
     }
 
 
+def _content_words(text: str) -> set[str]:
+    return {
+        word
+        for word in re.findall(r"[a-z0-9]{4,}", text.lower())
+        if word
+        not in {
+            "also",
+            "that",
+            "this",
+            "with",
+            "from",
+            "into",
+            "when",
+            "then",
+            "only",
+            "must",
+            "should",
+            "will",
+            "have",
+            "been",
+            "each",
+            "every",
+            "before",
+            "after",
+            "across",
+        }
+    }
+
+
+def _has_unendorsed_compound_clauses(choice: str, endorsed_context: str) -> bool:
+    clauses = [part.strip() for part in choice.split(";") if part.strip()]
+    if len(clauses) < 3:
+        return False
+    endorsed_words = _content_words(endorsed_context)
+    unendorsed_count = 0
+    for clause in clauses:
+        clause_words = _content_words(clause)
+        if not clause_words:
+            continue
+        overlap = len(clause_words & endorsed_words) / len(clause_words)
+        if overlap < 0.5:
+            unendorsed_count += 1
+    return unendorsed_count >= 2
+
+
 def evaluate_via_heuristic(state: dict[str, Any]) -> dict[str, Any]:
     declared_scope = str(state.get("declared_scope") or "durable")
     question = str(state.get("question") or "")
@@ -400,8 +445,9 @@ def evaluate_via_heuristic(state: dict[str, Any]) -> dict[str, Any]:
     rationale = str(state.get("rationale") or "")
     user_reply = str(state.get("user_reply") or "")
     combined = f"{choice}\n{rationale}"
+    endorsed_context = f"{question}\n{user_reply}"
     choice_metrics = _extract_metric_tokens(combined)
-    endorsed_metrics = _extract_metric_tokens(f"{question}\n{user_reply}")
+    endorsed_metrics = _extract_metric_tokens(endorsed_context)
     unendorsed_metrics = choice_metrics - endorsed_metrics
 
     decision_type = declared_scope if declared_scope in {"durable", "slice", "deferral"} else "durable"
@@ -410,13 +456,13 @@ def evaluate_via_heuristic(state: dict[str, Any]) -> dict[str, Any]:
     scope_faithful_prob = 0.95
     reason: str | None = None
 
-    if _TEMPORAL_DEFERRAL_RE.search(combined) and declared_scope in {"durable", "slice"}:
+    if _TEMPORAL_DEFERRAL_RE.search(f"{combined}\n{user_reply}") and declared_scope in {"durable", "slice"}:
         decision_type = "deferral"
         overlock_risk = "temporal_deferral_locked_as_rule"
         confidence = 0.90
         scope_faithful_prob = 0.15
         reason = (
-            "Choice text describes a temporal deferral ('wait for a later phase' / "
+            "Choice or user reply describes a temporal deferral ('wait for a later phase' / "
             "'parked until' / 'deferred'), which must use `--scope deferral "
             "--revisit-when <trigger>` or `defer` rather than locking as a rule."
         )
@@ -442,6 +488,7 @@ def evaluate_via_heuristic(state: dict[str, Any]) -> dict[str, Any]:
         and len(choice) >= 200
         and choice.count(";") >= 2
         and declared_scope in {"durable", "slice"}
+        and _has_unendorsed_compound_clauses(choice, endorsed_context)
     ):
         overlock_risk = "bundled_extra_invariants"
         confidence = 0.82

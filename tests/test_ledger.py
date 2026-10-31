@@ -1193,6 +1193,58 @@ class LedgerCliTests(unittest.TestCase):
         self.assertEqual(blocked_slice.returncode, 2)
         self.assertIn("bundled_extra_invariants", blocked_slice.stderr)
 
+        # 4. Compound choice whose clauses were all presented in the question is allowed on a short reply.
+        endorsed_compound_choice = (
+            "Stage the PR in two commits for review clarity; "
+            "enforce OAuth PKCE middleware validation on public endpoints; "
+            "and require a 15-minute session rotation interval across production workers."
+        )
+        self.run_cli(
+            "propose",
+            "--id",
+            "compound-endorsed-003",
+            "--scope",
+            "durable",
+            "--question",
+            f"Should we {endorsed_compound_choice}",
+            "--choice",
+            endorsed_compound_choice,
+        )
+        self.run_cli(
+            "lock",
+            "--id",
+            "compound-endorsed-003",
+            "--user-reply",
+            "yes",
+            "--gate",
+            "heuristic",
+        )
+
+        # 5. User reply containing a temporal deferral ('revisit in Phase 3') is rejected on durable lock.
+        self.run_cli(
+            "propose",
+            "--id",
+            "reply-deferral-004",
+            "--scope",
+            "durable",
+            "--question",
+            "Should we enable browser tools?",
+            "--choice",
+            "Browser tools are prohibited.",
+        )
+        blocked_reply_deferral = self.run_cli(
+            "lock",
+            "--id",
+            "reply-deferral-004",
+            "--user-reply",
+            "Not right now; revisit in Phase 3.",
+            "--gate",
+            "heuristic",
+            ok=False,
+        )
+        self.assertEqual(blocked_reply_deferral.returncode, 2)
+        self.assertIn("deferral", blocked_reply_deferral.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
