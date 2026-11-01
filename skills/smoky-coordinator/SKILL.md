@@ -26,9 +26,10 @@ an aside; make a scope decision before admitting a tangent. Keep sibling lanes
 as a compact status-only roster and do not touch their files.
 
 Prefer ACP for substantial implementation, research, diagnosis, and suitable
-proof when a qualified lane is available. Follow
-[`acp-delegation`](../acp-delegation/SKILL.md) for readiness, model selection,
-permission, and result handling; do not duplicate its adapter contracts.
+proof when a qualified lane is available. Resolve the available
+`acp-delegation` skill through the host's skill catalog for readiness, model
+selection, permission, and result handling; a composed private installation
+need not place it in a sibling directory. Do not duplicate its adapter contracts.
 Select by explicit instruction, task fit and proven quality, known headroom or
 reset, and existing preference. Unknown usage is not a blocker or a basis for
 invented savings. If no suitable lane is ready, use authorized native tools and

@@ -41,3 +41,7 @@ provider/model availability measurement.
 The previous coordinator third-party acknowledgement and MIT notice are preserved byte-for-byte at `skills/smoky-coordinator/THIRD_PARTY_NOTICES.md`; the obsolete skill directory remains absent. This is an attribution move, with no second discoverable skill.
 
 Parent verification after the attribution move: packaging/portable suite exit 0 (32 tests); `git diff --check` exit 0. Original attribution file compared byte-for-byte with the source-base copy.
+
+## Composed installation dependency
+
+The coordinator resolves `acp-delegation` through available skill metadata rather than assuming a sibling file. A private composed skill can use the namespaced plugin dependency without installing another global copy.
