@@ -1,6 +1,8 @@
 # Portable maintenance and proof skills
 
-The main plugin includes eight reusable skills. Their names remain stable:
+The main plugin includes the reusable portable skills below. The coordinator
+canonical name is `smoky-coordinator`; `smoky-codex-coordinator` remains a
+thin migration alias for one cycle.
 
 | Skill | Responsibility |
 | --- | --- |
@@ -9,7 +11,7 @@ The main plugin includes eight reusable skills. Their names remain stable:
 | `smoky-cli-creator` | Command interface and output contracts |
 | `smoky-worktree` | Fresh source identity and isolated writable ownership |
 | `smoky-session-viewer` | Explicit local JSONL input to private searchable HTML |
-| `smoky-codex-coordinator` | Bounded worker assignments, handoffs and exact-source closeout |
+| `smoky-coordinator` | Bounded worker assignments, handoffs and exact-source closeout |
 | `smoky-maintainer` | Portfolio selection and decision-ready maintenance briefs |
 | `smoky-portfolio-sweep` | Read-only qualification and serial authorized batch actions |
 

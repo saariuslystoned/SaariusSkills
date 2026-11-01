@@ -13,12 +13,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 NAMES = (
     "smoky-skill-cleaner", "smoky-behavior-validator", "smoky-cli-creator",
-    "smoky-worktree", "smoky-session-viewer", "smoky-codex-coordinator",
+    "smoky-worktree", "smoky-session-viewer", "smoky-coordinator",
     "smoky-maintainer", "smoky-portfolio-sweep",
 )
 
 
 class PortableSkillTests(unittest.TestCase):
+    def test_coordinator_legacy_alias_forwards_once(self) -> None:
+        alias = ROOT / "skills" / "smoky-codex-coordinator"
+        body = (alias / "SKILL.md").read_text()
+        self.assertIn("name: smoky-codex-coordinator\n", body)
+        self.assertIn("../smoky-coordinator/SKILL.md", body)
+        self.assertNotIn("smoky-codex-coordinator/SKILL.md", body.split("../smoky-coordinator/SKILL.md", 1)[-1])
+        self.assertIn("$smoky-codex-coordinator", (alias / "agents/openai.yaml").read_text())
+
     def test_discovery_metadata_license_and_local_references(self) -> None:
         cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
         for manifest in (".codex-plugin/plugin.json", ".claude-plugin/plugin.json"):
