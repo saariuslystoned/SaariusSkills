@@ -54,7 +54,11 @@ approval gates. [EmDash Surface FX](skills/emdash-surface-fx/SKILL.md) adds
 page-level Bayer/halftone shaders (`dithercn` port), viewport GPU pooling,
 Pretext obstacle text layout, Ephemera receipts/rubber stamps, NumberFlow
 counters, RoughNotation ink callouts, and Tier 1/2/3 DinkusKit storefront
-guardrails. All use the same plugin installation paths below; see
+guardrails. [EmDash Stitch Design](skills/emdash-stitch-design/SKILL.md)
+redesigns a site with Google Stitch and GrillTrack, one locked variable or
+surface at a time, then carries the locked design into the site's upstream token
+and theme layers without breaking its `FEATURE_MAP.md` hooks. All use the same
+plugin installation paths below; see
 [EmDash packaging](docs/emdash-skills.md) for the upstream pin, standalone
 installation and version-specific corrections.
 
