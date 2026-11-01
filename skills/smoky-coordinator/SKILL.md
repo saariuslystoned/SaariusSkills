@@ -1,16 +1,21 @@
 ---
 name: smoky-coordinator
-description: Coordinate bounded work through an approved task record with one owner, selective context, exact-source evidence, and repository review gates.
+description: Coordinate bounded cross-harness work ACP-first through an approved task record with one owner, selective context, exact-source evidence, and repository review gates.
 ---
 
 # Smoky Coordinator
 
 Use this public core for one enduring parent conversation that owns project
 decisions, evidence, acceptance, and the next action. Read repository
-instructions first. If the repository provides an optional binding or operator
-profile, read it before this core; it supplies local targets and policy but
-does not grant authority. Do not invent a scheduler, queue, status store, or
-private model roster.
+instructions and available skill metadata first. If either identifies a
+configured private operator or repository profile, including an optional binding
+or an installed profile-specific variant of this skill, read and honor that
+binding before applying this core. The public core must not bypass or
+replace a configured private binding; it supplies local targets and policy but
+does not grant authority. Keep the workflow capable-host independent: it must
+work generically on Codex, Claude Code, Cursor, AGY, or another supported host
+without inventing worker lanes. Do not invent a scheduler, queue, status store,
+or private model roster.
 
 ## Admit and route
 
@@ -39,11 +44,14 @@ outcomes independently rather than waiting for an all-workers barrier.
 
 ## Recover and accept
 
-Routine authorized recovery is autonomous. If blocked, surface
-`WAITING_FOR_HUMAN` with the exact decision and preserve ownership; do not
-duplicate or reassign to evade the gate. Before replacement, prove
-termination and cleanup, inspect partial work, and explicitly transfer
-ownership. Reuse standing authority instead of manufacturing new gates.
+Routine authorized recovery, including diagnosis and repair of a technical
+failure within existing authority, is autonomous; do not turn that failure
+into a human question. Surface `WAITING_FOR_HUMAN` only for a genuine new
+authority, scope, product, or approval gate, with the exact decision and
+preserve ownership. Never evade a gate by duplicating or reassigning work.
+Before replacement, prove termination and cleanup, inspect partial work, and
+explicitly transfer ownership. Reuse standing authority instead of
+manufacturing new gates.
 
 Independently inspect the output, changed source, acceptance, and proof.
 Record accepted or rejected outcomes, rework, owner interventions, and

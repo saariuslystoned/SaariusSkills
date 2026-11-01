@@ -1,4 +1,0 @@
-interface:
-  display_name: "Smoky Coordinator (legacy alias)"
-  short_description: "Forward legacy coordination requests to the v1 core."
-  default_prompt: "Use $smoky-codex-coordinator only as a migration alias; load smoky-coordinator as the canonical core."

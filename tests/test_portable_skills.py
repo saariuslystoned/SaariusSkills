@@ -19,14 +19,6 @@ NAMES = (
 
 
 class PortableSkillTests(unittest.TestCase):
-    def test_coordinator_legacy_alias_forwards_once(self) -> None:
-        alias = ROOT / "skills" / "smoky-codex-coordinator"
-        body = (alias / "SKILL.md").read_text()
-        self.assertIn("name: smoky-codex-coordinator\n", body)
-        self.assertIn("../smoky-coordinator/SKILL.md", body)
-        self.assertNotIn("smoky-codex-coordinator/SKILL.md", body.split("../smoky-coordinator/SKILL.md", 1)[-1])
-        self.assertIn("$smoky-codex-coordinator", (alias / "agents/openai.yaml").read_text())
-
     def test_discovery_metadata_license_and_local_references(self) -> None:
         cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
         for manifest in (".codex-plugin/plugin.json", ".claude-plugin/plugin.json"):
@@ -41,6 +33,12 @@ class PortableSkillTests(unittest.TestCase):
             self.assertEqual((directory / "LICENSE").read_bytes(), (ROOT / "LICENSE").read_bytes())
             for reference in re.findall(r"`(references/[\w./-]+)`", body):
                 self.assertTrue((directory / reference).is_file(), reference)
+        self.assertTrue((ROOT / "skills" / "smoky-coordinator").is_dir())
+        self.assertFalse((ROOT / "skills" / "smoky-codex-coordinator").exists())
+        self.assertNotIn(
+            "./skills/smoky-codex-coordinator/",
+            cursor["skills"],
+        )
 
     def test_pstack_keeps_its_separate_optional_marketplace_route(self) -> None:
         market = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text())

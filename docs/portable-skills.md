@@ -1,8 +1,7 @@
 # Portable maintenance and proof skills
 
 The main plugin includes the reusable portable skills below. The coordinator
-canonical name is `smoky-coordinator`; `smoky-codex-coordinator` remains a
-thin migration alias for one cycle.
+canonical name is `smoky-coordinator`.
 
 | Skill | Responsibility |
 | --- | --- |
