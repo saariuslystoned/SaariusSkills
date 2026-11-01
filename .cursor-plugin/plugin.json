@@ -29,7 +29,7 @@
     "./vendor/pstack/skills/reflect/",
     "./skills/smoky-behavior-validator/",
     "./skills/smoky-cli-creator/",
-    "./skills/smoky-codex-coordinator/",
+    "./skills/smoky-coordinator/",
     "./skills/smoky-maintainer/",
     "./skills/smoky-portfolio-sweep/",
     "./skills/smoky-session-viewer/",

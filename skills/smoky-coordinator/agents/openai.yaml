@@ -1,0 +1,4 @@
+interface:
+  display_name: "Smoky Coordinator"
+  short_description: "Coordinate bounded work with exact ownership and proof."
+  default_prompt: "Use $smoky-coordinator for the current bounded task, following repository instructions and any optional local binding."

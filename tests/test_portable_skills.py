@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 NAMES = (
     "smoky-skill-cleaner", "smoky-behavior-validator", "smoky-cli-creator",
-    "smoky-worktree", "smoky-session-viewer", "smoky-codex-coordinator",
+    "smoky-worktree", "smoky-session-viewer", "smoky-coordinator",
     "smoky-maintainer", "smoky-portfolio-sweep",
 )
 
@@ -33,6 +33,12 @@ class PortableSkillTests(unittest.TestCase):
             self.assertEqual((directory / "LICENSE").read_bytes(), (ROOT / "LICENSE").read_bytes())
             for reference in re.findall(r"`(references/[\w./-]+)`", body):
                 self.assertTrue((directory / reference).is_file(), reference)
+        self.assertTrue((ROOT / "skills" / "smoky-coordinator").is_dir())
+        self.assertFalse((ROOT / "skills" / "smoky-codex-coordinator").exists())
+        self.assertNotIn(
+            "./skills/smoky-codex-coordinator/",
+            cursor["skills"],
+        )
 
     def test_pstack_keeps_its_separate_optional_marketplace_route(self) -> None:
         market = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text())

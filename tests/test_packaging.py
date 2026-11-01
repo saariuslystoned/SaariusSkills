@@ -18,6 +18,24 @@ HARNESS2_SKILL = ROOT / "skills" / "harness2"
 
 
 class PackagingTests(unittest.TestCase):
+    def test_smoky_coordinator_is_canonical_and_legacy_package_is_absent(self) -> None:
+        cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
+        codex = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())
+        claude = json.loads((ROOT / ".claude-plugin/plugin.json").read_text())
+        skill = ROOT / "skills" / "smoky-coordinator"
+        self.assertTrue((skill / "SKILL.md").is_file())
+        self.assertTrue((skill / "agents/openai.yaml").is_file())
+        self.assertTrue((skill / "LICENSE").is_file())
+        self.assertIn("$smoky-coordinator", (skill / "agents/openai.yaml").read_text())
+        self.assertFalse((ROOT / "skills" / "smoky-codex-coordinator").exists())
+        canonical = (ROOT / "skills/smoky-coordinator/SKILL.md").read_text()
+        self.assertIn("name: smoky-coordinator\n", canonical)
+        self.assertIn("./skills/smoky-coordinator/", cursor["skills"])
+        self.assertNotIn("./skills/smoky-codex-coordinator/", cursor["skills"])
+        self.assertEqual(codex["skills"], ["./skills/", "./vendor/pstack/skills/"])
+        self.assertEqual(claude["skills"], ["./skills/", "./vendor/pstack/skills/"])
+        self.assertIn("./skills/acp-delegation/", cursor["skills"])
+
     def test_emdash_skills_discoverable_with_licenses(self) -> None:
         upstream = ("building-emdash-site", "creating-plugins", "emdash-cli", "upgrading-emdash")
         names = ("emdash-sites", "emdash-commerce", "emdash-ci-deploy", "emdash-stitch-design", "emdash-surface-fx", *upstream)
