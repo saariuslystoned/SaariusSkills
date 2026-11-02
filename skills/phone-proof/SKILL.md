@@ -1,6 +1,6 @@
 ---
 name: phone-proof
-description: Build, install, visually inspect, drive, and re-verify phone or emulator UI changes with device screenshots and compact proof. Use for Android, iOS Simulator, foldable, emulator, APK, app-layout, Vysor, scrcpy, Android Studio, Running Devices, AVD, ADB screenshot, black-frame, wrong-display, unreachable-control, or rendered-regression work where build logs alone cannot prove the human-visible result.
+description: Build, install, visually inspect, drive, and re-verify phone or emulator UI changes with device screenshots and compact proof. Use for Android, iOS Simulator, foldable, emulator, APK, app-layout, Vysor, scrcpy, Android Studio, Running Devices, AVD, ADB screenshot, black-frame, wrong-display, unreachable-control, or rendered-regression work where build logs alone cannot prove the human-visible result. Also use before any live voice or Talk proof (macOS say into the phone mic, barge-in, audio focus, spoken replies); read references/live-voice.md first.
 ---
 
 # PhoneProof
@@ -21,6 +21,7 @@ inspected on its own.
 - Read [references/live-voice.md](references/live-voice.md) before proving a
   spoken conversation with a realtime voice agent on the phone (barge-in,
   consults while the caller talks, long spoken replies, session survival).
+  After the shot, end Talk. Leave only when the control reads Start Talk.
 
 ## Pixel Use interoperability
 
