@@ -14,6 +14,7 @@ GROK_SKILL = ROOT / "skills" / "grok-acp-delegation"
 MUSE_SKILL = ROOT / "skills" / "muse-acp-delegation"
 JEVSWEEPER_SKILL = ROOT / "skills" / "jevsweeper"
 DINKUSKIT_LIVE_TEST_SKILL = ROOT / "skills" / "dinkuskit-live-test"
+DINKUS_SWEEP_SKILL = ROOT / "skills" / "dinkus-sweep"
 HARNESS2_SKILL = ROOT / "skills" / "harness2"
 
 
@@ -308,6 +309,29 @@ class PackagingTests(unittest.TestCase):
         self.assertFalse((DINKUSKIT_LIVE_TEST_SKILL / "runner").exists())
         self.assertFalse((DINKUSKIT_LIVE_TEST_SKILL / "references").exists())
         self.assertFalse((ROOT / ".github" / "workflows" / "live-journeys.yml").exists())
+
+    def test_dinkus_sweep_is_a_profile_of_the_portfolio_sweep(self) -> None:
+        skill = (DINKUS_SWEEP_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (DINKUS_SWEEP_SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")
+        cursor = json.loads((ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        self.assertIn("\nname: dinkus-sweep\n", skill.split("\n---\n", 1)[0])
+        self.assertIn("$dinkus-sweep", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("./skills/dinkus-sweep/", cursor["skills"])
+        self.assertEqual(
+            (DINKUS_SWEEP_SKILL / "LICENSE").read_bytes(), (ROOT / "LICENSE").read_bytes()
+        )
+        # A profile layered on the portable core, never a second copy of it.
+        self.assertIn("`smoky-portfolio-sweep`", skill)
+        self.assertIn("grants no authority", skill)
+        self.assertTrue((DINKUS_SWEEP_SKILL / "references" / "dinkus-rails.md").is_file())
+        for repo in ("commerce", "payments", "ship", "template-store", "dinkuskit",
+                     "live-journeys", "coupons", "inventory", "books"):
+            self.assertIn(f"`dinkuskit/{repo}`", skill)
+        for rule in ("Override?", "Never override on your own", "never\nrebase or force-push",
+                     "agentic commerce", "expected head\nSHA"):
+            self.assertIn(rule, skill)
+        self.assertLessEqual(len(skill.splitlines()), 500)
 
     def test_antigravity_acp_skill_is_packaged(self) -> None:
         skill = (ANTIGRAVITY_SKILL / "SKILL.md").read_text(encoding="utf-8")
