@@ -72,6 +72,10 @@ stream, backed by screenshots at the checkpoints.
 
 ## Restore
 
+End the voice session before you leave the device. Tap until the control reads
+Start Talk, not Listening or End Talk. A gathered screenshot is not permission
+to leave the microphone open. Anything said aloud after that is a new turn.
+
 Record the original endpoint list and the active endpoint (capture plus tree
 dump) before adding anything. At the end: switch back to the original active
 endpoint, forget the added one, remove only the `adb reverse` rules you added,
