@@ -63,6 +63,11 @@ installation and version-specific corrections.
 the saved Playwright journeys that prove the DinkusKit plugins on a live test
 store, their runner and the Live journeys workflow.
 
+[Dinkus Sweep](skills/dinkus-sweep/SKILL.md) is the DinkusKit profile of
+`smoky-portfolio-sweep`: it qualifies every open issue and pull request across
+the DinkusKit repositories, compares each feature with Shopify, WooCommerce and
+BigCommerce, and brings the owner one numbered batch card to answer once.
+
 ## Archived: Puppet and Herdr-Puppet
 
 The `puppet` and `herdr-puppet` skills are archived. The local Cursor ACP and
