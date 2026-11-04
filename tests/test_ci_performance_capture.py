@@ -169,6 +169,70 @@ class CaptureHelperTests(unittest.TestCase):
                     self.assertEqual(record["exit"]["normalized"], expected)
                     self.assertEqual(record["classification"], "complete")
 
+    def test_closed_stderr_pipe_preserves_child_status_and_receipt(self) -> None:
+        script = "raise SystemExit(int(__import__('sys').argv[1]))"
+        for expected in (0, 7):
+            with self.subTest(expected=expected):
+                with tempfile.TemporaryDirectory() as directory:
+                    out = Path(directory) / "cap"
+                    process = subprocess.Popen(
+                        [
+                            sys.executable,
+                            str(HELPER),
+                            "--out",
+                            str(out),
+                            "--",
+                            sys.executable,
+                            "-c",
+                            script,
+                            str(expected),
+                        ],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                    assert process.stderr is not None
+                    process.stderr.close()
+                    stdout, _ = process.communicate()
+                    self.assertTrue(stdout.startswith(b"{"))
+                    self.assertEqual(process.returncode, expected)
+                    record = json.loads(
+                        (out / "capture.json").read_text(encoding="utf-8")
+                    )
+                    self.assertEqual(record["exit"]["normalized"], expected)
+                    self.assertEqual(record["classification"], "complete")
+
+    def test_combined_output_pipe_preserves_child_status_and_receipt(self) -> None:
+        script = "raise SystemExit(int(__import__('sys').argv[1]))"
+        for expected in (0, 7):
+            with self.subTest(expected=expected):
+                with tempfile.TemporaryDirectory() as directory:
+                    out = Path(directory) / "cap"
+                    process = subprocess.Popen(
+                        [
+                            sys.executable,
+                            str(HELPER),
+                            "--out",
+                            str(out),
+                            "--",
+                            sys.executable,
+                            "-c",
+                            script,
+                            str(expected),
+                        ],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                    )
+                    assert process.stdout is not None
+                    process.stdout.close()
+                    process.stdout = None
+                    process.wait()
+                    self.assertEqual(process.returncode, expected)
+                    record = json.loads(
+                        (out / "capture.json").read_text(encoding="utf-8")
+                    )
+                    self.assertEqual(record["exit"]["normalized"], expected)
+                    self.assertEqual(record["classification"], "complete")
+
     def test_existing_output_is_not_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

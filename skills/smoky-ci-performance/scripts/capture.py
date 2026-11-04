@@ -290,25 +290,51 @@ def execute(directory: Path, command: list[str]) -> tuple[dict[str, object], int
     return complete_record(command, raw, wall_seconds, read_resources()), raw
 
 
+def _silence_output_streams() -> None:
+    """Make interpreter shutdown harmless after either output pipe is closed."""
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+    except OSError:
+        return
+    try:
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                os.dup2(devnull, stream.fileno())
+            except (OSError, ValueError):
+                pass
+    finally:
+        try:
+            os.close(devnull)
+        except OSError:
+            pass
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except (OSError, ValueError):
+            pass
+
+
+def _safe_output(stream: object, value: object) -> None:
+    try:
+        writer = (
+            getattr(stream, "buffer", stream) if isinstance(value, bytes) else stream
+        )
+        write = writer.write
+        write(value)
+        stream.flush()  # type: ignore[union-attr]
+    except (OSError, ValueError):
+        # The receipt is already durable before diagnostics are emitted. If
+        # either caller pipe is closed, silence both streams before shutdown
+        # so diagnostics cannot change the authoritative child status.
+        _silence_output_streams()
+
+
 def write_error(message: str) -> None:
-    sys.stderr.write(f"capture.py: {message}\n")
+    _safe_output(sys.stderr, f"capture.py: {message}\n")
 
 
 def echo_receipt(payload: bytes) -> None:
-    try:
-        sys.stdout.buffer.write(payload)
-        sys.stdout.buffer.flush()
-    except OSError:
-        # The receipt is already durable. If the caller closed stdout, replace
-        # the descriptor before shutdown so Python cannot re-flush the broken
-        # pipe and change the helper's authoritative child status.
-        try:
-            devnull = os.open(os.devnull, os.O_WRONLY)
-            os.dup2(devnull, sys.stdout.fileno())
-            os.close(devnull)
-            sys.stdout.buffer.flush()
-        except OSError:
-            pass
+    _safe_output(sys.stdout, payload)
 
 
 def main(argv: Sequence[str]) -> int:
