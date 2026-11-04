@@ -5,7 +5,7 @@ description: Coordinate substantial work through the configured execution runtim
 
 # Smoky Coordinator
 
-Use this public core for one enduring parent conversation that owns scoping,
+Use this public core for the coordinator conversation that owns scoping,
 decisions, acceptance, and the next action. Read repository
 instructions and available skill metadata first. If either identifies a
 configured private operator or repository profile, including an optional binding
@@ -37,6 +37,22 @@ Steer or queue follow-ups on the existing assignment. Preserve the original
 objective during status requests and asides; admit a tangent only after a
 scope decision. Do not start another worker for the same slice. Keep sibling
 assignments as a compact status-only roster and do not touch their files.
+
+## Conversation separation
+
+Honor user-requested separation using the active surface's supported conversation
+containers, including explicitly assigned sidebar sessions. A conversation
+container and an execution assignment are different identities: opening another
+conversation does not create another worker or transfer writable ownership.
+For the same task, carry its decisions and task/proof pointers into the chosen
+conversation and keep steering the existing assignment. Record that association
+in the existing task record; do not assume a native runtime binding exists.
+
+Distinguish a request for a separate conversation from a request for distinct
+work. Admit a new assignment only for the latter, after the usual scope and
+overlap checks. Verify surface support, routing, and authority before creating
+or resetting a conversation; explain limitations without inventing features.
+Keep channel-specific mechanics in the local binding or its support references.
 
 ## Specialists and recovery
 
