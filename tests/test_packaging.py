@@ -16,6 +16,7 @@ JEVSWEEPER_SKILL = ROOT / "skills" / "jevsweeper"
 DINKUSKIT_LIVE_TEST_SKILL = ROOT / "skills" / "dinkuskit-live-test"
 DINKUS_SWEEP_SKILL = ROOT / "skills" / "dinkus-sweep"
 HARNESS2_SKILL = ROOT / "skills" / "harness2"
+CI_PERFORMANCE_SKILL = ROOT / "skills" / "smoky-ci-performance"
 
 
 class PackagingTests(unittest.TestCase):
@@ -147,6 +148,41 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("$harness2", metadata)
         self.assertEqual(
             (HARNESS2_SKILL / "LICENSE").read_bytes(),
+            (ROOT / "LICENSE").read_bytes(),
+        )
+
+    def test_ci_performance_skill_contract_and_metadata_are_packaged(self) -> None:
+        skill = (CI_PERFORMANCE_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (CI_PERFORMANCE_SKILL / "agents" / "openai.yaml").read_text(
+            encoding="utf-8"
+        )
+        cursor = json.loads((ROOT / ".cursor-plugin" / "plugin.json").read_text())
+        self.assertIn("name: smoky-ci-performance\n", skill)
+        self.assertIn("./skills/smoky-ci-performance/", cursor["skills"])
+        self.assertIn("$smoky-ci-performance", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertTrue(
+            (CI_PERFORMANCE_SKILL / "references" / "benchmark-protocol.md").is_file()
+        )
+        self.assertTrue(
+            (CI_PERFORMANCE_SKILL / "references" / "ci-efficiency.md").is_file()
+        )
+        protocol = (
+            CI_PERFORMANCE_SKILL / "references" / "benchmark-protocol.md"
+        ).read_text(encoding="utf-8")
+        for required in (
+            "supported commands first",
+            "/usr/bin/time -l",
+            "/usr/bin/time -v",
+            "exit-code.txt",
+            "Never delete shared caches",
+            "N/A",
+            "Missing REQUIRED execution evidence",
+            "OpenClaw",
+        ):
+            self.assertIn(required, protocol)
+        self.assertEqual(
+            (CI_PERFORMANCE_SKILL / "LICENSE").read_bytes(),
             (ROOT / "LICENSE").read_bytes(),
         )
 

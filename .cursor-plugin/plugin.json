@@ -29,6 +29,7 @@
     "./vendor/pstack/skills/reflect/",
     "./skills/ryan-mode/",
     "./skills/smoky-behavior-validator/",
+    "./skills/smoky-ci-performance/",
     "./skills/smoky-cli-creator/",
     "./skills/smoky-coordinator/",
     "./skills/smoky-maintainer/",
