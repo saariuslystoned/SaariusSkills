@@ -198,3 +198,20 @@ This is the user-requested adaptation for draft review, not newly discovered
 Ryan-specific preference history. No unresolved preference question is needed
 for the requested rename. No merge, installation or deployment is authorized
 or claimed.
+
+### Correction publication
+
+- Rename, packaging and validation commit:
+  `92563416e2758102ecd2c3dde8414e120d4ef8d8`.
+- Non-force `git push origin HEAD:refs/heads/ridge/bobby-mode-portable-20261104`
+  succeeded from the prior head to the rename commit.
+- Updated existing [PR #210](https://github.com/saariuslystoned/SaariusSkills/pull/210)
+  to **Make Ryan mode a portable personal working-style skill** and replaced its
+  body with the current rename, provenance and validation scope.
+- GitHub readback confirmed `OPEN`, `isDraft: true`, base `main`, the assigned
+  branch and the exact rename commit above. Intermittent API connection failures
+  resolved on retry; no authentication or configuration changes were needed.
+
+This final documentation commit records publication evidence only. The skill
+content and its validation hash remain unchanged. External review, merge,
+installation and deployment remain outside this completion claim.
