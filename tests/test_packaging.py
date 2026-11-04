@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -185,6 +188,66 @@ class PackagingTests(unittest.TestCase):
             (CI_PERFORMANCE_SKILL / "LICENSE").read_bytes(),
             (ROOT / "LICENSE").read_bytes(),
         )
+
+    @unittest.skipUnless(sys.platform == "darwin", "macOS /usr/bin/time -l fixture")
+    def test_ci_performance_macos_capture_preserves_status_and_streams(self) -> None:
+        protocol_path = CI_PERFORMANCE_SKILL / "references" / "benchmark-protocol.md"
+        protocol = protocol_path.read_text(encoding="utf-8")
+        self.assertGreaterEqual(protocol.count('exit "$exit_code"'), 2)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = root / "fixture.sh"
+            fixture.write_text(
+                """#!/bin/sh
+printf 'fixture stdout\n'
+printf 'fixture stderr\n' >&2
+exit "$1"
+""",
+                encoding="utf-8",
+            )
+            fixture.chmod(0o755)
+
+            for expected_status in (0, 7):
+                with self.subTest(expected_status=expected_status):
+                    output = root / str(expected_status)
+                    output.mkdir()
+                    wrapper = f"""set +e
+printf '%s\\n' '{fixture} {expected_status}' > argv.txt
+/usr/bin/time -l sh -c 'exec "$@" 2>&4' sh {fixture} {expected_status} \\
+  >stdout.txt 2>metrics.txt 4>stderr.txt
+exit_code=$?
+printf '%s\\n' "$exit_code" > exit-code.txt
+set -e
+exit "$exit_code"
+"""
+                    result = subprocess.run(
+                        ["sh", "-c", wrapper],
+                        cwd=output,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+
+                    self.assertEqual(result.returncode, expected_status)
+                    self.assertEqual(
+                        (output / "exit-code.txt").read_text(encoding="utf-8"),
+                        f"{expected_status}\n",
+                    )
+                    self.assertEqual(
+                        (output / "stdout.txt").read_text(encoding="utf-8"),
+                        "fixture stdout\n",
+                    )
+                    self.assertEqual(
+                        (output / "stderr.txt").read_text(encoding="utf-8"),
+                        "fixture stderr\n",
+                    )
+                    metrics = (output / "metrics.txt").read_text(encoding="utf-8")
+                    self.assertTrue(metrics)
+                    self.assertNotIn("fixture stdout", metrics)
+                    self.assertNotIn("fixture stderr", metrics)
+                    self.assertEqual(result.stdout, "")
+                    self.assertEqual(result.stderr, "")
 
     def test_acp_entry_is_discoverable_on_packaged_hosts(self) -> None:
         entry = ROOT / "skills" / "acp-delegation"

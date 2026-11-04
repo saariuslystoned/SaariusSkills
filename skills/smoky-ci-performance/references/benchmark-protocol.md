@@ -45,6 +45,7 @@ printf '%s\n' '<repo-command> [args...]' > argv.txt
 exit_code=$?
 printf '%s\n' "$exit_code" > exit-code.txt
 set -e
+exit "$exit_code"
 ```
 
 Linux:
@@ -57,6 +58,7 @@ printf '%s\n' '<repo-command> [args...]' > argv.txt
 exit_code=$?
 printf '%s\n' "$exit_code" > exit-code.txt
 set -e
+exit "$exit_code"
 ```
 
 Use shell quoting appropriate to the actual argv (or a small wrapper script
@@ -66,6 +68,14 @@ dependency/build setup, stdout/stderr, exit code, and `/usr/bin/time` output.
 These wrappers measure the process tree as reported by the platform tool; CPU
 and RSS attribution for grandchildren may be incomplete. Do not claim a child
 caused a wall-time change without runner-level or child-level evidence.
+
+The final `exit "$exit_code"` is required when the recipe is saved as a
+standalone wrapper: otherwise the later `set -e` can make a failed child look
+successful to the outer shell. If using the commands interactively, run them
+in a subshell (or omit only the final `exit` and inspect `exit-code.txt`) so
+recording a failure does not terminate the caller's shell. The macOS recipe
+was executed against a local fixture for child statuses 0 and 7; the Linux
+`/usr/bin/time -v` recipe is documented but unexecuted in this environment.
 
 “Cold” means a documented fresh dependency/build state for this repository
 (for example a new isolated checkout or an explicitly empty task-local build
