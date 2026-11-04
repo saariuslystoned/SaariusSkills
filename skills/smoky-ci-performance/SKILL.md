@@ -32,7 +32,9 @@ Use the canonical command's environment. Isolate credentials without adding
 feature-disable flags that change fixture behavior. Pin the requested runtime
 before the first baseline; preserve other-runtime attempts as incomparable
 history. Test counts and unchanged assertions are not an instrumented coverage
-measurement.
+measurement. Resolve the caller's working directory to the intended repository
+or workspace, and validate a writable temporary directory. Fixtures whose tools search parent directories must not inherit an unrelated
+checkout as their repository root.
 
 Establish a comparable baseline. Repeat the same measurement when noise could
 change the decision, and disclose discarded, failed, stale, or incomparable
