@@ -66,9 +66,9 @@ class PstackSyncTests(unittest.TestCase):
         self.update()
         selected = self.source / "pstack/skills/how/SKILL.md"
         selected.write_text(selected.read_text().replace("First upstream", "Second upstream"))
-        # A future same-name upstream skill must never replace Bobby Mode.
-        (self.source / "pstack/skills/bobby-mode").mkdir()
-        (self.source / "pstack/skills/bobby-mode/SKILL.md").write_text("wrong owner\n")
+        # A future same-name upstream skill must never replace Ryan mode.
+        (self.source / "pstack/skills/ryan-mode").mkdir()
+        (self.source / "pstack/skills/ryan-mode/SKILL.md").write_text("wrong owner\n")
         second = self.commit()
         selected.write_text("uncommitted replacement\n")
         self.update(second)
@@ -97,7 +97,7 @@ class PstackSyncTests(unittest.TestCase):
 
     def test_local_edit_needs_no_projection_and_survives_refresh(self) -> None:
         self.update()
-        custom = self.root / "skills/bobby-mode/SKILL.md"
+        custom = self.root / "skills/ryan-mode/SKILL.md"
         custom.write_text(custom.read_text() + "\nKeep the operator's workspace convention.\n")
         before = SYNC["files"](self.root / "skills")
         SYNC["check"](self.root)
@@ -138,7 +138,7 @@ class PstackSyncTests(unittest.TestCase):
         self.update()
         target = self.root / "vendor/pstack/skills/how/SKILL.md"
         target.unlink()
-        target.symlink_to(self.root / "skills/bobby-mode/SKILL.md")
+        target.symlink_to(self.root / "skills/ryan-mode/SKILL.md")
         before = SYNC["files"](self.root / "skills")
         with self.assertRaisesRegex(ValueError, "refusing symlink"):
             self.update()

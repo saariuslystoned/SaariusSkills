@@ -12,7 +12,7 @@ and no upstream PStack aliases under root `skills/`.
 - `README.md`, `.codex-plugin/plugin.json` and `plugin.json` are repository-owned
   documentation and discovery metadata, preserved by the updater and excluded
   from upstream hashes. No upstream plugin manifests are imported.
-- [`../../skills/bobby-mode/`](../../skills/bobby-mode/) and
+- [`../../skills/ryan-mode/`](../../skills/ryan-mode/) and
   [`../../skills/pstack-playbooks/`](../../skills/pstack-playbooks/) are authored
   Saarius skills. Edit them directly; upstream refreshes never write there.
 
@@ -51,7 +51,7 @@ there is no projection or regeneration step.
 The main Codex and Claude Code plugins name both root `skills/` and
 `vendor/pstack/skills/`. Cursor names the ten vendor skill directories directly.
 The optional Codex `pstack-saarius` marketplace entry points here and discovers
-`./skills/`. It contains only upstream skills; Bobby Mode and the playbooks
+`./skills/`. It contains only upstream skills; Ryan mode and the playbooks
 belong to the main Saarius Skills plugin. Avoid installing both Codex entries
 unless you intentionally want the upstream skills in both namespaces.
 

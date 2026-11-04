@@ -18,7 +18,7 @@ UPSTREAM_SKILLS = (
     "architect", "automate-me", "blast-radius", "create-verification-skill",
     "how", "maintain-verification-skill", "reflect", "tdd", "unslop", "why",
 )
-CUSTOM_SKILLS = ("bobby-mode", "pstack-playbooks")
+CUSTOM_SKILLS = ("ryan-mode", "pstack-playbooks")
 # Repository-owned metadata, never imported from the upstream snapshot.
 LOCAL_METADATA = ("README.md", ".codex-plugin/plugin.json", "plugin.json")
 

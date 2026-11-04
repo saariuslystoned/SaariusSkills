@@ -1,0 +1,22 @@
+$ python3 scripts/sync-pstack-skills --check
+PStack check clean: 10 upstream + 2 local skills; a66a8931c2dd71f1ed6abf6a52b1898a9f389ae4
+Exit code: 0
+
+$ python3 -m unittest tests.test_packaging tests.test_sync_pstack_skills -q
+----------------------------------------------------------------------
+Ran 37 tests in 1.309s
+
+OK
+PStack updated: 10 upstream skills; 438851eec5ef3999fa98bc4b6f48feccf137707f; local skills untouched
+PStack updated: 10 upstream skills; 8c9d22771b94108cd76c8e0681a910b0f81832f0; local skills untouched
+PStack check clean: 10 upstream + 2 local skills; 8c9d22771b94108cd76c8e0681a910b0f81832f0
+PStack updated: 10 upstream skills; 8c9d22771b94108cd76c8e0681a910b0f81832f0; local skills untouched
+PStack updated: 10 upstream skills; 8c9d22771b94108cd76c8e0681a910b0f81832f0; local skills untouched
+PStack check clean: 10 upstream + 2 local skills; a66a8931c2dd71f1ed6abf6a52b1898a9f389ae4
+PStack updated: 10 upstream skills; 8c9d22771b94108cd76c8e0681a910b0f81832f0; local skills untouched
+PStack updated: 10 upstream skills; 0400a3e954068f227f7ed9aa99bf39bef9b516fc; local skills untouched
+PStack check clean: 10 upstream + 2 local skills; 0400a3e954068f227f7ed9aa99bf39bef9b516fc
+PStack updated: 10 upstream skills; 8c9d22771b94108cd76c8e0681a910b0f81832f0; local skills untouched
+PStack updated: 10 upstream skills; 8c9d22771b94108cd76c8e0681a910b0f81832f0; local skills untouched
+PStack updated: 10 upstream skills; d08fefaa92ce74e35ccba91c829aef34d80a1b2f; local skills untouched
+Exit code: 0
