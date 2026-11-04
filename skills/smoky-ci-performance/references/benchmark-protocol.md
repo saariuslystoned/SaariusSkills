@@ -40,20 +40,22 @@ files. Do not hand-type summary numbers from either path.
 ## Portable shell capture recipes
 
 After inventorying the supported command, substitute its exact argv for
-`<repo-command> [args...]`. These recipes keep stdout, child stderr, metrics,
-and the command exit code separate; they deliberately do not use a `tee`
-pipeline, whose final command can mask the test exit. The inner shell sends
-the child’s stderr to fd 4 while `/usr/bin/time` keeps its own diagnostics in
-the metrics file.
+`<repo-command> [args...]` in the single `set --` binding. These recipes keep
+stdout, child stderr, metrics, and the command exit code separate; they
+deliberately do not use a `tee` pipeline, whose final command can mask the test
+exit. The inner shell sends the child’s stderr to fd 4 while `/usr/bin/time`
+keeps its own diagnostics in the metrics file. `argv.nul` is the exact argv
+receipt: each argument is written as its UTF-8 shell value followed by one NUL
+byte (`\0`), so it is machine-readable rather than a newline- or delimiter-
+escaped display.
 
 macOS:
 
 ```sh
 set +e
-cat > argv.txt <<'EOF'
-<repo-command> [args...]
-EOF
-/usr/bin/time -l sh -c 'exec "$@" 2>&4' sh <repo-command> [args...] \
+set -- <repo-command> [args...]
+printf '%s\000' "$@" >argv.nul
+/usr/bin/time -l sh -c 'exec "$@" 2>&4' sh "$@" \
   >stdout.txt 2>metrics.txt 4>stderr.txt
 exit_code=$?
 printf '%s\n' "$exit_code" > exit-code.txt
@@ -65,10 +67,9 @@ Linux:
 
 ```sh
 set +e
-cat > argv.txt <<'EOF'
-<repo-command> [args...]
-EOF
-/usr/bin/time -v sh -c 'exec "$@" 2>&4' sh <repo-command> [args...] \
+set -- <repo-command> [args...]
+printf '%s\000' "$@" >argv.nul
+/usr/bin/time -v sh -c 'exec "$@" 2>&4' sh "$@" \
   >stdout.txt 2>metrics.txt 4>stderr.txt
 exit_code=$?
 printf '%s\n' "$exit_code" > exit-code.txt

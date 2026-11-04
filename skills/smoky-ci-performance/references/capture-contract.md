@@ -18,7 +18,10 @@ usage and subcommands:
 flags and state changes:
   --out DIR   Required. Create a missing directory. Accept an existing empty
               directory. Refuse a nonempty directory, a symlink, or a file.
-              Do not delete, replace, or retry.
+              Do not delete, replace, or retry. Acceptance atomically creates
+              the empty `.capture-claim` marker inside DIR with exclusive
+              creation before execution. A competing caller loses without
+              changing the winner's files.
   --          Required. Tokens after it are the exact argv. No shell.
   --help      Usage on stdout, exit 0. Does not run a command.
   --version   Print `capture.py 1` on stdout, exit 0.
@@ -38,8 +41,10 @@ stdout schema:
   write no receipt.
 
   A refused path prints `classification=incomplete` on stderr and writes no
-  receipt. A command that does not start still gets a receipt whose
-  classification is `failure`.
+  receipt. The claim marker is a durable reservation: it remains after a
+  successful, failed, or interrupted capture, and is therefore treated as a
+  stale claim and refused on later use. A command that does not start still
+  gets a receipt whose classification is `failure`.
 
   capture.json (json module, schema smoky-ci-performance.capture.v1):
     classification   complete | failure

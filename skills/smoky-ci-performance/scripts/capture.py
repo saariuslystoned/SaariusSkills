@@ -13,6 +13,7 @@ from typing import Mapping, Sequence
 
 SCHEMA = "smoky-ci-performance.capture.v1"
 VERSION = "1"
+CLAIM_NAME = ".capture-claim"
 SUMMARY_KEYS = (
     "classification",
     "raw_exit",
@@ -30,7 +31,8 @@ usage: python3 skills/smoky-ci-performance/scripts/capture.py --out DIR -- ARGV.
 
 Run ARGV once with no shell. Stdin is closed. Child stdout and stderr go to
 DIR/stdout.txt and DIR/stderr.txt. DIR must be new or empty; a nonempty
-directory is refused and is not changed.
+directory is refused and is not changed. An accepted directory gets an
+exclusive .capture-claim marker before the command starts.
 
 capture.json and summary.md are written from the same values after the stream
 files are closed. Copy summary.md into reports. Do not retype its numbers.
@@ -39,7 +41,9 @@ bytes; Linux max RSS is KiB. The RSS value is the waited-child maximum, not a
 sum and not a process-tree peak.
 
 Do not pass secrets in argv. Argv is recorded exactly. The environment is not
-read or recorded. The caller owns context and any external timeout.
+read or recorded. The claim marker remains after completion or failure, so a
+stale marker is refused rather than reused. The caller owns context and any
+external timeout.
 
 exit: command status when the receipt is complete; otherwise 2 usage, 127 not
 found, or 1 start/write failure.
@@ -158,22 +162,47 @@ def accept_output(path: Path) -> None:
                 "Refusing nonempty output directory.",
                 2,
             )
-        return
-    parent = path.parent
-    if parent != path and not parent.is_dir():
-        raise CaptureError(
-            "refused-output",
-            "Output parent directory does not exist.",
-            2,
-        )
+    else:
+        parent = path.parent
+        if parent != path and not parent.is_dir():
+            raise CaptureError(
+                "refused-output",
+                "Output parent directory does not exist.",
+                2,
+            )
+        try:
+            path.mkdir(parents=False, exist_ok=False)
+        except OSError as exc:
+            raise CaptureError(
+                "refused-output",
+                "Output directory could not be created.",
+                2,
+            ) from exc
+
+    claim = path / CLAIM_NAME
     try:
-        path.mkdir(parents=False, exist_ok=False)
+        descriptor = os.open(
+            claim,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
     except OSError as exc:
         raise CaptureError(
             "refused-output",
-            "Output directory could not be created.",
+            "Output directory is already claimed.",
             2,
         ) from exc
+    try:
+        os.close(descriptor)
+    except OSError:
+        # The exclusive directory entry is the ownership claim even if close
+        # reports an error; never remove it and risk handing the directory to
+        # another caller.
+        raise CaptureError(
+            "refused-output",
+            "Output directory claim could not be closed.",
+            2,
+        )
 
 
 def base_record(command: list[str] | None, classification: str) -> dict[str, object]:

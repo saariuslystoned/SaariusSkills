@@ -222,7 +222,9 @@ class PackagingTests(unittest.TestCase):
         recipe = recipes[heading]
         self.assertIn(time_command, recipe)
         self.assertIn('exit "$exit_code"', recipe)
-        self.assertEqual(recipe.count("<repo-command> [args...]"), 2)
+        self.assertEqual(recipe.count("<repo-command> [args...]"), 1)
+        self.assertIn('printf \'%s\\000\' "$@" >argv.nul', recipe)
+        self.assertNotIn("<<'EOF'", recipe)
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -251,6 +253,7 @@ exit "$1"
                         str(expected_status),
                         "argument with spaces",
                         "embedded 'single' and \"double\" quotes",
+                        "line one\nEOF\nline three",
                         "$(printf inert)",
                         "(inert); printf should-not-run",
                     ]
@@ -268,8 +271,11 @@ exit "$1"
 
                     self.assertEqual(result.returncode, expected_status)
                     self.assertEqual(
-                        (output / "argv.txt").read_text(encoding="utf-8"),
-                        f"{command}\n",
+                        (output / "argv.nul").read_bytes(),
+                        b"".join(
+                            argument.encode("utf-8") + b"\0"
+                            for argument in [f"./{fixture_relative}", *arguments]
+                        ),
                     )
                     self.assertEqual(
                         (output / "args.txt").read_text(encoding="utf-8"),

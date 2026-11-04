@@ -7,6 +7,8 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -277,6 +279,74 @@ class CaptureHelperTests(unittest.TestCase):
             self.assertEqual(file_result.returncode, 2)
             self.assertEqual(blocked.read_text(encoding="utf-8"), "file")
             self.assertFalse((root / "capture.json").exists())
+
+    def test_competing_admissions_have_one_atomic_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "cap"
+            out.mkdir()
+            barrier = threading.Barrier(2)
+            results: list[str] = []
+
+            def admit() -> None:
+                barrier.wait()
+                try:
+                    HELPER_MODULE.accept_output(out)
+                except HELPER_MODULE.CaptureError as exc:
+                    results.append(exc.code)
+                else:
+                    results.append("accepted")
+
+            callers = [threading.Thread(target=admit) for _ in range(2)]
+            for caller in callers:
+                caller.start()
+            for caller in callers:
+                caller.join()
+
+            self.assertEqual(sorted(results), ["accepted", "refused-output"])
+            self.assertTrue((out / ".capture-claim").is_file())
+
+    def test_losing_cli_admission_preserves_winner_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "cap"
+            winner = subprocess.Popen(
+                [
+                    sys.executable,
+                    str(HELPER),
+                    "--out",
+                    str(out),
+                    "--",
+                    sys.executable,
+                    "-c",
+                    "print('winner')",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            for _ in range(1000):
+                if (out / ".capture-claim").exists():
+                    break
+                time.sleep(0.001)
+            else:
+                winner.kill()
+                winner.wait()
+                self.fail("winner did not claim output directory")
+
+            loser = self.run_capture(out, [sys.executable, "-c", "print('loser')"])
+            winner_stdout, winner_stderr = winner.communicate()
+
+            self.assertEqual(loser.returncode, 2)
+            self.assertEqual(loser.stdout, b"")
+            self.assertIn(b"classification=incomplete", loser.stderr)
+            self.assertEqual(winner.returncode, 0)
+            self.assertNotIn(b"loser", winner_stdout + winner_stderr)
+            self.assertEqual((out / "stdout.txt").read_bytes(), b"winner\n")
+            self.assertEqual((out / "stderr.txt").read_bytes(), b"")
+            self.assertEqual(
+                json.loads((out / "capture.json").read_text(encoding="utf-8"))["exit"][
+                    "normalized"
+                ],
+                0,
+            )
 
     def test_missing_executable_has_no_fake_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
