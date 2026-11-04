@@ -116,10 +116,21 @@ is a source review, not a claim of live behavior across assistant products.
 ## Publication
 
 Remote preflight `git ls-remote --heads origin
-refs/heads/ridge/bobby-mode-portable-20261104` failed because `github.com` could
-not resolve from this execution environment. Local packaging can proceed;
-remote publication is not yet proved. No credentials were inspected.
-The prepared publication commands are a non-force push of the assigned branch
-and `gh pr create --draft --base main --head
-ridge/bobby-mode-portable-20261104` with a prepared body. Do not treat this
-packet as evidence of an existing remote branch, PR, CI run or external review.
+refs/heads/ridge/bobby-mode-portable-20261104` initially failed because
+`github.com` could not resolve. The later authorized publication attempts
+succeeded without an authentication or configuration change. No credentials
+were inspected.
+
+- Source and validation commit: `7c6e55cf78d597ef0a06716360516ad03cc0152d`.
+- `git push origin HEAD:refs/heads/ridge/bobby-mode-portable-20261104` succeeded
+  without force and created the assigned remote branch.
+- `gh pr create --draft --base main --head
+  ridge/bobby-mode-portable-20261104` with an explicit repository and prepared
+  body succeeded.
+- [Draft PR #210](https://github.com/saariuslystoned/SaariusSkills/pull/210)
+  was read back as `OPEN`, `isDraft: true`, base `main`, and the assigned branch
+  at the source commit above.
+
+This follow-up records publication only. The skill content and validation hash
+are unchanged. Neither local checks nor draft publication claim external review,
+merge, installation or deployment.
