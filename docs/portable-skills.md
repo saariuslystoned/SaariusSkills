@@ -10,7 +10,7 @@ canonical name is `smoky-coordinator`.
 | `smoky-cli-creator` | Command interface and output contracts |
 | `smoky-worktree` | Fresh source identity and isolated writable ownership |
 | `smoky-session-viewer` | Explicit local JSONL input to private searchable HTML |
-| `smoky-coordinator` | Bounded worker assignments, handoffs and exact-source closeout |
+| `smoky-coordinator` | One lead assignment through the configured runtime, bounded specialists, handoffs and exact-source closeout |
 | `smoky-maintainer` | Portfolio selection and decision-ready maintenance briefs |
 | `smoky-portfolio-sweep` | Read-only qualification and serial authorized batch actions |
 
