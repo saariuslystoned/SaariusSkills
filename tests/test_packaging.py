@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shlex
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -16,6 +20,7 @@ JEVSWEEPER_SKILL = ROOT / "skills" / "jevsweeper"
 DINKUSKIT_LIVE_TEST_SKILL = ROOT / "skills" / "dinkuskit-live-test"
 DINKUS_SWEEP_SKILL = ROOT / "skills" / "dinkus-sweep"
 HARNESS2_SKILL = ROOT / "skills" / "harness2"
+CI_PERFORMANCE_SKILL = ROOT / "skills" / "smoky-ci-performance"
 
 
 class PackagingTests(unittest.TestCase):
@@ -149,6 +154,151 @@ class PackagingTests(unittest.TestCase):
             (HARNESS2_SKILL / "LICENSE").read_bytes(),
             (ROOT / "LICENSE").read_bytes(),
         )
+
+    def test_ci_performance_skill_contract_and_metadata_are_packaged(self) -> None:
+        skill = (CI_PERFORMANCE_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (CI_PERFORMANCE_SKILL / "agents" / "openai.yaml").read_text(
+            encoding="utf-8"
+        )
+        cursor = json.loads((ROOT / ".cursor-plugin" / "plugin.json").read_text())
+        self.assertIn("name: smoky-ci-performance\n", skill)
+        self.assertIn("./skills/smoky-ci-performance/", cursor["skills"])
+        self.assertIn("$smoky-ci-performance", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertTrue(
+            (CI_PERFORMANCE_SKILL / "references" / "benchmark-protocol.md").is_file()
+        )
+        self.assertTrue(
+            (CI_PERFORMANCE_SKILL / "references" / "ci-efficiency.md").is_file()
+        )
+        protocol = (
+            CI_PERFORMANCE_SKILL / "references" / "benchmark-protocol.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("macOS:", protocol)
+        self.assertIn("Linux:", protocol)
+        self.assertIn("/usr/bin/time -l", protocol)
+        self.assertIn("/usr/bin/time -v", protocol)
+        self.assertIn("exit-code.txt", protocol)
+        self.assertIn("Never delete shared caches", protocol)
+        self.assertIn("Missing REQUIRED execution evidence", protocol)
+        self.assertIn("OpenClaw", protocol)
+        self.assertEqual(
+            (CI_PERFORMANCE_SKILL / "LICENSE").read_bytes(),
+            (ROOT / "LICENSE").read_bytes(),
+        )
+        helper = CI_PERFORMANCE_SKILL / "scripts" / "capture.py"
+        self.assertTrue(helper.is_file())
+        self.assertTrue(helper.stat().st_mode & 0o111)
+        self.assertTrue(
+            (CI_PERFORMANCE_SKILL / "references" / "capture-contract.md").is_file()
+        )
+
+    def test_ci_performance_capture_recipe_preserves_status_and_streams(self) -> None:
+        protocol_path = CI_PERFORMANCE_SKILL / "references" / "benchmark-protocol.md"
+        protocol = protocol_path.read_text(encoding="utf-8")
+        recipes = {}
+        for heading in ("macOS:", "Linux:"):
+            recipe_section = protocol.split(heading, 1)[1]
+            recipe = recipe_section.split("```", 2)[1].removeprefix("sh\n")
+            recipes[heading] = recipe
+            syntax = subprocess.run(
+                ["sh", "-n"],
+                input=recipe,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(syntax.returncode, 0, syntax.stderr)
+
+        if sys.platform == "darwin":
+            heading = "macOS:"
+            time_command = "/usr/bin/time -l"
+        elif sys.platform.startswith("linux"):
+            heading = "Linux:"
+            time_command = "/usr/bin/time -v"
+        else:
+            self.skipTest("capture recipe is specified only for macOS and Linux")
+
+        recipe = recipes[heading]
+        self.assertIn(time_command, recipe)
+        self.assertIn('exit "$exit_code"', recipe)
+        self.assertEqual(recipe.count("<repo-command> [args...]"), 1)
+        self.assertIn('printf \'%s\\000\' "$@" >argv.nul', recipe)
+        self.assertNotIn("<<'EOF'", recipe)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = root / "fixture.sh"
+            fixture.write_text(
+                """#!/bin/sh
+printf 'fixture stdout\n'
+printf 'fixture stderr\n' >&2
+printf '%s\n' "$@" > args.txt
+exit "$1"
+""",
+                encoding="utf-8",
+            )
+            fixture.chmod(0o755)
+
+            for expected_status in (0, 7):
+                with self.subTest(expected_status=expected_status):
+                    output = root / str(expected_status)
+                    output.mkdir()
+                    fixture_relative = Path("fixture.sh")
+                    (output / fixture_relative).write_text(
+                        fixture.read_text(encoding="utf-8"), encoding="utf-8"
+                    )
+                    (output / fixture_relative).chmod(0o755)
+                    arguments = [
+                        str(expected_status),
+                        "argument with spaces",
+                        "embedded 'single' and \"double\" quotes",
+                        "line one\nEOF\nline three",
+                        "$(printf inert)",
+                        "(inert); printf should-not-run",
+                    ]
+                    command = shlex.join([f"./{fixture_relative}", *arguments])
+                    wrapper = recipe.replace(
+                        "<repo-command> [args...]", command
+                    )
+                    result = subprocess.run(
+                        ["sh", "-c", wrapper],
+                        cwd=output,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+
+                    self.assertEqual(result.returncode, expected_status)
+                    self.assertEqual(
+                        (output / "argv.nul").read_bytes(),
+                        b"".join(
+                            argument.encode("utf-8") + b"\0"
+                            for argument in [f"./{fixture_relative}", *arguments]
+                        ),
+                    )
+                    self.assertEqual(
+                        (output / "args.txt").read_text(encoding="utf-8"),
+                        "".join(f"{argument}\n" for argument in arguments),
+                    )
+                    self.assertEqual(
+                        (output / "exit-code.txt").read_text(encoding="utf-8"),
+                        f"{expected_status}\n",
+                    )
+                    self.assertEqual(
+                        (output / "stdout.txt").read_text(encoding="utf-8"),
+                        "fixture stdout\n",
+                    )
+                    self.assertEqual(
+                        (output / "stderr.txt").read_text(encoding="utf-8"),
+                        "fixture stderr\n",
+                    )
+                    metrics = (output / "metrics.txt").read_text(encoding="utf-8")
+                    self.assertTrue(metrics)
+                    self.assertNotIn("fixture stdout", metrics)
+                    self.assertNotIn("fixture stderr", metrics)
+                    self.assertEqual(result.stdout, "")
+                    self.assertEqual(result.stderr, "")
 
     def test_acp_entry_is_discoverable_on_packaged_hosts(self) -> None:
         entry = ROOT / "skills" / "acp-delegation"
