@@ -196,6 +196,20 @@ class PackagingTests(unittest.TestCase):
     def test_ci_performance_capture_recipe_preserves_status_and_streams(self) -> None:
         protocol_path = CI_PERFORMANCE_SKILL / "references" / "benchmark-protocol.md"
         protocol = protocol_path.read_text(encoding="utf-8")
+        recipes = {}
+        for heading in ("macOS:", "Linux:"):
+            recipe_section = protocol.split(heading, 1)[1]
+            recipe = recipe_section.split("```", 2)[1].removeprefix("sh\n")
+            recipes[heading] = recipe
+            syntax = subprocess.run(
+                ["sh", "-n"],
+                input=recipe,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(syntax.returncode, 0, syntax.stderr)
+
         if sys.platform == "darwin":
             heading = "macOS:"
             time_command = "/usr/bin/time -l"
@@ -205,9 +219,7 @@ class PackagingTests(unittest.TestCase):
         else:
             self.skipTest("capture recipe is specified only for macOS and Linux")
 
-        recipe_section = protocol.split(heading, 1)[1]
-        recipe = recipe_section.split("```", 2)[1]
-        recipe = recipe.removeprefix("sh\n")
+        recipe = recipes[heading]
         self.assertIn(time_command, recipe)
         self.assertIn('exit "$exit_code"', recipe)
         self.assertEqual(recipe.count("<repo-command> [args...]"), 2)
@@ -219,6 +231,7 @@ class PackagingTests(unittest.TestCase):
                 """#!/bin/sh
 printf 'fixture stdout\n'
 printf 'fixture stderr\n' >&2
+printf '%s\n' "$@" > args.txt
 exit "$1"
 """,
                 encoding="utf-8",
@@ -234,10 +247,14 @@ exit "$1"
                         fixture.read_text(encoding="utf-8"), encoding="utf-8"
                     )
                     (output / fixture_relative).chmod(0o755)
-                    command = (
-                        f"{shlex.quote(f'./{fixture_relative}')} "
-                        f"{expected_status}"
-                    )
+                    arguments = [
+                        str(expected_status),
+                        "argument with spaces",
+                        "embedded 'single' and \"double\" quotes",
+                        "$(printf inert)",
+                        "(inert); printf should-not-run",
+                    ]
+                    command = shlex.join([f"./{fixture_relative}", *arguments])
                     wrapper = recipe.replace(
                         "<repo-command> [args...]", command
                     )
@@ -252,7 +269,11 @@ exit "$1"
                     self.assertEqual(result.returncode, expected_status)
                     self.assertEqual(
                         (output / "argv.txt").read_text(encoding="utf-8"),
-                        f"./fixture.sh {expected_status}\n",
+                        f"{command}\n",
+                    )
+                    self.assertEqual(
+                        (output / "args.txt").read_text(encoding="utf-8"),
+                        "".join(f"{argument}\n" for argument in arguments),
                     )
                     self.assertEqual(
                         (output / "exit-code.txt").read_text(encoding="utf-8"),

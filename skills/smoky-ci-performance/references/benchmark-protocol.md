@@ -50,7 +50,9 @@ macOS:
 
 ```sh
 set +e
-printf '%s\n' '<repo-command> [args...]' > argv.txt
+cat > argv.txt <<'EOF'
+<repo-command> [args...]
+EOF
 /usr/bin/time -l sh -c 'exec "$@" 2>&4' sh <repo-command> [args...] \
   >stdout.txt 2>metrics.txt 4>stderr.txt
 exit_code=$?
@@ -63,7 +65,9 @@ Linux:
 
 ```sh
 set +e
-printf '%s\n' '<repo-command> [args...]' > argv.txt
+cat > argv.txt <<'EOF'
+<repo-command> [args...]
+EOF
 /usr/bin/time -v sh -c 'exec "$@" 2>&4' sh <repo-command> [args...] \
   >stdout.txt 2>metrics.txt 4>stderr.txt
 exit_code=$?
