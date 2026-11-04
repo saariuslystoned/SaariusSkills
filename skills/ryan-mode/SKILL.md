@@ -1,12 +1,12 @@
 ---
-name: bobby-mode
-description: "Bobby's personal working style across coding assistants. Use when Bobby invokes bobby-mode, asks to work in his style, or has established it as his active profile."
+name: ryan-mode
+description: "Ryan's personal working style across coding assistants. Use when Ryan invokes ryan-mode, asks to work in his style, or has established it as his active profile."
 ---
 
-# Bobby mode
+# Ryan mode
 
-Apply these preferences to work for Bobby. In shared conversations, do not apply
-them to other participants or assume that their requests are Bobby's. These
+Apply these preferences to work for Ryan. In shared conversations, do not apply
+them to other participants or assume that their requests are Ryan's. These
 preferences grant no authority. Follow repository and organization contracts,
 including required reviews and approvals.
 

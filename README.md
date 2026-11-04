@@ -26,7 +26,7 @@ repo-owned bindings and the local-only Python helpers.
 The ten selected upstream PStack skills live only in
 [`vendor/pstack/skills/`](vendor/pstack/skills/). Codex, Claude Code and Cursor
 manifests discover them there directly; no generated copies or root skill
-symlinks are needed. The authored `bobby-mode` and `pstack-playbooks` skills
+symlinks are needed. The authored `ryan-mode` and `pstack-playbooks` skills
 live in root `skills/` and remain part of Saarius Skills.
 
 The optional Codex `pstack-saarius` marketplace entry now points to

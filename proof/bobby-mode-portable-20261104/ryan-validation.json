@@ -1,0 +1,17 @@
+{
+  "baseline_revision": "a8350da133606b863e104c2661a2dccacc3e289d",
+  "file": "skills/ryan-mode/SKILL.md",
+  "sha256": "cbc80a83c09c6ebd3107a311e9e38f39c4d1c5d8618a257109b7aeba0ae25064",
+  "yaml_parser": "Ruby YAML.safe_load",
+  "frontmatter": {
+    "name": "ryan-mode",
+    "description": "Ryan's personal working style across coding assistants. Use when Ryan invokes ryan-mode, asks to work in his style, or has established it as his active profile."
+  },
+  "checks": [
+    "valid frontmatter and no scaffold",
+    "skill differs from previous draft only in requested identity",
+    "license and custom instructions preserved byte-for-byte",
+    "old canonical directory and alias absent",
+    "source proof link resolves"
+  ]
+}

@@ -1,5 +1,10 @@
 # Bobby mode portable revision
 
+This packet retains the original revision evidence below. The current artifact
+is `skills/ryan-mode/SKILL.md`, following the user's explicit identity correction.
+See [Ryan mode correction](#ryan-mode-correction) for the current scope and checks.
+The historical task slug and earlier receipts remain unchanged.
+
 ## Assignment and scope
 
 The supplied 2026-11-04 request authorizes a revision of
@@ -134,3 +139,62 @@ were inspected.
 This follow-up records publication only. The skill content and validation hash
 are unchanged. Neither local checks nor draft publication claim external review,
 merge, installation or deployment.
+
+## Ryan mode correction
+
+The follow-up request explicitly changes the skill's name and applicability to
+Ryan. Work continues in the same Ridge mount, on the same branch and draft
+PR #210, with one writer. The starting head was
+`a8350da133606b863e104c2661a2dccacc3e289d`; the assigned base remains
+`3c176f392220c3e34a67b3fe250342600596d9b0`.
+
+### Scope and provenance
+
+- Moved the first-party `skills/bobby-mode/` directory to `skills/ryan-mode/`.
+  The frontmatter name is `ryan-mode`, the title is `Ryan mode`, and the
+  description and applicability refer to Ryan. No obsolete alias is retained.
+- Preserved the completed working-style improvements and every human-gate
+  category. A byte comparison confirms that the skill changes only the name
+  and identity wording from the previous draft. Shared-conversation boundaries
+  now apply to Ryan; the profile is not imposed on other participants.
+- Updated `SOURCE.md` with the canonical edit path and the distinction between
+  the inherited draft baseline and the newly confirmed Ryan name/applicability.
+  The request does not establish that Ryan and Bobby are the same person or
+  that the inherited preferences came from Ryan's history. No new preferences
+  or transcript-derived claims were added. The provenance finding above still
+  concerns the historical `bobby-mode` source.
+- Moved the original license and custom instructions without changing their
+  bytes. The license's author attribution is not an identity setting.
+- Updated Cursor's explicit discovery entry, the sync checker's local-skill
+  list, active ownership documentation and its mirrored notice, and the
+  affected packaging fixtures. Codex and Claude already discover root
+  `skills/`; their manifests and the root path-install metadata need no change.
+- `vendor/pstack/README.md` is repository-owned metadata according to that
+  file and the sync script. Only its active local-source references changed;
+  pinned upstream snapshots, hashes, historical proof, and history are intact.
+
+### Verification
+
+- `git diff --check`: passed before packaging.
+- `python3 scripts/sync-pstack-skills --check`: passed with the same upstream
+  pin, ten upstream skills and two local skills.
+- `python3 -m unittest tests.test_packaging tests.test_sync_pstack_skills -q`:
+  37 tests passed. The new packaging check verifies one Ryan discovery entry
+  in Cursor and each Codex/Claude discovery result, and no old directory or
+  alias. Existing refresh tests now exercise preservation of the Ryan source.
+- Ruby `YAML.safe_load`: valid frontmatter and scalar description. Explicit
+  checks also verified identity-only instruction changes, unchanged license
+  and custom instructions, absence of the obsolete directory, and a resolving
+  source-to-proof link. `ryan-validation.json` records the content hash and
+  baseline revision; `ryan-packaging.txt` records commands, output and exits.
+- The previous revision's 186-test run and smoke receipts remain historical
+  evidence. They are not claimed as rerun for this rename. The affected
+  packaging and sync suites cover this change.
+- Manual diff review confirmed Ryan-specific applicability, no host/model/tool
+  bindings, preserved authorization limits, and no changes to unrelated skill
+  behavior. The only edit under another skill is its mirrored ownership notice.
+
+This is the user-requested adaptation for draft review, not newly discovered
+Ryan-specific preference history. No unresolved preference question is needed
+for the requested rename. No merge, installation or deployment is authorized
+or claimed.

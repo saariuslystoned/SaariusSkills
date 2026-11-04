@@ -19,6 +19,26 @@ HARNESS2_SKILL = ROOT / "skills" / "harness2"
 
 
 class PackagingTests(unittest.TestCase):
+    def test_ryan_mode_is_discoverable_without_an_obsolete_alias(self) -> None:
+        skill = ROOT / "skills" / "ryan-mode"
+        for filename in ("SKILL.md", "SOURCE.md", "LICENSE"):
+            self.assertTrue((skill / filename).is_file(), filename)
+        self.assertFalse((ROOT / "skills" / "bobby-mode").exists())
+        self.assertFalse((ROOT / "skills" / "bobby-mode").is_symlink())
+        cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
+        self.assertEqual(cursor["skills"].count("./skills/ryan-mode/"), 1)
+        self.assertNotIn("./skills/bobby-mode/", cursor["skills"])
+        for relative in (".codex-plugin/plugin.json", ".claude-plugin/plugin.json"):
+            manifest = json.loads((ROOT / relative).read_text())
+            discovered = [
+                child.name
+                for path in manifest["skills"]
+                for child in (ROOT / path).iterdir()
+                if child.is_dir() and (child / "SKILL.md").is_file()
+            ]
+            self.assertEqual(discovered.count("ryan-mode"), 1, relative)
+            self.assertNotIn("bobby-mode", discovered, relative)
+
     def test_smoky_coordinator_is_canonical_and_legacy_package_is_absent(self) -> None:
         cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
         codex = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())

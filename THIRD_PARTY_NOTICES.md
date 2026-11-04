@@ -75,7 +75,7 @@ Pinned source: <https://github.com/cursor/plugins/tree/a66a8931c2dd71f1ed6abf6a5
 Vendored cherry-picks live only under `vendor/pstack/skills/` and are loaded directly by plugin manifests:
 `architect`, `automate-me`, `blast-radius`, `create-verification-skill`, `how`, `maintain-verification-skill`, `reflect`, `tdd`, `unslop`, `why`.
 
-License: follow the Cursor plugins repository license for those files. Copyright remains with the upstream authors. `bobby-mode` and `pstack-playbooks` are authored Saarius skills in root `skills/`, not Cursor files.
+License: follow the Cursor plugins repository license for those files. Copyright remains with the upstream authors. `ryan-mode` and `pstack-playbooks` are authored Saarius skills in root `skills/`, not Cursor files.
 
 `backnotprop/pstack` is a third-party mirror and is not the pin.
 
