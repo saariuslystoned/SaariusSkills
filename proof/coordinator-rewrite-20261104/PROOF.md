@@ -52,3 +52,10 @@ approval policy; no judge result is claimed.
 Repository review and human merge gates remain required. This packet claims
 source and packaging checks only, not installation, deployment, or runtime
 lifecycle qualification.
+
+## Conversation-separation follow-up
+
+The same assignment now also distinguishes conversation containers from execution
+ownership and preserves explicitly assigned sidebar sessions. See
+[follow-up proof](FOLLOWUP.md) for its source checkpoint and validation. The
+source/proof commits and test results above describe the initial rewrite.

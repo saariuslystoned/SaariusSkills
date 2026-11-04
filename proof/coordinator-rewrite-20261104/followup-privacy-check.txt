@@ -1,0 +1,2 @@
+Command: python3 ../x-api/tools/lib/redact.py scan skills/smoky-coordinator proof/coordinator-rewrite-20261104
+proof_secret_scan=ok files=12
