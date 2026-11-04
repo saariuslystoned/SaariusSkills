@@ -233,6 +233,30 @@ class CaptureHelperTests(unittest.TestCase):
                     self.assertEqual(record["exit"]["normalized"], expected)
                     self.assertEqual(record["classification"], "complete")
 
+    @unittest.skipIf(os.name == "nt", "POSIX shell descriptor closure")
+    def test_closed_output_descriptors_preserve_child_status(self) -> None:
+        for closure in ("exec 1>&-;", "exec 2>&-;", "exec 1>&- 2>&-;"):
+            for expected in (0, 7):
+                with self.subTest(closure=closure, expected=expected):
+                    with tempfile.TemporaryDirectory() as directory:
+                        out = Path(directory) / "cap"
+                        result = subprocess.run(
+                            [
+                                "/bin/sh", "-c", closure + ' exec "$@"', "sh",
+                                sys.executable, str(HELPER), "--out", str(out),
+                                "--", sys.executable, "-c",
+                                f"raise SystemExit({expected})",
+                            ],
+                            capture_output=True,
+                            check=False,
+                        )
+                        self.assertEqual(result.returncode, expected)
+                        record = json.loads(
+                            (out / "capture.json").read_text(encoding="utf-8")
+                        )
+                        self.assertEqual(record["exit"]["normalized"], expected)
+                        self.assertTrue((out / "summary.md").exists())
+
     def test_existing_output_is_not_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

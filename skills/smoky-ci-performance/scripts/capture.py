@@ -298,6 +298,8 @@ def _silence_output_streams() -> None:
         return
     try:
         for stream in (sys.stdout, sys.stderr):
+            if stream is None:
+                continue
             try:
                 os.dup2(devnull, stream.fileno())
             except (OSError, ValueError):
@@ -308,6 +310,8 @@ def _silence_output_streams() -> None:
         except OSError:
             pass
     for stream in (sys.stdout, sys.stderr):
+        if stream is None:
+            continue
         try:
             stream.flush()
         except (OSError, ValueError):
@@ -315,6 +319,9 @@ def _silence_output_streams() -> None:
 
 
 def _safe_output(stream: object, value: object) -> None:
+    # Python exposes a descriptor closed before startup as a missing stream.
+    if stream is None:
+        return
     try:
         writer = (
             getattr(stream, "buffer", stream) if isinstance(value, bytes) else stream
