@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -173,27 +174,37 @@ class PackagingTests(unittest.TestCase):
         protocol = (
             CI_PERFORMANCE_SKILL / "references" / "benchmark-protocol.md"
         ).read_text(encoding="utf-8")
-        for required in (
-            "supported commands first",
-            "/usr/bin/time -l",
-            "/usr/bin/time -v",
-            "exit-code.txt",
-            "Never delete shared caches",
-            "N/A",
-            "Missing REQUIRED execution evidence",
-            "OpenClaw",
-        ):
-            self.assertIn(required, protocol)
+        self.assertIn("macOS:", protocol)
+        self.assertIn("Linux:", protocol)
+        self.assertIn("/usr/bin/time -l", protocol)
+        self.assertIn("/usr/bin/time -v", protocol)
+        self.assertIn("exit-code.txt", protocol)
+        self.assertIn("Never delete shared caches", protocol)
+        self.assertIn("Missing REQUIRED execution evidence", protocol)
+        self.assertIn("OpenClaw", protocol)
         self.assertEqual(
             (CI_PERFORMANCE_SKILL / "LICENSE").read_bytes(),
             (ROOT / "LICENSE").read_bytes(),
         )
 
-    @unittest.skipUnless(sys.platform == "darwin", "macOS /usr/bin/time -l fixture")
-    def test_ci_performance_macos_capture_preserves_status_and_streams(self) -> None:
+    def test_ci_performance_capture_recipe_preserves_status_and_streams(self) -> None:
         protocol_path = CI_PERFORMANCE_SKILL / "references" / "benchmark-protocol.md"
         protocol = protocol_path.read_text(encoding="utf-8")
-        self.assertGreaterEqual(protocol.count('exit "$exit_code"'), 2)
+        if sys.platform == "darwin":
+            heading = "macOS:"
+            time_command = "/usr/bin/time -l"
+        elif sys.platform.startswith("linux"):
+            heading = "Linux:"
+            time_command = "/usr/bin/time -v"
+        else:
+            self.skipTest("capture recipe is specified only for macOS and Linux")
+
+        recipe_section = protocol.split(heading, 1)[1]
+        recipe = recipe_section.split("```", 2)[1]
+        recipe = recipe.removeprefix("sh\n")
+        self.assertIn(time_command, recipe)
+        self.assertIn('exit "$exit_code"', recipe)
+        self.assertEqual(recipe.count("<repo-command> [args...]"), 2)
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -212,15 +223,18 @@ exit "$1"
                 with self.subTest(expected_status=expected_status):
                     output = root / str(expected_status)
                     output.mkdir()
-                    wrapper = f"""set +e
-printf '%s\\n' '{fixture} {expected_status}' > argv.txt
-/usr/bin/time -l sh -c 'exec "$@" 2>&4' sh {fixture} {expected_status} \\
-  >stdout.txt 2>metrics.txt 4>stderr.txt
-exit_code=$?
-printf '%s\\n' "$exit_code" > exit-code.txt
-set -e
-exit "$exit_code"
-"""
+                    fixture_relative = Path("fixture.sh")
+                    (output / fixture_relative).write_text(
+                        fixture.read_text(encoding="utf-8"), encoding="utf-8"
+                    )
+                    (output / fixture_relative).chmod(0o755)
+                    command = (
+                        f"{shlex.quote(f'./{fixture_relative}')} "
+                        f"{expected_status}"
+                    )
+                    wrapper = recipe.replace(
+                        "<repo-command> [args...]", command
+                    )
                     result = subprocess.run(
                         ["sh", "-c", wrapper],
                         cwd=output,
@@ -230,6 +244,10 @@ exit "$exit_code"
                     )
 
                     self.assertEqual(result.returncode, expected_status)
+                    self.assertEqual(
+                        (output / "argv.txt").read_text(encoding="utf-8"),
+                        f"./fixture.sh {expected_status}\n",
+                    )
                     self.assertEqual(
                         (output / "exit-code.txt").read_text(encoding="utf-8"),
                         f"{expected_status}\n",

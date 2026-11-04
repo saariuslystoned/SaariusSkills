@@ -36,6 +36,13 @@ step is not automatically a cheaper run: report timing and bill/resource
 impact separately, including whether execution is free, public, or
 self-hosted.
 
+Treat a present `dist` directory as insufficient evidence of a fresh build:
+verify the producing command and source/config identity. Keep long test globs
+owned by their canonical build or test command; do not copy them elsewhere just
+to skip a build—reuse an explicitly owned prebuilt invocation when intended.
+Before an expensive benchmark, run the actual capture wrapper with a harmless
+failing command and verify its status and stream separation.
+
 Make one targeted improvement at a time. Preserve test and coverage semantics;
 do not hide failures, remove assertions, narrow required selectors, or turn a
 required check optional. Selectors need a conservative fallback, and required
