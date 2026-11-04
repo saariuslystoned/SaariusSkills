@@ -28,6 +28,12 @@ post-test/coverage phases separately when available. Distinguish CPU-bound,
 RSS/memory-bound, I/O/wait-bound, and queue/setup time; wall time alone is not
 diagnosis.
 
+Use the canonical command's environment. Isolate credentials without adding
+feature-disable flags that change fixture behavior. Pin the requested runtime
+before the first baseline; preserve other-runtime attempts as incomparable
+history. Test counts and unchanged assertions are not an instrumented coverage
+measurement.
+
 Establish a comparable baseline. Repeat the same measurement when noise could
 change the decision, and disclose discarded, failed, stale, or incomparable
 runs. For caches, account for producer cost, restore cost, cache-hit
