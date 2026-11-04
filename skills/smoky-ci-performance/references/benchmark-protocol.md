@@ -26,6 +26,17 @@ Treat RSS growth as a leak only when retention evidence supports it. Report
 timing separately from billed or metered resource use, and include the
 execution class (free, public, or self-hosted) when cost is discussed.
 
+## Preferred capture
+
+On macOS or Linux, with Python 3, measure the supported command with
+[capture-contract.md](capture-contract.md). Pass its exact argv after `--`.
+Do not put a shell around that argv. Copy `summary.md` and the matching
+`capture.json` fields. Unknown cost stays `unknown`.
+
+Use the shell recipes below only when Python 3 or `scripts/capture.py` cannot
+run. Report those runs from `exit-code.txt`, `metrics.txt`, and the stream
+files. Do not hand-type summary numbers from either path.
+
 ## Portable shell capture recipes
 
 After inventorying the supported command, substitute its exact argv for
@@ -91,6 +102,9 @@ candidate: status=0, wall=10.1s, user=8.9s, sys=0.6s, max_rss=418MB
 delta: -2.3s (-18.5% wall), same selector/coverage, setup=N/A
 classification: success
 ```
+
+The numbers above only show the report shape. A real report copies its values
+from the capture receipt or the shell raw files.
 
 Report at minimum: source revision, exact argv, OS/CPU, runtime/tool versions,
 cache/dependency/build state, setup and phase fields (`N/A`/`unknown` when

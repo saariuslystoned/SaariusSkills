@@ -40,8 +40,21 @@ Treat a present `dist` directory as insufficient evidence of a fresh build:
 verify the producing command and source/config identity. Keep long test globs
 owned by their canonical build or test command; do not copy them elsewhere just
 to skip a build—reuse an explicitly owned prebuilt invocation when intended.
-Before an expensive benchmark, run the actual capture wrapper with a harmless
-failing command and verify its status and stream separation.
+Before an expensive benchmark, capture one harmless failing command and verify
+its status and stream separation. On macOS or Linux with Python 3, use the
+one-shot helper in
+[capture-contract.md](references/capture-contract.md):
+
+```bash
+python3 skills/smoky-ci-performance/scripts/capture.py --out <new-or-empty-directory> -- <exact argv...>
+```
+
+Copy the `summary.md` row and `capture.json` fields into the report. Do not
+retype them. Cost stays `unknown` unless a separate billing source says
+otherwise. When Python or this helper cannot run, use the shell recipes in
+[benchmark-protocol.md](references/benchmark-protocol.md) and report from those
+raw files. The helper is not a scheduler, selector, or test runner. The caller
+owns the environment and any external timeout.
 
 Make one targeted improvement at a time. Preserve test and coverage semantics;
 do not hide failures, remove assertions, narrow required selectors, or turn a
@@ -86,7 +99,9 @@ classification inspectable.
 
 For the measurement and CI-specific checklists, read:
 
+- [capture-contract.md](references/capture-contract.md) before measuring a
+  command with the capture helper.
 - [benchmark-protocol.md](references/benchmark-protocol.md) for baseline,
-  attribution, and result classification.
+  attribution, shell fallback, and result classification.
 - [ci-efficiency.md](references/ci-efficiency.md) for workflow, cache, selector,
   and required-status review.

@@ -186,6 +186,12 @@ class PackagingTests(unittest.TestCase):
             (CI_PERFORMANCE_SKILL / "LICENSE").read_bytes(),
             (ROOT / "LICENSE").read_bytes(),
         )
+        helper = CI_PERFORMANCE_SKILL / "scripts" / "capture.py"
+        self.assertTrue(helper.is_file())
+        self.assertTrue(helper.stat().st_mode & 0o111)
+        self.assertTrue(
+            (CI_PERFORMANCE_SKILL / "references" / "capture-contract.md").is_file()
+        )
 
     def test_ci_performance_capture_recipe_preserves_status_and_streams(self) -> None:
         protocol_path = CI_PERFORMANCE_SKILL / "references" / "benchmark-protocol.md"
