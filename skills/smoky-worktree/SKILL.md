@@ -9,6 +9,8 @@ Read the current request and trusted repository instructions first. Before apply
 
 Read `references/worktree-policy.md` before choosing a base or creating a checkout. Identify the repository, current branch, dirty state and assigned source revision. Preserve existing operator checkouts and other tasks' work.
 
+Check for an assigned workspace or existing task session before provisioning. A worker uses the supplied checkout, branch and repository mounts after verifying them; it does not create another worktree or worker to repeat setup. If a workspace contains several repositories, read its manifest and each repository's contract, and keep Git changes and verification inside the owning repository.
+
 Prefer a repository-owned helper. Otherwise fetch the intended remote, resolve its default branch, and create a separate branch/worktree from the verified base. An explicitly assigned revision wins over a default; record it rather than silently substituting another branch. Do not change the branch of an operator's landing checkout.
 
 Assign one writable owner per source slice. Keep review checkouts read-only unless ownership is explicitly transferred. Before replacing a writer, establish termination or cancellation and preserve partial work. Creating a worktree is source preparation, not permission to merge, deploy or clean other worktrees.
