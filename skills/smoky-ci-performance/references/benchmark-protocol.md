@@ -45,7 +45,7 @@ stdout, child stderr, metrics, and the command exit code separate; they
 deliberately do not use a `tee` pipeline, whose final command can mask the test
 exit. The inner shell sends the child’s stderr to fd 4 while `/usr/bin/time`
 keeps its own diagnostics in the metrics file. `argv.nul` is the exact argv
-receipt: each argument is written as its UTF-8 shell value followed by one NUL
+receipt: each argument's raw bytes are followed by one NUL
 byte (`\0`), so it is machine-readable rather than a newline- or delimiter-
 escaped display.
 
