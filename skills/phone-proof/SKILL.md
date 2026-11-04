@@ -17,7 +17,8 @@ inspected on its own.
 - Read [references/android-displays.md](references/android-displays.md) before
   Android capture or coordinate input, especially on foldables.
 - Read [references/proof-contract.md](references/proof-contract.md) before
-  creating a durable proof packet.
+  creating a durable proof packet. Its artifact, synthetic-fixture, and
+  emulator/physical claim checks apply when those proof modes are used.
 - Read [references/live-voice.md](references/live-voice.md) before proving a
   spoken conversation with a realtime voice agent on the phone (barge-in,
   consults while the caller talks, long spoken replies, session survival).
@@ -73,6 +74,9 @@ Do not hand-compose a display capture when the helper owns it.
 5. Install only the reviewed debug/test artifact using the repo's owned
    installer or bounded `adb install -r <exact-apk>`. Force-stop and relaunch
    the exact test package so hot reload cannot masquerade as a native install.
+   Verify the installed package's APK digest(s) against the intended build as
+   described in the proof contract; an installer success message is not an
+   artifact identity check. Skip this step for inspection-only work.
 6. Capture the physical display:
 
    ```bash
