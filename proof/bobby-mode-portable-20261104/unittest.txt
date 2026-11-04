@@ -1,0 +1,28 @@
+$ python3 -m unittest discover -s tests -q
+review packaged correction for changed upstream excerpt: references/block-kit.md
+packaged EmDash skill drift: emdash-cli
+refusing symlink in packaged skill: upgrading-emdash
+----------------------------------------------------------------------
+Ran 186 tests in 95.086s
+
+OK
+EmDash packaged skills updated
+EmDash packaged skills clean
+EmDash packaged skills updated
+EmDash packaged skills clean
+EmDash packaged skills updated
+EmDash packaged skills clean
+PStack updated: 10 upstream skills; ceabc83ab9c0103bfd48d6e957ca626523c682f9; local skills untouched
+PStack updated: 10 upstream skills; 23e94e8f027c67cac33c23aa4cfeece12c0d6cb0; local skills untouched
+PStack check clean: 10 upstream + 2 local skills; 23e94e8f027c67cac33c23aa4cfeece12c0d6cb0
+PStack updated: 10 upstream skills; 23e94e8f027c67cac33c23aa4cfeece12c0d6cb0; local skills untouched
+PStack updated: 10 upstream skills; 23e94e8f027c67cac33c23aa4cfeece12c0d6cb0; local skills untouched
+PStack check clean: 10 upstream + 2 local skills; a66a8931c2dd71f1ed6abf6a52b1898a9f389ae4
+PStack updated: 10 upstream skills; 23e94e8f027c67cac33c23aa4cfeece12c0d6cb0; local skills untouched
+PStack updated: 10 upstream skills; 42ec46f1181ff23ca40b73dfaf017725be4c6311; local skills untouched
+PStack check clean: 10 upstream + 2 local skills; 42ec46f1181ff23ca40b73dfaf017725be4c6311
+PStack updated: 10 upstream skills; 23e94e8f027c67cac33c23aa4cfeece12c0d6cb0; local skills untouched
+PStack updated: 10 upstream skills; 23e94e8f027c67cac33c23aa4cfeece12c0d6cb0; local skills untouched
+PStack updated: 10 upstream skills; 23e94e8f027c67cac33c23aa4cfeece12c0d6cb0; local skills untouched
+
+exit_code=0

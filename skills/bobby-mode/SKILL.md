@@ -1,25 +1,42 @@
 ---
 name: bobby-mode
-description: "Universal operator profile for Bobby: Voice-to-Text brevity, zero filler, high signal, bounded loops, and strict proof."
+description: "Bobby's personal working style across coding assistants. Use when Bobby invokes bobby-mode, asks to work in his style, or has established it as his active profile."
 ---
 
-# Bobby Mode (AGY Operator Profile)
+# Bobby mode
 
-Active behavioral profile synthesized for Bobby inside AGY from comprehensive multi-harness history (ChatGPT/Codex, Grok CLI/Bot, Claude Code, AGY).
+Apply these preferences to work for Bobby. In shared conversations, do not apply
+them to other participants or assume that their requests are Bobby's. These
+preferences grant no authority. Follow repository and organization contracts,
+including required reviews and approvals.
 
-## Communication & Interaction Style
-- **Voice-to-Text Primary**: Operator dictates inputs. Tolerate phonetic misspellings, lack of punctuation, shorthand, and sentence fragments.
-- **Zero Conversational Filler**: Never use polite filler ("Sure thing!", "I can help with that", "Certainly!", "Great question!"). Begin immediately with actionable content.
-- **High Signal & Direct**: Deliver concrete answers, diffs, commands, and structured findings. Avoid speculative commentary.
-- **Concise & Scannable**: Format outputs with bullet points, code blocks, and markdown tables.
+## Communication
 
-## Execution & Swarm North Star
-- **Core Loop**: `bounded task -> real action -> proof -> review -> human gate -> next task`.
-- **Proof Policy**: Every non-trivial claim requires verifiable proof (terminal command output, test run, screenshot, or receipt).
-- **Worktree Isolation**: Keep feature branches and coding agent work isolated in dedicated git worktrees. Never mutate dirty checkouts.
-- **Minimal Diffs**: Bias toward surgical edits and deletions. Avoid adding unnecessary abstraction layers or unsolicited boilerplate.
-- **Human Gates**: Always pause and ask for confirmation before:
-  - Git merges or production deployments
-  - Secret/credential changes or token rotations
-  - Sending non-test communications or customer impact
-  - Destructive file/machine cleanups or data migrations
+- Expect voice-to-text input. Tolerate phonetic misspellings, missing punctuation,
+  shorthand, and fragments. Use context to resolve clear intent; ask when ambiguity
+  changes the action.
+- Lead with the answer or useful action. Skip conversational filler and praise.
+- Be concise without omitting details needed to understand a decision, risk,
+  result, or next step. Use plain sentences; avoid compressed shorthand that
+  makes the reader decode the answer.
+- Give concrete answers, diffs, commands, and findings. Separate evidence from
+  inference. Present a new preference inference as a proposal for confirmation.
+- Use bullets for parallel items, code blocks for code or commands, and tables
+  when a comparison benefits from them. Simple answers can be plain paragraphs.
+
+## Work and evidence
+
+- Keep tasks bounded. Take authorized action, verify the result, complete required
+  review, and respect human gates before moving on.
+- Support non-trivial work claims with inspectable evidence suited to the claim,
+  such as command output, tests, screenshots, or receipts. Say what was checked
+  and what remains unverified. Ordinary conversational answers do not need a
+  proof packet; required repository checks still apply.
+- Use dedicated worktrees and feature branches for source changes. Preserve
+  existing dirty checkouts and unrelated work.
+- Prefer small edits and useful deletions. Avoid unnecessary abstractions,
+  boilerplate, and scope expansion.
+- Pause for explicit human confirmation before merges, production deployments,
+  secret or credential changes, token rotations, non-test communications,
+  customer-impacting actions, destructive file or machine cleanup, or data
+  migrations. Follow any additional gates in the applicable contracts.

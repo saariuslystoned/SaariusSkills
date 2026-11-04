@@ -1,0 +1,39 @@
+$ python3 skills/grilltrack/scripts/grilltrack_ledger.py --help
+usage: grilltrack_ledger.py [-h] [--project PROJECT]
+                            {init,new,show,validate,focus,confirm,propose,lock,gate,compact,implement,verify,review,reopen,supersede,defer,recommend,pause,resume,close,reconcile} ...
+
+Create and evolve a durable, non-destructive GrillTrack ledger.
+
+positional arguments:
+  {init,new,show,validate,focus,confirm,propose,lock,gate,compact,implement,verify,review,reopen,supersede,defer,recommend,pause,resume,close,reconcile}
+    init                initialize the first track
+    new                 preserve a closed track and initialize the next track
+    show                print the current ledger
+    validate            validate the current ledger
+    focus               start a focused grill
+    confirm             record explicit shared-understanding confirmation
+    propose             record a proposed decision
+    lock                lock a proposed or reopened decision
+    gate                evaluate a proposed decision or candidate choice
+                        against the Jev / OpenAI gpt-6.1-sol lock gatekeeper
+    compact             archive superseded decisions, verified slice
+                        decisions, and verbose per-decision history into
+                        .grilltrack/archive/
+    implement           record bounded implementation
+    verify              record cumulative verification
+    review              record exact-source review and adjudication
+    reopen              reopen a prior decision
+    supersede           supersede one decision with another
+    defer               defer a decision with risk
+    recommend           record the next-grill recommendation
+    pause               pause a track
+    resume              resume a paused track
+    close               close after user confirmation
+    reconcile           plan or explicitly apply a same-repository fork join
+
+options:
+  -h, --help            show this help message and exit
+  --project PROJECT     project root that owns .grilltrack/ (default: current
+                        directory)
+
+exit_code=0
