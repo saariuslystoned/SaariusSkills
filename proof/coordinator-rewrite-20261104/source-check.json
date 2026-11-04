@@ -1,0 +1,9 @@
+{
+  "source_commit": "1d7892be96a3ef3b5ea38caeb677f5428ab38f96",
+  "private_identifiers_added": false,
+  "sha256": {
+    "skills/smoky-coordinator/SKILL.md": "b01f480e87b3f70506b4dd94695f69db951e4354d3b78e5d3c7c6139fb33d9e5",
+    "skills/smoky-coordinator/agents/openai.yaml": "722cda0c4eea0dc5e5fae432a48226fcbb3517775f80a87c2bb07036ab6301da",
+    "docs/portable-skills.md": "a70433bbb57733306d181eea75fb537eb9652b86b69f8d9c478a9e4bd6ac5197"
+  }
+}
