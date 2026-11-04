@@ -236,7 +236,7 @@ def summary_line(record: Mapping[str, object]) -> str:
 
 def render(record: Mapping[str, object]) -> tuple[bytes, bytes]:
     payload = (
-        json.dumps(record, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+        json.dumps(record, indent=2, ensure_ascii=True, allow_nan=False) + "\n"
     ).encode("utf-8")
     # Parse the bytes we are about to publish so a non-JSON receipt cannot land.
     json.loads(payload.decode("utf-8"))
@@ -294,6 +294,23 @@ def write_error(message: str) -> None:
     sys.stderr.write(f"capture.py: {message}\n")
 
 
+def echo_receipt(payload: bytes) -> None:
+    try:
+        sys.stdout.buffer.write(payload)
+        sys.stdout.buffer.flush()
+    except OSError:
+        # The receipt is already durable. If the caller closed stdout, replace
+        # the descriptor before shutdown so Python cannot re-flush the broken
+        # pipe and change the helper's authoritative child status.
+        try:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+            os.close(devnull)
+            sys.stdout.buffer.flush()
+        except OSError:
+            pass
+
+
 def main(argv: Sequence[str]) -> int:
     if list(argv) in (["-h"], ["--help"]):
         sys.stdout.write(HELP)
@@ -327,10 +344,7 @@ def main(argv: Sequence[str]) -> int:
     except (OSError, CaptureError, TypeError, ValueError):
         write_error("classification=failure: could not write the capture receipt")
         return 1
-    try:
-        sys.stdout.buffer.write(payload)
-    except OSError:
-        write_error("could not copy the receipt to stdout")
+    echo_receipt(payload)
     write_error(f"classification={record['classification']}")
     return status
 

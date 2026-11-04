@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import stat
 import subprocess
 import sys
@@ -107,6 +108,66 @@ class CaptureHelperTests(unittest.TestCase):
                 (out / "stdout.txt").read_text(encoding="utf-8"),
                 f"{dollar}\n{quoted}\n{spaced}\n",
             )
+
+    @unittest.skipIf(os.name == "nt", "Windows does not support bytes argv")
+    def test_non_utf8_argv_is_lossless_and_receipted(self) -> None:
+        script = (
+            "import os, sys\n"
+            "print(os.fsencode(sys.argv[1]).hex())\n"
+            "raise SystemExit(7)\n"
+        )
+        argument = b"before-\xff-after"
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "cap"
+            result = self.run_capture(
+                out,
+                [sys.executable, "-c", script, argument],  # type: ignore[list-item]
+            )
+            self.assertEqual(result.returncode, 7)
+            record = json.loads((out / "capture.json").read_text(encoding="utf-8"))
+            self.assertEqual(record["argv"][-1], argument.decode("utf-8", "surrogateescape"))
+            self.assertEqual(
+                (out / "stdout.txt").read_text(encoding="utf-8"),
+                f"{argument.hex()}\n",
+            )
+            self.assertEqual(record["exit"]["normalized"], 7)
+            self.assertIn(
+                b'classification="complete"',
+                (out / "summary.md").read_bytes(),
+            )
+
+    def test_closed_stdout_pipe_preserves_child_status_and_receipt(self) -> None:
+        script = "raise SystemExit(int(__import__('sys').argv[1]))"
+        for expected in (0, 7):
+            with self.subTest(expected=expected):
+                with tempfile.TemporaryDirectory() as directory:
+                    out = Path(directory) / "cap"
+                    process = subprocess.Popen(
+                        [
+                            sys.executable,
+                            str(HELPER),
+                            "--out",
+                            str(out),
+                            "--",
+                            sys.executable,
+                            "-c",
+                            script,
+                            str(expected),
+                        ],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                    assert process.stdout is not None
+                    process.stdout.close()
+                    stdout, stderr = process.communicate()
+                    self.assertEqual(stdout, b"")
+                    self.assertEqual(process.returncode, expected)
+                    self.assertNotIn(b"BrokenPipeError", stderr)
+                    record = json.loads(
+                        (out / "capture.json").read_text(encoding="utf-8")
+                    )
+                    self.assertEqual(record["exit"]["normalized"], expected)
+                    self.assertEqual(record["classification"], "complete")
 
     def test_existing_output_is_not_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
