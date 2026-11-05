@@ -21,6 +21,18 @@ maintenance and bounded issue/PR sweeps. They work without a private repository
 or service. [Portable skill boundaries](docs/portable-skills.md) explain optional
 repo-owned bindings and the local-only Python helpers.
 
+- [smoky-deslop](skills/smoky-deslop/SKILL.md): behavior-preserving cleanup of
+  staged, branch or user-scoped code diffs before final exact-head review.
+- [smoky-technical-documentation](skills/smoky-technical-documentation/SKILL.md):
+  build, review, audit or rewrite human/agent docs against current source truth,
+  preserving literal commands, policy gates and release status.
+
+These portable cores adapt pinned MIT-licensed dotskills guidance; see the
+[third-party notices](THIRD_PARTY_NOTICES.md#dotskills-portable-adaptations).
+They do not replace packaging audits (`smoky-skill-cleaner`) or writing-style
+cleanup (`vendor/pstack/skills/unslop`). Existing plugin/path discovery applies;
+this source update does not install, activate or roll out skills.
+
 ## PStack engineering skills
 
 The ten selected upstream PStack skills live only in

@@ -15,6 +15,7 @@ NAMES = (
     "smoky-skill-cleaner", "smoky-behavior-validator", "smoky-cli-creator",
     "smoky-worktree", "smoky-session-viewer", "smoky-coordinator",
     "smoky-maintainer", "smoky-portfolio-sweep",
+    "smoky-deslop", "smoky-technical-documentation",
 )
 
 

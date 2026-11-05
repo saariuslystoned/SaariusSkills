@@ -1,0 +1,4 @@
+interface:
+  display_name: "Technical Documentation"
+  short_description: "Check technical docs against current source truth."
+  default_prompt: "Use $smoky-technical-documentation for the requested docs scope, verifying source fidelity and preserving policy and release status."

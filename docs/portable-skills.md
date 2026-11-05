@@ -8,6 +8,8 @@ canonical name is `smoky-coordinator`.
 | `smoky-skill-cleaner` | Read-only metadata, duplicate and reference checks |
 | `smoky-behavior-validator` | Independent observable behavior contracts and proof |
 | `smoky-cli-creator` | Command interface and output contracts |
+| [`smoky-deslop`](../skills/smoky-deslop/SKILL.md) | Scoped changed-code cleanup that preserves behavior, security and reliability |
+| [`smoky-technical-documentation`](../skills/smoky-technical-documentation/SKILL.md) | Source-truth human/agent docs, command fidelity and policy/status-preserving rewrites |
 | `smoky-worktree` | Fresh source identity and isolated writable ownership |
 | `smoky-session-viewer` | Explicit local JSONL input to private searchable HTML |
 | `smoky-coordinator` | One lead assignment through the configured runtime, bounded specialists, handoffs and exact-source closeout |
@@ -38,3 +40,13 @@ retains an acknowledgement of Vincent Koc's public
 and [worker contract](https://github.com/vincentkoc/dotskills/blob/main/skills/openclaw-pr-batch-sweep/references/worker-contract.md).
 Its third-party notice preserves that project's MIT attribution. Those
 projects' runtime, host, transport and review choices are not required here.
+
+`smoky-deslop` and `smoky-technical-documentation` adapt the same project's
+technical-deslop and technical-documentation at revision
+`c9ca51e3a4e93fe10266d78e430c6575a5b19d30`. Each distributable directory
+contains its license and full upstream MIT notice; the root
+[notices](../THIRD_PARTY_NOTICES.md#dotskills-portable-adaptations) record the
+source and adaptation boundaries. They add no runtime, STE lint requirement or
+repository-wide audit default. Packaging audits remain with
+`smoky-skill-cleaner`; writing-style cleanup remains distinct from code cleanup
+and operational documentation verification.
