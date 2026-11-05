@@ -63,12 +63,53 @@ Scenario evidence is an author-performed static walkthrough, **not independent
 behavioral validation or runtime proof**. No prose-matching tests, new scripts
 or broad test framework were added. No quality or quota savings are measured.
 
-## Review and stop conditions
+## Initial review checkpoint (historical)
 
-Review route requires exact-head CI, native review and comprehensive review.
-This checkpoint does not attest their completion. Record final head, request IDs
-and outcomes in the PR and task handoff; retain this source/check provenance.
-Native target capability/enrollment must be established before triggering;
-missing enrollment is a blocker, not permission to install or substitute a rail.
-Stop at review-clean/CI-green handoff or a precise concrete blocker. No merge,
-installation, deploy or cleanup is authorized by this proof.
+The initial assignment required exact-head CI, native review and comprehensive
+review. Native enrollment was unavailable; that checkpoint did not attest
+completion. The initial tests above cover `05ce269`, not a later integrated
+head. Keep that history separate from the continuation below.
+
+## Owner-directed review continuation
+
+The owner explicitly continued the existing Copilot route for this repository.
+For PR #218 the current gates are successful CI, an actual clean current-head
+Copilot review, and comprehensive P3 review of the exact immutable base/head.
+Native review remains unavailable and is **not** claimed as cleared; enrollment,
+accounts and infrastructure are outside this assignment. Its absence alone is
+not a blocker under this scoped route. This does not change another PR's policy.
+
+Copilot [review 5788543251](https://github.com/saariuslystoned/SaariusSkills/pull/218#pullrequestreview-5788543251)
+reviewed `df706e0c69fcaab321f066b91e5136d391bb789e`: no inline findings,
+but its summary raised the native blocker and incomplete final-head evidence.
+The native concern is superseded by the explicit route decision, not by a claim
+of enrollment. The evidence concern is valid: prior local checks are source
+checkpoints, and external CI/reviews must be revalidated on the final head.
+The “Needs a closer look” summary is not represented as a clean verdict.
+
+Integrated current `main` at `e93e6e6588a2df1fe21af61ca2b7926e3406505b`
+(including #216 and #220) without rewriting history or authoring changes to
+other owners' skills. The sweep implementation is unchanged. On the integrated tree
+`9a28c486278c566dc5d6364abcbb77ea15953634` plus these proof-only edits,
+refreshed local checks passed:
+
+- `python3 -m unittest discover -s tests -p 'test_packaging.py' -v`:
+  [30 tests](continuation-packaging.txt).
+- `python3 -m unittest discover -s tests -p 'test_portable_skills.py' -v`:
+  [5 tests](continuation-portable.txt), including metadata, references and privacy.
+- `python3 -m unittest discover -s tests`:
+  [206 tests](continuation-all-tests.txt). The count differs from the initial
+  checkpoint because #220 retired viewer checks; expected negative-fixture
+  diagnostics remain nonfailures.
+- `git diff --check`: PASS. No runtime sweep or independent behavior claim.
+
+These outputs are separate from the historical checks above and do not claim
+completion of future external reviews. Final head, CI run, Copilot URL,
+P3 request/base/head and finding dispositions belong in the PR/task closeout.
+Recheck live `main` and the reviewed tuple at that handoff; retain superseded
+reviews as history, not current clearance.
+
+The owner's conditional merge authorization for #218 remains with the closer;
+this writer never self-merges. This proof grants no authority for installation,
+deployment, cleanup or another PR's merge. Stop at review-clean/CI-green handoff
+or an exact technical blocker, without asking again for the same authorization.
