@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import subprocess
 import tempfile
@@ -13,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 NAMES = (
     "smoky-skill-cleaner", "smoky-behavior-validator", "smoky-cli-creator",
-    "smoky-worktree", "smoky-session-viewer", "smoky-coordinator",
+    "smoky-worktree", "smoky-coordinator",
     "smoky-maintainer", "smoky-portfolio-sweep",
     "smoky-deslop", "smoky-technical-documentation",
 )
@@ -75,50 +74,16 @@ class PortableSkillTests(unittest.TestCase):
             self.assertEqual(report["issue_counts"]["missing-reference"], 2)
             self.assertEqual(before, {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob("*") if p.is_file()})
 
-    def test_renderer_escapes_and_redacts_synthetic_input(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            source = Path(temp) / "fixture.jsonl"
-            output = Path(temp) / "viewer.html"
-            source.write_text(json.dumps({"role": "assistant", "content": '<script>alert("fixture")</script> token=synthetic_value_12345'}) + "\nnot json\n")
-            before = source.read_bytes()
-            result = self.render(source, output)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            html = output.read_text()
-            self.assertIn("&lt;script&gt;", html)
-            self.assertNotIn('<script>alert("fixture")</script>', html)
-            self.assertNotIn("synthetic_value_12345", html)
-            self.assertIn("warnings: 1", result.stdout)
-            self.assertNotIn("<script src=", html)
-            self.assertEqual(source.read_bytes(), before)
-            if os.name == "posix":
-                self.assertEqual(output.stat().st_mode & 0o777, 0o600)
-
-    def test_renderer_does_not_overwrite_source_or_existing_output(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            source = Path(temp) / "fixture.jsonl"
-            source.write_text('{}\n')
-            self.assertEqual(self.render(source, source, "--overwrite").returncode, 2)
-            self.assertEqual(source.read_text(), '{}\n')
-            output = Path(temp) / "existing.html"
-            output.write_text("retain me")
-            self.assertEqual(self.render(source, output).returncode, 2)
-            self.assertEqual(output.read_text(), "retain me")
-            self.assertEqual(self.render(source, output, "--overwrite").returncode, 0)
-
-    def test_renderer_refuses_a_hardlink_to_its_input(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            source = Path(temp) / "fixture.jsonl"
-            source.write_text('{"content":"preserve fixture"}\n')
-            output = Path(temp) / "alias.html"
-            os.link(source, output)
-            before = source.read_bytes()
-            self.assertEqual(self.render(source, output, "--overwrite").returncode, 2)
-            self.assertEqual(source.read_bytes(), before)
-            self.assertEqual(output.read_bytes(), before)
-
-    @staticmethod
-    def render(source: Path, output: Path, *flags: str) -> subprocess.CompletedProcess:
-        return subprocess.run(["python3", str(ROOT / "skills/smoky-session-viewer/scripts/render-session"), str(source), "--out", str(output), *flags], capture_output=True, text=True)
+    def test_retired_viewer_is_not_packaged_or_discovered(self) -> None:
+        retired = "smoky-session-viewer"
+        self.assertFalse((ROOT / "skills" / retired).exists())
+        cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
+        self.assertNotIn(f"./skills/{retired}/", cursor["skills"])
+        for manifest in (".codex-plugin/plugin.json", ".claude-plugin/plugin.json"):
+            roots = json.loads((ROOT / manifest).read_text())["skills"]
+            discovered = {p.name for root in roots for p in (ROOT / root).iterdir()
+                          if p.is_dir() and (p / "SKILL.md").is_file()}
+            self.assertNotIn(retired, discovered)
 
 
 if __name__ == "__main__":
