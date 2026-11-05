@@ -1,0 +1,85 @@
+{
+  "boundary": "Synthetic source/caller examples only; not real usage observations.",
+  "cases": [
+    {
+      "id": "clear-useful-short",
+      "directory": "format-check",
+      "name": "format-check",
+      "description": "Check formatting of a user-selected text file without changing it.",
+      "body": "Accept one selected file. Run the repository formatter's check mode, report differences and its exit code. Do not rewrite the file or scan sibling directories.",
+      "caller": "Fixture contributor contract: before proposing a text change, invoke $format-check on the named changed file; the repository supplies formatter --check FILE.",
+      "expected_packaging_errors": [],
+      "author_assessment": "keep: concrete task and caller align; short body alone does not justify expansion"
+    },
+    {
+      "id": "clean-but-overbroad-stale",
+      "directory": "project-helper",
+      "name": "project-helper",
+      "description": "Use for every engineering task, all repository maintenance and all delivery decisions.",
+      "body": "For every task, run legacyship publish --all. Rewrite all docs before answering. This skill owns coding, review, deployment and approvals.",
+      "caller": "Fixture caller asks only for a read-only packaging report. Fixture current CLI contract exposes ship inspect PATH; legacyship was removed. Owner contract reserves deployment approval to the human.",
+      "expected_packaging_errors": [],
+      "author_assessment": "update: narrow trigger/ownership, replace obsolete workflow with a scoped read-only procedure, remove unrelated mandatory rewrites; source/caller conflict is direct"
+    },
+    {
+      "id": "useful-but-broken-reference",
+      "directory": "release-check",
+      "name": "release-check",
+      "description": "Report release prerequisites for the selected package without publishing.",
+      "body": "Read `references/release-policy.md`. Report which prerequisites are met for the requested package. Preserve the owner's publication gate.",
+      "caller": "Fixture release contributor guide invokes $release-check before asking the owner to publish. The selected fixture has no release-policy.md.",
+      "expected_packaging_errors": ["missing-reference"],
+      "author_assessment": "update: restore the authoritative reference; retain the useful bounded role and owner gate"
+    },
+    {
+      "id": "same-name-distinct-policy-a",
+      "directory": "public-check",
+      "name": "artifact-check",
+      "description": "Check public release artifact provenance before publication.",
+      "body": "Verify public license and source provenance for the selected release artifact. Never include private evidence in public output.",
+      "caller": "Fixture public release contract names public-check/SKILL.md. The name/directory mismatch is deliberate fixture breakage, not a reason to delete.",
+      "expected_packaging_errors": ["name-mismatch"],
+      "author_assessment": "update metadata/routing: same name conflicts with private-check, but preserve separate public policy; consolidation not qualified by names alone"
+    },
+    {
+      "id": "same-name-distinct-policy-b",
+      "directory": "private-check",
+      "name": "artifact-check",
+      "description": "Check internal audit artifact retention without publishing it.",
+      "body": "Verify retention and restricted access for the selected internal audit artifact. Never publish the artifact.",
+      "caller": "Fixture internal audit contract names private-check/SKILL.md, with a distinct internal owner and restricted evidence requirements.",
+      "expected_packaging_errors": ["name-mismatch"],
+      "author_assessment": "update metadata/routing: preserve restricted workflow; do not automatically consolidate with public-check"
+    },
+    {
+      "id": "no-usage-is-unknown",
+      "directory": "incident-guard",
+      "name": "incident-guard",
+      "description": "Preserve evidence and escalate a selected security incident to its owner.",
+      "body": "Preserve the selected incident evidence without modifying it. Identify the accountable incident owner and stop before account or credential changes.",
+      "caller": "No caller inventory, canonical owner attestation or usage telemetry was supplied for this fixture.",
+      "expected_packaging_errors": [],
+      "author_assessment": "provisional keep: retirement not qualified; missing caller evidence and telemetry are unknown, not disuse; safeguards are not redundant merely because unobserved"
+    },
+    {
+      "id": "qualified-retirement-recommendation",
+      "directory": "old-package-check",
+      "name": "old-package-check",
+      "description": "Check selected package prerequisites using the old policy.",
+      "body": "Check the selected package name, version and license fields against the supplied package policy. Report readiness without modifying files. Never publish; the human owner decides publication.",
+      "caller": "Fixture owner contract: Packaging Team owns canonical source fixtures/old-package-check and retained fixtures/package-check. The only caller is docs/release.md, to migrate its alias to package-check. The owner attests this fixture's complete caller scope; no external coverage is claimed. Both source bodies preserve the same checklist and publication gate. Retain old policy, MIT notice and prior proof under the repository archive policy; rollback restores the prior alias. Retirement recommendation is requested; implementation still needs a separately authorized change.",
+      "expected_packaging_errors": [],
+      "author_assessment": "retire recommendation: owner/caller/replacement/parity/retention are evidenced within the synthetic scope; migration and the owner's implementation gate remain prerequisites, not deletion authority"
+    },
+    {
+      "id": "canonical-replacement",
+      "directory": "package-check",
+      "name": "package-check",
+      "description": "Report selected package name, version and license readiness without publishing.",
+      "body": "Check the selected package name, version and license fields against the supplied package policy. Report readiness without modifying files. Never publish; the human owner decides publication.",
+      "caller": "Fixture Packaging Team contract designates this as retained canonical source and migration destination for docs/release.md; its body matches old-package-check's prerequisite and authority contract.",
+      "expected_packaging_errors": [],
+      "author_assessment": "consolidate old-package-check into this retained source; migrate the documented caller and retain provenance/rollback before any authorized retirement"
+    }
+  ]
+}
