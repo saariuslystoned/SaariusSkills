@@ -54,7 +54,7 @@ instructions yields a proportionate interface decision.
 | Spec only: design `notes find QUERY` for humans and a script | Supply synopsis, query/empty-result semantics, human display and consumer-required structured shape, stderr and exits plus examples. Walk through success, no matches and missing query. Stop with runtime behavior unproved; do not edit source or implement a tool. |
 | New CLI request for a service with a mature official CLI | First compare the requested workflow with the official command and existing repo facade. If it already serves the workflow, recommend its invocation, not generation. If only a local transformation is missing, specify that narrow gap; do not silently replace the requested product or create a duplicate API client. |
 | Authorized implementation: extend existing `bundle inspect FILE` with `--summary` | Write a short delta spec, then implement in the existing parser/helper and update help/tests within source authority. Exercise the delivered entry point on a synthetic bundle and bad input; compare old invocation behavior. Do not pause for a second design approval or install/publish the result. |
-| Unattended mutation: `records apply` receives piped input but lacks required confirmation | No prompt/selector/pager; fail promptly with nonzero exit and actionable stderr, without mutation. Test terminal-free defaults without a no-input flag and supported explicit no-input mode separately, each with closed/piped stdin and a bounded timeout to detect hangs; test defined machine error output if offered. `--force` may skip a local prompt only after actual authority is established, never authorize the action. |
+| Unattended mutation: `records apply` receives piped input but lacks required confirmation | No prompt/selector/pager; fail promptly with nonzero exit and actionable stderr, without mutation. Test terminal-free defaults without a no-input flag using closed/piped stdin and a bounded timeout. Separately test supported explicit no-input mode with both closed/piped and terminal-backed stdin, including a controlling terminal available, each bounded by a timeout with no interactive responses. Require no interaction and actionable nonzero failure for missing required input/confirmation; test defined machine error output if offered. `--force` may skip a local prompt only after actual authority is established, never authorize the action. |
 | Cache-backed `inventory list` with an existing source selector | Distinguish a local read from a live check/refresh using the existing interface. Report known observation time and scope, or unknown/stale/partial; a failed refresh must not look fresh. Test selection and fallback reporting. A file-only filter with no cache gets none of these features. |
 | Authorized template change producing a CLI | Generate the affected representative variant, build the result and invoke its normal task and invalid-input path against safe fixtures. Template compilation or a matching snapshot alone is insufficient. No generator/runtime dependency is introduced by this skill authoring task. |
 | Proposed golden for a stable offline structured command; unrelated timestamp-heavy/private diagnostics | Consider the small stable public schema/artifact subset; use focused assertions for field logic. Exclude incidental/private diagnostics. Inspect any intentional contract change rather than blindly accepting fixture updates. A documentation edit alone needs no golden test. |
@@ -280,3 +280,28 @@ integrated source. Whitespace, Ruby Psych frontmatter, local references and
 scoped public privacy checks passed. These are package/document checks and
 reasoned instruction walkthroughs, not executed product behavior. No shared
 source changes beyond the preserved upstream merge; x-api remains unchanged.
+
+## Walkthrough alignment
+
+[Review 5790421979](https://github.com/saariuslystoned/SaariusSkills/pull/221#pullrequestreview-5790421979)
+on `bb480ad3dbb7b4f5b391e67641674d80fe5a0c9f` resolves contract finding
+4484615164 but identifies [4484730919](https://github.com/saariuslystoned/SaariusSkills/pull/221#discussion_r4484730919)
+as `required_fix`: the earlier unattended-mutation table still listed only
+closed/piped stdin for explicit no-input mode. That table now also names
+terminal-backed stdin, an available controlling terminal, a bounded timeout
+and no interactive responses, matching the repaired reference. The conditional
+TTY-only prompt would fail this plan instead of escaping its chosen cases.
+This is a corrected reasoned plan, not a new claim of product execution.
+
+CI `42088752880` and comprehensive epoch 6
+`req-20261105T185548Z-237229321426` were clean for base
+`5ac651993a81c759ca9d9e37187d6283b925342e` / head `bb480ad3dbb7b4f5b391e67641674d80fe5a0c9f`,
+not clearance for this proof correction. The P3 reviewer reported zero findings
+with exact-tuple qualification but did not independently execute author tests
+or retrieve upstream licensing sources. Fresh exact-head gates remain required.
+
+Walkthrough correction validation: **226 tests passed** in 98.957 s;
+`git diff --check` passed. Manually compared the table and current reference:
+both now cover terminal-free defaults and explicit no-input with closed/piped
+and terminal-backed stdin. All remain reasoned guidance scenarios, not runtime
+execution evidence. No other source file changed in this correction.
