@@ -35,6 +35,6 @@ An owner brief states what changes, who benefits, why now, evidence completed/mi
 
 ## Stop at the recommendation
 
-Use the existing task or PR record if a durable handoff is needed. Identify the source and proof limits, proposed owner/workflow, authorization/gates, completion check and stop condition. Execution follows a separate assignment through the coordinator or configured harness workflow. No new worker, ledger, timer or mandatory service follows from this assessment.
+Return the assessment in the current authorized conversation. Use an existing task or PR record for a durable handoff only when persistence is needed and authorization covers that destination and audience; assessment alone does not authorize publishing owner details or other sensitive information. Include only information appropriate for that audience. If destination authority is missing, describe the proposed handoff without posting it. Identify the source and proof limits, proposed owner/workflow, authorization/gates, completion check and stop condition. Execution follows a separate assignment through the coordinator or configured harness workflow. No new worker, ledger, timer or mandatory service follows from this assessment.
 
 If nothing justifies new work, say so and explain why. Idle capacity is valid; do not refill it with speculative maintenance or repeatedly poll for activity.
