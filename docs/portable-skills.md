@@ -12,7 +12,7 @@ canonical name is `smoky-coordinator`.
 | [`smoky-technical-documentation`](../skills/smoky-technical-documentation/SKILL.md) | Source-truth human/agent docs, command fidelity and policy/status-preserving rewrites |
 | `smoky-worktree` | Fresh source identity and isolated writable ownership |
 | `smoky-coordinator` | One lead assignment through the configured runtime, bounded specialists, handoffs and exact-source closeout |
-| `smoky-maintainer` | Portfolio selection and decision-ready maintenance briefs |
+| `smoky-maintainer` | Bounded repository or selected-portfolio maintenance assessments and priorities; separate execution handoff |
 | `smoky-portfolio-sweep` | Read-only qualification and serial authorized batch actions |
 
 Each works without a private service, fleet or repository. Existing repository
