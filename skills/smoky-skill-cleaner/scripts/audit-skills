@@ -16,7 +16,7 @@ from typing import Any
 
 
 NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-REFERENCE_RE = re.compile(r"(?:^|[(`\s])references/[A-Za-z0-9._/-]+")
+REFERENCE_RE = re.compile(r"(?P<prefix>^|[(`\s])(?P<path>references/[A-Za-z0-9._/-]+)")
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     selection = parser.add_mutually_exclusive_group(required=True)
@@ -55,6 +55,9 @@ def read_frontmatter(path: Path) -> tuple[dict[str, str], str, bool, bool]:
             continue
         key, value = line.split(":", 1)
         key, value = key.strip(), value.strip()
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", key):
+            supported = False
+            continue
         if key in seen:
             supported = False
         seen.add(key)
@@ -85,7 +88,15 @@ def safe_file(skill_dir: Path, relative: str) -> bool:
 def referenced_paths(body: str) -> list[str]:
     # Deliberately bounded: references/ tokens in SKILL.md only. Rich link
     # forms, anchors, scripts and transitive references require native checks.
-    return sorted({match.group(0).strip("(` \n\t").rstrip(".") for match in REFERENCE_RE.finditer(body)})
+    paths = set()
+    for match in REFERENCE_RE.finditer(body):
+        token = match.group("path")
+        # Simple code-span/link targets are literal. Only trim prose punctuation;
+        # never normalize a dot path component away before the scope guard.
+        if match.group("prefix") not in ("`", "(") and token.rsplit("/", 1)[-1] not in (".", ".."):
+            token = token.rstrip(".")
+        paths.add(token)
+    return sorted(paths)
 
 
 def audit_skill(skill_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
