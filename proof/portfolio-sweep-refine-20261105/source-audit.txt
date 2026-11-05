@@ -1,0 +1,5 @@
+Frontmatter and UI metadata: PASS
+Local markdown references: PASS (2)
+Public-core path/operator-field privacy scan: PASS; manual review also performed
+Pinned upstream full MIT notice fidelity and existing project license: PASS
+No installed skill shelf, manifest, shared catalog or other skill edited

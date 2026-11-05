@@ -1,0 +1,35 @@
+test_acp_entry_is_discoverable_on_packaged_hosts (test_packaging.PackagingTests.test_acp_entry_is_discoverable_on_packaged_hosts) ... ok
+test_acp_skills_point_at_ai_shed_plugin (test_packaging.PackagingTests.test_acp_skills_point_at_ai_shed_plugin) ... ok
+test_antigravity_acp_skill_is_packaged (test_packaging.PackagingTests.test_antigravity_acp_skill_is_packaged) ... ok
+test_ci_performance_capture_recipe_preserves_status_and_streams (test_packaging.PackagingTests.test_ci_performance_capture_recipe_preserves_status_and_streams) ... ok
+test_ci_performance_skill_contract_and_metadata_are_packaged (test_packaging.PackagingTests.test_ci_performance_skill_contract_and_metadata_are_packaged) ... ok
+test_claude_plugin_manifest_packages_skills (test_packaging.PackagingTests.test_claude_plugin_manifest_packages_skills) ... ok
+test_cleanup_and_documentation_cores_are_discoverable_and_attributed (test_packaging.PackagingTests.test_cleanup_and_documentation_cores_are_discoverable_and_attributed) ... ok
+test_cursor_plugin_manifest_packages_skills_only (test_packaging.PackagingTests.test_cursor_plugin_manifest_packages_skills_only) ... ok
+test_dinkus_sweep_is_a_profile_of_the_portfolio_sweep (test_packaging.PackagingTests.test_dinkus_sweep_is_a_profile_of_the_portfolio_sweep) ... ok
+test_dinkuskit_live_test_points_at_live_journeys (test_packaging.PackagingTests.test_dinkuskit_live_test_points_at_live_journeys) ... ok
+test_emdash_ci_deploy_resources_are_packaged (test_packaging.PackagingTests.test_emdash_ci_deploy_resources_are_packaged) ... ok
+test_emdash_commerce_resources_are_packaged (test_packaging.PackagingTests.test_emdash_commerce_resources_are_packaged) ... ok
+test_emdash_skills_discoverable_with_licenses (test_packaging.PackagingTests.test_emdash_skills_discoverable_with_licenses) ... ok
+test_emdash_surface_fx_resources_are_packaged (test_packaging.PackagingTests.test_emdash_surface_fx_resources_are_packaged) ... ok
+test_font_system_grill_is_packaged (test_packaging.PackagingTests.test_font_system_grill_is_packaged) ... ok
+test_greenfield_design_contract_is_packaged (test_packaging.PackagingTests.test_greenfield_design_contract_is_packaged) ... ok
+test_grok_acp_skill_is_packaged (test_packaging.PackagingTests.test_grok_acp_skill_is_packaged) ... ok
+test_harness2_skill_contract_and_metadata_are_packaged (test_packaging.PackagingTests.test_harness2_skill_contract_and_metadata_are_packaged) ... ok
+test_intent_aware_activation_metadata (test_packaging.PackagingTests.test_intent_aware_activation_metadata) ... ok
+test_jevsweeper_skill_is_packaged (test_packaging.PackagingTests.test_jevsweeper_skill_is_packaged) ... ok
+test_ledger_has_no_delivery_runner (test_packaging.PackagingTests.test_ledger_has_no_delivery_runner) ... ok
+test_legal_copies_match (test_packaging.PackagingTests.test_legal_copies_match) ... ok
+test_muse_acp_skill_is_packaged (test_packaging.PackagingTests.test_muse_acp_skill_is_packaged) ... ok
+test_no_placeholders (test_packaging.PackagingTests.test_no_placeholders) ... ok
+test_phone_proof_skill_is_packaged_and_bounded (test_packaging.PackagingTests.test_phone_proof_skill_is_packaged_and_bounded) ... ok
+test_plugin_and_marketplace_identity (test_packaging.PackagingTests.test_plugin_and_marketplace_identity) ... ok
+test_plugin_ships_no_mcp_servers (test_packaging.PackagingTests.test_plugin_ships_no_mcp_servers) ... ok
+test_ryan_mode_is_discoverable_without_an_obsolete_alias (test_packaging.PackagingTests.test_ryan_mode_is_discoverable_without_an_obsolete_alias) ... ok
+test_smoky_coordinator_is_canonical_and_legacy_package_is_absent (test_packaging.PackagingTests.test_smoky_coordinator_is_canonical_and_legacy_package_is_absent) ... ok
+test_typed_artifact_graph_review_and_human_gate_are_packaged (test_packaging.PackagingTests.test_typed_artifact_graph_review_and_human_gate_are_packaged) ... ok
+
+----------------------------------------------------------------------
+Ran 30 tests in 0.435s
+
+OK
