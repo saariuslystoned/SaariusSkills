@@ -17,4 +17,18 @@ Manual scenario walkthrough, 2026-11-05. These are stipulated inputs/observation
 | Mixed clauses | One observed violation, one access blocker, one pass, one exclusion | Preserve all four clause results; overall `violates_contract` with blocker and limits, never blanket satisfaction. If all clauses are excluded, no satisfaction claim. |
 | Repair handed back on new identified build | Separate source-aware owner reports a repair | Rerun affected observable clauses plus proportionate adjacent probes against the new target. The edit/report is not proof of the repaired behavior. |
 
+## Copilot repair walkthroughs
+
+Additional manual synthetic guidance cases, 2026-11-05; not live product behavior or independent harness proof. The same verdict rules apply without a JSON report.
+
+| Case / assigned criterion | Stipulated observation or dependency | Guidance outcome |
+| --- | --- | --- |
+| Inline report, one pass and one blocked clause | First criterion observed; second lacks required evidence | Preserve both results; overall `blocked`, not satisfaction. |
+| Inline report, all clauses excluded | No in-scope criterion remains | Explicitly report no in-scope clauses, no satisfaction claim. |
+| Inline report, fail plus missing evidence | One observed violation and another undecidable clause | Overall `violates_contract`; keep the other clause `blocked` and its next observation. |
+| Web display-only criterion | Click displays the promised banner; action/result captured on exact target | `pass`; do not demand persistence or other unpromised work. |
+| API status-only criterion | Exact authorized endpoint returns the specified HTTP 200 | `pass`; do not demand response content or state changes not in the contract. |
+| API additionally promises retrievable item | HTTP 201 observed, but retrieval observation unavailable | Creation/retrieval clause `blocked` for missing evidence; fetch authorized external state next. No product failure inferred from the gap. |
+| Promised artifact content, inconclusive observation | Identified file is accessible, but captured view does not establish whether the required column exists | `blocked`; name the unresolved content check and reopen in a suitable consumer, not pass or fail by inference. |
+
 Walkthrough result: decisions above are expressible without implementation evidence, domain-specific checkout rules, runtime dependencies or fixed prose assertions. This is an author judgment of guidance consistency only; actual source-blind product validation and installed-harness execution remain unproved.

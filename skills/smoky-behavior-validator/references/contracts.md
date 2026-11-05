@@ -17,9 +17,9 @@ excluded: <actions and claims outside scope>
 
 Select checks relevant to the claim, rather than applying every probe to every target:
 
-- Web: perform the interaction and observe its result; refresh/reopen when persistence is promised. A button or success banner alone is insufficient.
+- Web: perform the interaction and observe its result; refresh/reopen when persistence is promised. A button or success banner can satisfy a display-only criterion, but alone cannot prove additional promised work or persistence.
 - CLI: check relevant standard streams, exit codes, non-interactive behavior, output/state and any claimed dry-run boundary.
-- API: check response semantics, relevant freshness and externally observable state changes using authorized fixtures; HTTP success alone is insufficient.
+- API: check response semantics, relevant freshness and externally observable state changes where promised, using authorized fixtures. HTTP success can satisfy a status-only criterion, but alone cannot prove additional promised response content or state changes.
 - Registered test device: bind the exact device/app/test identity; observe the action and visible result, then reopen when relevant. Missing registration or access is blocked, not permission to substitute a personal device.
 - Artifact: identify the exact file/version (hash when useful), open it in an appropriate viewer or consumer and inspect the claimed content, not merely its existence.
 

@@ -7,7 +7,7 @@ description: Verify a web app, CLI, API, device or artifact against an observabl
 
 Read the current request and trusted repository instructions first. Before applying this core, check those instructions and available skill metadata for a configured operator or repository profile. If they identify a profile-specific installed variant of this skill or an optional binding, read it first unless already loaded. Do not use an unbound core to bypass that profile, invent a binding, or search unrelated files. With no configured profile, use the portable workflow below. A profile or binding does not grant authority to act.
 
-Use this workflow directly in a supported harness or within an assigned worker task; no coordinator service is required. Start from the task's acceptance criteria. Use `references/contracts.md` to record a short inline or linked contract: observable goal, exact target/version/environment, authorized fixtures/actions, expected results and exclusions. Target-owned published interface specs, acceptance criteria, fixtures and externally observable state are valid inputs. Flag missing or conflicting expectations; do not invent product rules. Use `references/report-schema.md` only when structured output is useful.
+Use this workflow directly in a supported harness or within an assigned worker task; no coordinator service is required. Start from the task's acceptance criteria. Use `references/contracts.md` to record a short inline or linked contract: observable goal, exact target/version/environment, authorized fixtures/actions, expected results and exclusions. Target-owned published interface specs, acceptance criteria, fixtures and externally observable state are valid inputs. Flag missing or conflicting expectations; do not invent product rules. Apply the verdict rules in `references/report-schema.md` to every report, including inline reports; only its JSON format is optional.
 
 ## Stay source-blind
 
@@ -17,7 +17,7 @@ Do not read the tested target's implementation source, diffs, internal tests, bu
 
 Exercise the user/operator interface on the exact authorized web, CLI, API, registered test-device or artifact target using available approved tools. Honor action and privacy gates; availability is not permission to switch identities/devices or send, spend, deploy or mutate beyond scope. Missing tools, access or authorization are blockers, not permission to install tools, provision access or bypass controls.
 
-Add relevant input variations, retry/reopen and invalid or boundary cases in proportion to the acceptance criteria and risk. Verify resulting state and persistence where claimed; a static screenshot or successful command alone does not establish an entire interaction. Do not manufacture requirements from exploratory probes.
+Add relevant input variations, retry/reopen and invalid or boundary cases in proportion to the acceptance criteria and risk. Verify resulting state and persistence where claimed; a static screenshot or successful command alone does not establish additional behavior promised by the contract. Do not manufacture requirements from exploratory probes.
 
 Mark every clause pass, fail, blocked or out of scope, with concise evidence, reproducible steps, target identity and limits. A trivial check can be a short inline report; require no elaborate packet. Never present source edits, builds or synthetic/mock checks as live product behavior proof. Keep credentials, private data and unrelated logs out of reports.
 
