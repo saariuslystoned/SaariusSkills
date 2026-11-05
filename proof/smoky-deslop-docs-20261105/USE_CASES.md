@@ -59,8 +59,11 @@ in report-only mode or audit the rest of the tree.
 scenarios with competing actions. It returned `status: unavailable`,
 `reason: credentials-unavailable`; the judge did **not** run. No credential
 inspection/change or alternate provider was attempted. Manual rubric choices:
-guard B, staged C, docs A, alias B. These are author reasoning, not independent
-judge output, and grant no authority.
+retain the permission guard and remove only narration; preserve the index and
+unstaged functional edits while staging only the owned cleanup hunk; preserve
+the literal preview command plus approval and release-status distinctions; and
+report the alias/policy mismatch without editing in report-only mode. These are
+author reasoning, not independent judge output, and grant no authority.
 
 ## Actual outcome
 
