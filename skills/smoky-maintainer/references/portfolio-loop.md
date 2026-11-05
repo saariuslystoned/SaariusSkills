@@ -23,8 +23,8 @@ Recommend an order with its main tradeoff; avoid made-up scores, speculative pre
 
 Classify each actionable proposal as needed; a short answer need not enumerate every category:
 
-- `already_authorized`: an existing assignment covers this bounded maintenance. Cite its scope; this is eligibility for an execution handoff, not execution by this skill.
-- `needs_owner`: a material choice or gated action lacks authorization. State exactly what the owner must decide, with options and a recommendation.
+- `already_authorized`: applicable authorization covers this bounded maintenance, such as an existing assignment, explicit approval or standing repository policy. Cite its source and scope; this is eligibility for an execution handoff, not execution by this skill.
+- `needs_owner`: applicable authorization is missing for the proposed action or a material choice remains unresolved. This includes routine unassigned fixes when no approval or standing policy covers them; small effort alone is not authority. State exactly what the owner must decide, with options and a recommendation. Do not ask again for authorization that already covers the action.
 - `blocked`: a required dependency or evidence source is unavailable. Name the missing prerequisite, responsible owner and resume condition; do not assume every blocker needs human permission.
 - `defer`: valid work that should wait under the established goal, commitments or capacity. State why and what would change that choice.
 - `reject`: duplicate, obsolete or contradicted by evidence. Cite the reason rather than treating low priority as invalid.

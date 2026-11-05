@@ -4,7 +4,7 @@ Manual author walkthroughs of synthetic inputs against source `49d217a724949cf30
 
 ## 1. One repository, no private profile
 
-**Input:** “Assess Atlas before contributor onboarding; just this repo.” Current README and issue 12 identify a broken setup example; no execution assignment exists. A sibling repository is visible on disk.
+**Input:** “Assess Atlas before contributor onboarding; just this repo.” Current README and issue 12 identify a broken setup example; no applicable execution authorization exists. A sibling repository is visible on disk.
 
 **Assessment:** Atlas only. Recommend verifying and correcting the setup example because it directly blocks onboarding; cite README revision and issue observation date, with issue claims distinguished from reproduction. The sibling checkout is not assessed. `needs_owner` for an unassigned fix; next handoff is a bounded documentation assignment with a clean setup check as completion proof. No private runtime is needed.
 
@@ -40,7 +40,7 @@ Manual author walkthroughs of synthetic inputs against source `49d217a724949cf30
 
 **Assessment:** `already_authorized` within the correction's recorded scope. Recommend it if the evidence still supports its priority. Hand source, check and stop condition to the configured workflow; do not edit the README, launch workers or ask for the same approval again. Merge remains separately gated.
 
-**Check:** Distinguishes authority from execution and avoids converting assessment into an implementation turn. Pass by manual inspection.
+**Check:** Distinguishes authority from execution and avoids converting assessment into an implementation turn. Also manually checked replacing the assignment with an explicit approval or a scoped standing repository policy: each remains `already_authorized` within its scope, without requesting the same approval again. With none of these authorizations, even a routine correction is `needs_owner`, as in scenario 1. Pass by manual inspection.
 
 ## 6. No justified work
 

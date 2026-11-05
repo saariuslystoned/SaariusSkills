@@ -34,17 +34,21 @@ Accepted authoring decisions: assessment and recommendations are separate from e
 
 This is documentation/skill-authoring proof, not runtime proof. The walkthroughs were authored and checked by the writer, not independent harness executions. No trigger accuracy, comparative model performance or production behavior is claimed.
 
-CI and required exact-head reviews must be read from the final PR and existing task record. Local tests and queued reviews do not establish review-clean status or merge authorization. The native review route needs a target-supported trigger and enrollment; absent wiring is an external integration blocker, not a clean verdict and not permission to install it. No merge, release, deploy, account change or runtime refresh is authorized by this proof.
+CI and required exact-head reviews must be read from the final PR and existing task record. Local tests and queued reviews do not establish review-clean status or merge authorization. Native review intake is unavailable: no native clean verdict is claimed and no enrollment is authorized. The owner subsequently selected Copilot plus comprehensive P3 and CI for this PR; native absence alone is not a blocker under that per-PR instruction. Merge authority remains separate and with the coordinator, not this worker. No merge, release, deploy, account change or runtime refresh is authorized by this proof.
 
 ## Review repair — conditional dependency ordering
 
 Copilot review `5786984498`, inline comment `4482027721`, identified a supported low-severity finding in walkthrough 2: its input described a planned prerequisite, but the assessment called it verified. Disposition: `required_fix`, repaired in `SCENARIOS.md`. The sequence now depends on confirming whether Atlas's repair requires Beacon's item; confirmed-required, not-required and unknown cases were manually checked. Only confirmed-required supports Beacon-first ordering. No skill/runtime behavior changed, and these remain author walkthroughs rather than independent execution proof. Fresh current-head review and CI evidence is retained in the delivery task record.
+
+## Review repair — authorization coverage and progress record
+
+Copilot review `5787326237` confirmed the dependency fix resolved and raised two supported low findings: inline `4482290777` identified stale publication/initial-request next steps in `STATE.md`; inline `4482290861` identified incomplete authorization definitions. Both dispositions: `required_fix`, repaired. State now separates completed publication/repairs from live review evidence kept in the delivery record. Authorization covers an applicable assignment, explicit approval or standing repository policy; routine fixes without such authority are `needs_owner`. Separate execution handoff and no-repeat-approval rules remain intact. Scenario 1 now explicitly lacks authorization; scenario 5 manually checks assignment, approval, standing-policy and missing-authorization variants. These remain writer checks, not independent harness runs.
 
 ## Source hashes
 
 ```text
 a480be6d9712084a5395a7605815a10378558a1c122cd370fa762d7f8df75eca  skills/smoky-maintainer/SKILL.md
 a067b8c54ddb355c2b9dad09eb38d1574f240ab166a4a31abb6fa1b4097a5d0f  skills/smoky-maintainer/agents/openai.yaml
-5ed928f8c9d791992a1989672afeae58a399d158e7b4dc4ea015af9cbf411a09  skills/smoky-maintainer/references/portfolio-loop.md
+9ad66c76a2f52dec34d06142b934454bdb64fae96c914a12d9233734fa56d110  skills/smoky-maintainer/references/portfolio-loop.md
 b36556e31825c54dade05cf743392a1e755abc796697c8ce8f9e96ef58c8ba65  skills/smoky-maintainer/references/source-comparisons.md
 ```
