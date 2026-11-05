@@ -157,6 +157,35 @@ class SkillCleanerTests(unittest.TestCase):
         (path / "references/guide.md").write_bytes(b"\xff")
         self.assertEqual(self.report("--skill", path)["skills"][0]["packaging_errors"], [])
 
+    def test_directory_references_exist_without_expanding_or_reading_them(self):
+        path = self.skill(body="[Examples](references/examples/) and [missing](references/absent/).")
+        examples = path / "references/examples"
+        examples.mkdir(parents=True)
+        (examples / "private.jsonl").write_text("Synthetic sentinel; not audit input.")
+        args = argparse.Namespace(root=None, skill=[path], max_description=300, max_body_words=900, min_body_words=80)
+        real_read = Path.read_text
+
+        def guarded_read(target, *args, **kwargs):
+            self.assertEqual(target, path / "SKILL.md")
+            return real_read(target, *args, **kwargs)
+
+        before = self.hashes()
+        with patch.object(Path, "read_text", guarded_read):
+            skill = AUDIT(args)["skills"][0]
+        self.assertEqual(skill["missing_references"], ["references/absent/"])
+        self.assertEqual(skill["unverified"], [])
+        self.assertEqual(before, self.hashes())
+
+    def test_directory_reference_symlinks_remain_unverified(self):
+        path = self.skill(body="[Local](references/local/) and [outside](references/outside/).")
+        (path / "references").mkdir()
+        (path / "examples").mkdir()
+        (path / "references/local").symlink_to(path / "examples", target_is_directory=True)
+        (path / "references/outside").symlink_to(self.base, target_is_directory=True)
+        skill = self.report("--skill", path)["skills"][0]
+        self.assertEqual(skill["packaging_errors"], [])
+        self.assertIn("reference-outside-scope-or-symlink", skill["unverified"])
+
     def test_realistic_source_caller_cases_only_receive_structural_assessment(self):
         fixture = HELPER.parents[3] / "proof/skill-cleaner-refine-20261105/synthetic-cases.json"
         cases = json.loads(fixture.read_text())["cases"]

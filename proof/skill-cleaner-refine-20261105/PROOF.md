@@ -19,7 +19,9 @@
 5. Preserve portable optional-binding discovery; none is configured or created here. No Firebed dependency, log collector, registry or new platform.
 6. Reviewed design references at immutable pins: Peter Steinberger `steipete/agent-scripts@d210c0a77c8f9ae5e1d939b13238a75e87cdb69a`, `skills/skill-cleaner/SKILL.md`; Vincent Koc `vincentkoc/dotskills@c9ca51e3a4e93fe10266d78e430c6575a5b19d30`, `skills/technical-skill-finder/SKILL.md` and `references/scorecard.md`. Adapt conceptual guidance (trigger nouns, compare canonical copies, evidence/overlap/confidence); exclude personal paths/tools, log mining, loaded-inventory assumptions, Codex budget formulas and numeric score thresholds. Package-local credit/licenses will travel with the skill; shared notices are out of scope.
 
-## Validation and lifecycle
+## Initial validation (implementation commit `6e69102`)
+
+Historical results before the review repair and main reconciliation below; these files are not current-head review clearance.
 
 - Full hermetic suite: **218 tests pass** (`full-tests.txt`, 105.208s). Deliberate negative-control sync diagnostics in the output are expected; unittest result is OK.
 - Affected dedicated + portable/privacy + packaging suites: pass (`affected-tests.txt`). Dedicated fixtures exercise explicit selection, invalid selection, threshold categories, rich YAML uncertainty, duplicate identity, missing refs, multi-root named selection, read-only hashes, symlink/path-escape refusal and a guarded content-read allowlist.
@@ -33,6 +35,15 @@
 
 No private logs read, installed skills refreshed, merge or deployment performed.
 
+## Review repair / main reconciliation (2026-11-05)
+
+- PR: https://github.com/saariuslystoned/SaariusSkills/pull/219. Same assigned Pi writer and worktree; Blaze remains coordinator/closer.
+- Current owner instruction continues Copilot + comprehensive P3 + CI as the selected route. Native ClawSweeper is absent and **not** claimed clean; no sender/enrollment/account changes. Jev baseline remains ineligible without native publication (judge not-run, no labels).
+- Fetched and merged real main `e93e6e6588a2df1fe21af61ca2b7926e3406505b` without conflicts or rewriting history. Other workers' behavior-validator/session-viewer changes are inherited unchanged, not authored by this slice. Original starting base remains recorded above as history.
+- Comprehensive generation 1 `req-20261105T163527Z-215549618815` reviewed `19a31ea47001323ff39dea9d6dfd621f4d9c68f0` / `6e69102ba4bf18a8d2478595474ef2385ab5b201`, qualified comprehensive/P3, one P3 finding: existing directory references were falsely reported missing. **required_fix**, reproduced with a selected synthetic `references/examples/` directory. Accept file or directory existence after the unchanged scope/symlink guard; do not enumerate or read reference contents.
+- Added two behavioral regression cases: existing vs absent directories with guarded content reads/read-only hashes; internal/external symlink directories remain unverified. Dedicated suite: **12 pass**. Full post-repair hermetic suite: **218 pass**, 104.913s (main retirement removed two tests, repair added two); deliberate sync negative-control diagnostics are expected. Output is in the existing machine-run proof, not the initial tracked test files.
+- Runtime proof: `~/Developer/_machine-runs/skill-cleaner-refine-20261105/turn2-{dedicated,full}-tests.txt`; exact-head review generations, summary/inline finding dispositions, CI and final main reconciliation are retained in that same existing task record and PR checkpoint to avoid proof-only head churn.
+
 ## Stop / next action
 
-Implementation and local verification complete. Next: commit/push/PR, then exact-head CI + native ClawSweeper + comprehensive Spark-2 through canonical openclaw-autoreview. Pi lead owns this review generation until explicit handoff; record request IDs and gate state here. Pending receipts are not clean verdicts. No coordinator acceptance is claimed.
+Push the scoped repair non-force and obtain current-head Copilot, exact-base/head comprehensive P3 and successful CI. Inspect actual review summaries as well as inline findings. Record exact IDs and current main at terminal handoff; no duplicate pending generations. Return clean evidence or a concrete blocker to Blaze for head-pinned merge; **never self-merge**, install/roll out or claim task acceptance. Retain scoped review/repair ownership while waiting.

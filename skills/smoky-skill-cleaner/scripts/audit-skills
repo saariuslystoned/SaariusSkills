@@ -134,7 +134,7 @@ def audit_skill(skill_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
             for ref in result["references"]:
                 if not safe_file(skill_dir, ref):
                     unverified.append("reference-outside-scope-or-symlink")
-                elif not (skill_dir / ref).is_file():
+                elif not ((skill_dir / ref).is_file() or (skill_dir / ref).is_dir()):
                     missing_refs.append(ref)
             if missing_refs:
                 errors.append("missing-reference")
