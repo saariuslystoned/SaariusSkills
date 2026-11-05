@@ -1,0 +1,20 @@
+{
+  "base": "dd7759766408c8d3fa105a4ad27fe124afcf7d4f",
+  "old_upstream": "a66a8931c2dd71f1ed6abf6a52b1898a9f389ae4",
+  "upstream": "2776ddd2355d6d6c8747d3964600f28daf62f049",
+  "upstream_committed_at": "2026-11-05T03:14:58-08:00",
+  "added": [],
+  "removed": [],
+  "changed": [
+    "skills/reflect/SKILL.md"
+  ],
+  "old_file_count": 35,
+  "new_file_count": 35,
+  "all_vendor_files_equal_exact_upstream": true,
+  "local_skills_and_discovery_metadata_unchanged": true,
+  "changed_tracked_paths_before_proof": [
+    "vendor/pstack/README.md",
+    "vendor/pstack/UPSTREAM.json",
+    "vendor/pstack/skills/reflect/SKILL.md"
+  ]
+}
