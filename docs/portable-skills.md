@@ -13,7 +13,7 @@ canonical name is `smoky-coordinator`.
 | `smoky-worktree` | Fresh source identity and isolated writable ownership |
 | `smoky-session-viewer` | Explicit local JSONL input to private searchable HTML |
 | `smoky-coordinator` | One lead assignment through the configured runtime, bounded specialists, handoffs and exact-source closeout |
-| `smoky-maintainer` | Portfolio selection and decision-ready maintenance briefs |
+| `smoky-maintainer` | Bounded repository or selected-portfolio maintenance assessments and priorities; separate execution handoff |
 | `smoky-portfolio-sweep` | Read-only qualification and serial authorized batch actions |
 
 Each works without a private service, fleet or repository. Existing repository

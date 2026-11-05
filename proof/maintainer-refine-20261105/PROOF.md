@@ -8,7 +8,7 @@
 - Handoff-publication-repaired skill source: `5778be346b0bb916fb4a1c2f131f64ac764af8df`. The hashes below describe this latest skill source. Later proof changes do not change those skill files; live PR head/review identities remain in the delivery record and PR.
 - Branch: `ridge/maintainer-refine-20261105`.
 - Observation: 2026-11-05, Python 3.14.6 on macOS.
-- Assignment: refine only `skills/smoky-maintainer/` and dedicated proof. No other skill, manifest, installer, runtime or global configuration change.
+- Assignment: refine `skills/smoky-maintainer/` and dedicated proof; coordinator subsequently authorized only the maintainer responsibility cell in `docs/portable-skills.md` to reflect the already-agreed repository scope. No other skill, catalog row, manifest, installer, runtime or global configuration change.
 
 Accepted authoring decisions: assessment and recommendations are separate from execution; rank against the user's goal with evidence and explained tradeoffs; support both one repository and a selected portfolio without scope expansion. Preserve existing commitments, identify authority and evidence gaps, and allow no new work as a valid result. The task's private decision record retains original approval pointers; no private operational context is exported here.
 
@@ -59,6 +59,14 @@ Copilot review `5787504372`, inline comments `4482431103` and `4482431192`, iden
 Copilot review `5787648171` raised a publication-authorization concern in its summary while linking the outdated provenance thread `4482431103`; it did not publish a new inline comment for that concern. The original provenance repair remains present, and scenario-provenance thread `4482431192` was confirmed resolved. Disposition of the summary concern: `required_fix`, made explicit in source `5778be346b0bb916fb4a1c2f131f64ac764af8df`. A durable task/PR handoff now requires authorization for its destination and audience; otherwise return the assessment in the authorized conversation and describe, but do not post, the handoff. Sensitive owner information is not automatically publishable.
 
 Existing portable-skill/packaging checks passed: **37 tests in 0.668 seconds** before that skill commit; diff check passed. Three manual author reasoning variants were checked: authorized audience-appropriate persistence; conversation-only authority with no posting; and an authorized record that still excludes audience-inappropriate sensitive detail. No external publication or independent harness execution was performed for those variants. Final full CI and independent review evidence belong to the live head's delivery record, not this source-only check.
+
+## Review repair — catalog scope and provenance-thread disposition
+
+Copilot review `5787820280` at `6377a3d4a6e5b90626e5e3d13b5b230208d26087` raised a catalog/supported-scope mismatch in its summary without a new inline location. The coordinator adjudicated this `required_fix` for existing single-repository support and authorized only the maintainer responsibility cell in `docs/portable-skills.md`. It now states bounded repository or selected-portfolio assessment/priorities with a separate execution handoff. No sibling row, skill, packaging or runtime changed.
+
+Inline `4482431103` was re-read against the current proof and actual PR description: original `49d217a`, authorization repair `3f9f89f`, latest skill source `5778be3` and their separate checks are identified. All four recorded skill hashes match both the latest skill source and current files; the PR description no longer describes every later commit as proof-only. The original provenance defect was repaired in `fbe9ead`. Any author reply/resolution of this outdated thread is an evidence-based author disposition, not reviewer-confirmed clearance. Fresh actual published review remains required for the catalog repair.
+
+For this catalog-only documentation repair, the existing portable-skill/packaging checks passed **37 tests in 0.623 seconds**. A diff assertion confirmed only the authorized catalog cell changed; source-hash/provenance checks and `git diff --check` passed. No redundant local full-suite rerun, new test or independent behavioral claim. Current-head CI and independent reviews are recorded separately in the delivery record and PR.
 
 ## Latest repaired skill source hashes — `5778be3`
 
