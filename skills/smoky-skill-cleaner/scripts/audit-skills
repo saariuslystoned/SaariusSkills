@@ -34,16 +34,16 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def read_frontmatter(path: Path) -> tuple[dict[str, str], str, bool]:
-    """Parse only flat unquoted/single/double-quoted scalars; defer richer YAML."""
+def read_frontmatter(path: Path) -> tuple[dict[str, str], str, bool, bool]:
+    """Return scalars, body, parser support and opening-delimiter presence."""
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines()
     if not lines or lines[0] != "---":
-        return {}, text, False
+        return {}, text, False, False
     try:
         end = lines.index("---", 1)
     except ValueError:
-        return {}, text, False
+        return {}, text, False, True
     data: dict[str, str] = {}
     seen: set[str] = set()
     supported = True
@@ -70,7 +70,7 @@ def read_frontmatter(path: Path) -> tuple[dict[str, str], str, bool]:
                 continue
             value = value[1:-1]
         data[key] = value
-    return data, "\n".join(lines[end + 1:]).strip(), supported
+    return data, "\n".join(lines[end + 1:]).strip(), supported, True
 
 
 def safe_file(skill_dir: Path, relative: str) -> bool:
@@ -102,7 +102,7 @@ def audit_skill(skill_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
         errors.append("missing-skill-md")
     else:
         try:
-            frontmatter, body, supported = read_frontmatter(skill_file)
+            frontmatter, body, supported, has_frontmatter = read_frontmatter(skill_file)
             name, description = frontmatter.get("name", ""), frontmatter.get("description", "")
             result.update(body_words=len(body.split()), references=referenced_paths(body))
             if supported:
@@ -115,7 +115,7 @@ def audit_skill(skill_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
                     errors.append("missing-description")
                 if len(description) > args.max_description:
                     advisories.append("description-pressure")
-            elif not frontmatter and not body.startswith("---"):
+            elif not has_frontmatter:
                 errors.append("missing-frontmatter")
             else:
                 unverified.append("frontmatter-needs-validator")
@@ -128,8 +128,12 @@ def audit_skill(skill_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
                 unverified.append("symlink-openai-yaml")
             elif not (skill_dir / agent_path).is_file():
                 advisories.append("missing-openai-yaml")
-            elif supported and f"${name}" not in (skill_dir / agent_path).read_text(encoding="utf-8"):
-                advisories.append("openai-yaml-missing-skill-prompt")
+            elif supported:
+                try:
+                    if f"${name}" not in (skill_dir / agent_path).read_text(encoding="utf-8"):
+                        advisories.append("openai-yaml-missing-skill-prompt")
+                except (OSError, UnicodeError):
+                    unverified.append("unreadable-openai-yaml")
             missing_refs = []
             for ref in result["references"]:
                 if not safe_file(skill_dir, ref):

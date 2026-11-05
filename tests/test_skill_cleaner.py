@@ -106,6 +106,27 @@ class SkillCleanerTests(unittest.TestCase):
                 self.assertEqual(result["skills"][0]["unverified"], ["frontmatter-needs-validator"])
                 self.assertEqual(result["duplicate_names"], {})
 
+    def test_fully_unparsed_frontmatter_is_not_missing(self):
+        path = self.skill()
+        for metadata in ("name: >-\n  example\ndescription: >-\n  Check files.",
+                         "name: &identity example\ndescription: *identity"):
+            with self.subTest(metadata=metadata):
+                (path / "SKILL.md").write_text(f"---\n{metadata}\n---\nRead `references/missing.md`.\n")
+                skill = self.report("--skill", path)["skills"][0]
+                self.assertEqual(skill["packaging_errors"], ["missing-reference"])
+                self.assertEqual(skill["unverified"], ["frontmatter-needs-validator"])
+                self.assertFalse(skill["metadata_verified"])
+
+    def test_unreadable_optional_ui_does_not_hide_reference_errors(self):
+        path = self.skill(body="Read `references/missing.md`.")
+        (path / "agents").mkdir()
+        (path / "agents/openai.yaml").write_bytes(b"\xff")
+        skill = self.report("--skill", path)["skills"][0]
+        self.assertEqual(skill["missing_references"], ["references/missing.md"])
+        self.assertEqual(skill["packaging_errors"], ["missing-reference"])
+        self.assertEqual(skill["unverified"], ["unreadable-openai-yaml"])
+        self.assertTrue(skill["metadata_verified"])
+
     def test_missing_metadata_and_unreadable_files_are_distinct(self):
         path = self.skill()
         for text, expected in (("# Plain body\n", "missing-frontmatter"),
