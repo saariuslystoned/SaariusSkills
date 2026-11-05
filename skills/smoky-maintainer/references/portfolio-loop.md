@@ -1,17 +1,40 @@
-# Portfolio maintenance loop
+# Bounded maintenance assessment
 
-Begin with the approved scope or an index supplied by repository instructions. Record source revision and freshness; follow each candidate to its own contract, current state and proof. A stale export is not current execution authority.
+## Evidence within the selection
 
-For onboarding, identify the repository's purpose, owner, source/dirty state, active work, dependency and release constraints, required checks and decision gates. Select a small first deliverable with a writable owner, proof path and stop condition. Do not infer a route merely because the checkout exists.
+Follow the selected repository or repositories to their trusted instructions, current work and relevant proof. Record source revision and observation date when they affect the conclusion. A stale index or export is a context gap, not current authority or evidence of an urgent defect. Keep unknowns visible; do not claim a live condition from source alone.
 
-Use classifications:
+For onboarding, summarize purpose, owner, source/dirty state, active work, relevant dependency/release constraints, required checks and decision gates. Recommend a small first deliverable consistent with existing priorities, without starting it. Preserve unrelated work; assessment does not authorize checkout cleanup or synchronization mutations.
 
-- autonomous: bounded preparation/execution already within scope and authority;
-- needs_owner: a material decision or consequential action needs authority;
-- blocked: a required dependency or evidence source is missing;
-- defer: valid work outside the current priority or capacity;
-- reject: duplicated, obsolete or contradicted by current evidence.
+Inspect evidence proportionately. A named failing check may need its exact run and relevant source, not an inventory of every repository. If a dependency outside the selection blocks the recommendation, identify the dependency, evidence available, missing check and responsible owner. Propose a separate follow-up if necessary; do not expand scope automatically.
 
-An owner brief states what changes, who benefits, why now, evidence completed/missing, alternatives, tradeoffs, recommended choice and exact pending action. Finish authorized reversible preparation before asking for a decision.
+## Priority reasoning
 
-Idle work is allowed. Choose another approved ready item, prepare the actual pending decision, or close the task with a reason. Do not invent maintenance or repeatedly poll just to show activity. Dependency/release checks support business priorities; they do not override them or grant release authority.
+Compare plausible next steps in plain language:
+
+- **Goal fit and impact:** whose stated outcome improves, and what evidence supports that benefit?
+- **Urgency:** is there an observed failure, verified exposure or relevant deadline? Age alone does not answer this.
+- **Dependencies:** what does this unblock, and what must happen first? Distinguish a real prerequisite from a convenient cleanup.
+- **Effort and risk:** what is known, what is uncertain, and what committed work would be displaced?
+
+Recommend an order with its main tradeoff; avoid made-up scores, speculative precision and automatic dependency-first ranking. With no new goal, use documented commitments to recommend a focus. If evidence is insufficient, make a conditional recommendation or identify the smallest missing check rather than inventing a priority or asking an avoidable broad question.
+
+## Authority is separate from priority
+
+Classify each actionable proposal as needed; a short answer need not enumerate every category:
+
+- `already_authorized`: an existing assignment covers this bounded maintenance. Cite its scope; this is eligibility for an execution handoff, not execution by this skill.
+- `needs_owner`: a material choice or gated action lacks authorization. State exactly what the owner must decide, with options and a recommendation.
+- `blocked`: a required dependency or evidence source is unavailable. Name the missing prerequisite, responsible owner and resume condition; do not assume every blocker needs human permission.
+- `defer`: valid work that should wait under the established goal, commitments or capacity. State why and what would change that choice.
+- `reject`: duplicate, obsolete or contradicted by evidence. Cite the reason rather than treating low priority as invalid.
+
+Priority and authority can differ: the most valuable item may be blocked or need an owner, while an already-authorized item may still merit deferral. Note both when applicable.
+
+An owner brief states what changes, who benefits, why now, evidence completed/missing, alternatives, tradeoffs, recommended choice and exact pending action. Complete relevant assessment research first; do not interpret 'safe reversible preparation' as permission to implement a fix.
+
+## Stop at the recommendation
+
+Use the existing task or PR record if a durable handoff is needed. Identify the source and proof limits, proposed owner/workflow, authorization/gates, completion check and stop condition. Execution follows a separate assignment through the coordinator or configured harness workflow. No new worker, ledger, timer or mandatory service follows from this assessment.
+
+If nothing justifies new work, say so and explain why. Idle capacity is valid; do not refill it with speculative maintenance or repeatedly poll for activity.
