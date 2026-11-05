@@ -5,7 +5,7 @@
 - Original base: `7594b58ec25b91ad7749604b62580d534e12c313`; refreshed base after integrating merged PR #215: `19a31ea47001323ff39dea9d6dfd621f4d9c68f0`.
 - Original skill source: `49d217a724949cf30648f4a549694c2a520e2813`.
 - Authorization-repaired skill source: `3f9f89fe788e12d1cdb34c502cbdb8ba848ca4ff`; its later provenance-only correction was `fbe9eadad23f871fd50aeb8d76eb6b87de871afc`.
-- Handoff-publication-repaired skill source: `5778be346b0bb916fb4a1c2f131f64ac764af8df`. The hashes below describe this latest skill source. Later proof changes do not change those skill files; live PR head/review identities remain in the delivery record and PR.
+- Handoff-publication-repaired skill source: `5778be346b0bb916fb4a1c2f131f64ac764af8df`. The historical hash block below describes that handoff-publication repair; the later wording repair is recorded separately at the end. Live PR head/review identities remain in the delivery record and PR.
 - Branch: `ridge/maintainer-refine-20261105`.
 - Observation: 2026-11-05, Python 3.14.6 on macOS.
 - Assignment: refine `skills/smoky-maintainer/` and dedicated proof; coordinator subsequently authorized only the maintainer responsibility cell in `docs/portable-skills.md` to reflect the already-agreed repository scope. No other skill, catalog row, manifest, installer, runtime or global configuration change.
@@ -68,7 +68,7 @@ Inline `4482431103` was re-read against the current proof and actual PR descript
 
 For this catalog-only documentation repair, the existing portable-skill/packaging checks passed **37 tests in 0.623 seconds**. A diff assertion confirmed only the authorized catalog cell changed; source-hash/provenance checks and `git diff --check` passed. No redundant local full-suite rerun, new test or independent behavioral claim. Current-head CI and independent reviews are recorded separately in the delivery record and PR.
 
-## Latest repaired skill source hashes — `5778be3`
+## Historical handoff-publication-repaired source hashes — `5778be3`
 
 ```text
 a480be6d9712084a5395a7605815a10378558a1c122cd370fa762d7f8df75eca  skills/smoky-maintainer/SKILL.md
@@ -76,3 +76,11 @@ a067b8c54ddb355c2b9dad09eb38d1574f240ab166a4a31abb6fa1b4097a5d0f  skills/smoky-m
 44faf2242ff52786946a6c3dfddbd519dd3d5199d5a0b6a7aca90d71078f02e0  skills/smoky-maintainer/references/portfolio-loop.md
 b36556e31825c54dade05cf743392a1e755abc796697c8ce8f9e96ef58c8ba65  skills/smoky-maintainer/references/source-comparisons.md
 ```
+
+## Review repair — no-work recommendation wording
+
+Copilot review `5789879442` at `69b38b63c7b3312d0c2988aa7aeeac64d825e093`, inline `4484316847`, identified an ambiguous reading of “No new work can be the right recommendation” as forbidding all new work. Disposition: `required_fix` for clarity. It now says “Recommending no new work can be the right result.” This preserves the intended optional no-work outcome without forbidding justified proposals; ranking, authority, scope and separate handoff rules are unchanged.
+
+Existing portable-skill/packaging checks passed **35 tests in 0.475 seconds** on this wording repair; `git diff --check` passed. Manual sentence review checked that both a justified new-work proposal and recommending no work remain possible. This is author reasoning, not a new independent harness execution. No new prose-matching tests or redundant full-suite run. Current-head CI and fresh exact-tuple reviews remain separate in the delivery record/PR.
+
+The earlier controlled visible-response evidence and human acceptance for the next review remain bounded to their original snapshot and disclosed missing detailed evaluator report/global action telemetry. They are not relabeled as an execution of this wording-repaired source or full validation. Current SKILL.md SHA256: `55721f2a5c2b97d60673baf925a00f7df56f68d46b4bd240bf7ea15361144114`. The other three skill-file hashes above are unchanged; current commit identity is recorded in delivery evidence and the PR.
