@@ -11,7 +11,7 @@ Use this workflow directly in a supported harness or within an assigned worker t
 
 ## Stay source-blind
 
-Do not read the tested target's implementation source, diffs, internal tests, build internals or developer explanations as validation evidence. Prefer a separate context containing only the contract, authorized fixtures and observations. If implementation details are already in context or arrive during testing, disclose the contamination and hand independent validation to a clean source-blind context; do not claim independence. If implementation access is necessary to continue, report `blocked_source_required` and hand the task back rather than silently changing roles. Inspecting this skill's source to author or review its instructions is not validation of a product.
+Do not read the tested target's implementation source, diffs, internal tests, build internals or developer explanations as validation evidence. Prefer a separate context containing only the contract, authorized fixtures and observations. If implementation details are already in context or arrive during testing, disclose the contamination, mark affected clauses `blocked` and keep their observations provisional, not pass/fail evidence, until a clean source-blind context verifies them. Hand independent validation to that clean context; do not claim independence. If implementation access is necessary to continue, report `blocked_source_required` and hand the task back rather than silently changing roles. Inspecting this skill's source to author or review its instructions is not validation of a product.
 
 ## Exercise and report
 

@@ -31,4 +31,17 @@ Additional manual synthetic guidance cases, 2026-11-05; not live product behavio
 | API additionally promises retrievable item | HTTP 201 observed, but retrieval observation unavailable | Creation/retrieval clause `blocked` for missing evidence; fetch authorized external state next. No product failure inferred from the gap. |
 | Promised artifact content, inconclusive observation | Identified file is accessible, but captured view does not establish whether the required column exists | `blocked`; name the unresolved content check and reopen in a suitable consumer, not pass or fail by inference. |
 
+## Source-contamination precedence walkthroughs
+
+Additional manual synthetic cases for the distinct follow-up finding; not actual product runs, independent model evaluations or executable prose assertions. Here the affected in-scope clauses are the entire assignment unless otherwise stated.
+
+| Case / assigned criterion | Stipulated observation or dependency | Guidance outcome |
+| --- | --- | --- |
+| Apparent violation in a contaminated context | After seeing implementation details, validator observes the old preference after a promised save/reopen | Clause and overall `blocked`; retain the apparent violation as provisional with a clean source-blind verification handoff, not a product failure verdict. |
+| Apparent success in a contaminated context | Implementation is already in context; HTTP status appears to meet the contract | Clause and overall `blocked`; apparent success cannot bypass independence either. |
+| Clean verification confirms violation | New source-blind context receives only acceptance, authorized fixtures and target identity, independently repeats save/reopen and observes old preference | `fail`, overall `violates_contract`, supported by the clean context's own observations, not the contaminated report. |
+| Clean verification contradicts provisional violation | Clean context independently repeats the exact contracted action on the identified target and observes all required results | `pass`, overall `satisfies_contract`; the provisional observation does not override fresh clean evidence. |
+| Clean context still lacks evidence | Fresh context has not observed the required reopen result | Remains `blocked`; a new context alone is not verification. No pass or fail inferred. |
+| Clean observed violation plus a separate missing observation | Clean context observes a criterion violation, but another in-scope clause remains inconclusive | Preserve `fail` and `blocked`; overall `violates_contract`. The independence fix does not suppress genuine clean failures or erase other blockers. |
+
 Walkthrough result: decisions above are expressible without implementation evidence, domain-specific checkout rules, runtime dependencies or fixed prose assertions. This is an author judgment of guidance consistency only; actual source-blind product validation and installed-harness execution remain unproved.
