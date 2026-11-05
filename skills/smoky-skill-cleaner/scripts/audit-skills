@@ -63,7 +63,7 @@ def read_frontmatter(path: Path) -> tuple[dict[str, str], str, bool, bool]:
         seen.add(key)
         # Leave YAML comments, escapes, blocks, collections and aliases to a
         # repository validator. Never diagnose their apparent values as invalid.
-        if not value or value[0] in "|>!&*[{" or " #" in value or "\\" in value:
+        if not value or value[0] in "#|>!&*[{" or re.search(r"\s#", value) or "\\" in value:
             supported = False
             continue
         if value[0] in "\"'":

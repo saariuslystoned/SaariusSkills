@@ -117,6 +117,17 @@ class SkillCleanerTests(unittest.TestCase):
                 self.assertEqual(skill["unverified"], ["frontmatter-needs-validator"])
                 self.assertFalse(skill["metadata_verified"])
 
+    def test_yaml_comment_values_are_unverified_not_certified_or_broken(self):
+        path = self.skill()
+        for metadata in ("name: example\ndescription: # TODO",
+                         "name: example\t# identity\ndescription: Check files."):
+            with self.subTest(metadata=metadata):
+                (path / "SKILL.md").write_text(f"---\n{metadata}\n---\nFollow the task.\n")
+                skill = self.report("--skill", path)["skills"][0]
+                self.assertFalse(skill["metadata_verified"])
+                self.assertEqual(skill["packaging_errors"], [])
+                self.assertEqual(skill["unverified"], ["frontmatter-needs-validator"])
+
     def test_quoted_yaml_keys_are_unverified_not_false_packaging_errors(self):
         path = self.skill()
         (path / "SKILL.md").write_text("---\n'name': example\n\"description\": Check files.\n---\nFollow the task.\n")
