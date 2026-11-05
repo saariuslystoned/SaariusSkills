@@ -57,6 +57,7 @@ class SkillCleanerTests(unittest.TestCase):
         self.assertEqual(set(skill["advisories"]), {"description-pressure", "body-too-thin", "missing-openai-yaml"})
         self.assertEqual(skill["unverified"], [])
         self.assertEqual(result["qualitative_assessment"], "not-performed")
+        self.assertEqual(result["native_yaml_validation"], "not-performed")
         adjusted = self.report("--skill", path, "--max-description", 400, "--min-body-words", 0)
         self.assertEqual(adjusted["skills"][0]["advisories"], ["missing-openai-yaml"])
         (path / "agents").mkdir()
@@ -116,6 +117,19 @@ class SkillCleanerTests(unittest.TestCase):
                 self.assertEqual(skill["packaging_errors"], ["missing-reference"])
                 self.assertEqual(skill["unverified"], ["frontmatter-needs-validator"])
                 self.assertFalse(skill["metadata_verified"])
+
+    def test_invalid_or_nonmapping_yaml_is_not_flat_metadata(self):
+        path = self.skill()
+        invalid_values = ("Check: files", "Check:\tfiles", "]files", "}files", "@files", "`files", "%files", "? files")
+        metadata_cases = [f"name: example\ndescription: {value}" for value in invalid_values]
+        metadata_cases += ["- name: example\n- description: Check files.", "[example, check]", "A scalar document"]
+        for metadata in metadata_cases:
+            with self.subTest(metadata=metadata):
+                (path / "SKILL.md").write_text(f"---\n{metadata}\n---\nFollow the task.\n")
+                skill = self.report("--skill", path)["skills"][0]
+                self.assertFalse(skill["metadata_verified"])
+                self.assertEqual(skill["packaging_errors"], [])
+                self.assertEqual(skill["unverified"], ["frontmatter-needs-validator"])
 
     def test_implicit_yaml_scalar_types_are_unverified_but_quoted_strings_work(self):
         path = self.skill()

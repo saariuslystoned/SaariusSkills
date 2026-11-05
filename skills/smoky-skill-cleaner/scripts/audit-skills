@@ -63,7 +63,7 @@ def read_frontmatter(path: Path) -> tuple[dict[str, str], str, bool, bool]:
         seen.add(key)
         # Leave YAML comments, escapes, blocks, collections and aliases to a
         # repository validator. Never diagnose their apparent values as invalid.
-        if not value or value[0] in "#|>!&*[{" or re.search(r"\s#", value) or "\\" in value:
+        if not value or value[0] in "#|>!&*[]{},%@`" or re.search(r"\s#", value) or "\\" in value:
             supported = False
             continue
         if value[0] in "\"'":
@@ -72,9 +72,11 @@ def read_frontmatter(path: Path) -> tuple[dict[str, str], str, bool, bool]:
                 supported = False
                 continue
             value = value[1:-1]
-        elif value.lower() in {"~", "null", "true", "false", "yes", "no", "on", "off", "y", "n"} or re.match(r"[+\-.0-9]", value):
-            # Implicit null/bool/number/date types vary by YAML version. Do not
-            # certify them as strings; a native validator must resolve them.
+        elif (value.lower() in {"~", "null", "true", "false", "yes", "no", "on", "off", "y", "n"}
+              or re.match(r"[+\-.0-9]", value) or re.search(r":(?:\s|$)", value)
+              or re.match(r"\?(?:\s|$)", value)):
+            # Typed scalars and YAML indicators need a native validator. This
+            # helper supports only a conservative flat string subset.
             supported = False
             continue
         data[key] = value
@@ -199,6 +201,7 @@ def audit_selection(args: argparse.Namespace) -> dict[str, Any]:
         "skill_count": len(skills), "skills": skills,
         "duplicate_names": {name: dirs for name, dirs in by_name.items() if len(dirs) > 1},
         "issue_counts": dict(sorted(issue_counts.items())), "skipped_symlinks": skipped,
+        "native_yaml_validation": "not-performed",
         "qualitative_assessment": "not-performed",
         "privacy_note": "Only selected skill metadata and optional UI metadata were read; no logs or transcripts were scanned.",
     }
