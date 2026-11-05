@@ -1,6 +1,8 @@
 # Decision scenarios
 
-Manual author walkthroughs of synthetic inputs against source `49d217a724949cf30648f4a549694c2a520e2813`. These are reasoning checks, not isolated harness runs, trigger-accuracy measurements or independent behavioral validation. No actual maintenance, worker dispatch or external inspection occurred for these examples.
+Initial manual author walkthroughs used original skill source `49d217a724949cf30648f4a549694c2a520e2813`. The displayed walkthroughs include later review repairs: scenario 2's conditional dependency cases were checked in `3a54f4ff7ba6d36aaf9d5ebd6cd49633dfdc882f`; scenario 1's explicit authorization premise and scenario 5's expanded authorization variants were checked against repaired skill source `3f9f89fe788e12d1cdb34c502cbdb8ba848ca4ff`. The original revision alone does not contain that authorization clarification. Scenarios 3, 4 and 6–8 retain the initial walkthroughs. See [PROOF.md](PROOF.md) for revision-specific validation history.
+
+These are synthetic author reasoning checks, not isolated harness runs, trigger-accuracy measurements or independent behavioral validation. No actual maintenance, worker dispatch or external inspection occurred for these examples.
 
 ## 1. One repository, no private profile
 

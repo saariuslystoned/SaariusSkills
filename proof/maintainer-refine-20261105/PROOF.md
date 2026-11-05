@@ -2,8 +2,9 @@
 
 ## Source and scope
 
-- Base: `7594b58ec25b91ad7749604b62580d534e12c313`.
-- Skill source commit: `49d217a724949cf30648f4a549694c2a520e2813`.
+- Original base: `7594b58ec25b91ad7749604b62580d534e12c313`; refreshed base after integrating merged PR #215: `19a31ea47001323ff39dea9d6dfd621f4d9c68f0`.
+- Original skill source: `49d217a724949cf30648f4a549694c2a520e2813`.
+- Repaired skill source: `3f9f89fe788e12d1cdb34c502cbdb8ba848ca4ff`, including the authorization clarification. The source hashes below describe these repaired skill files. Later provenance-only proof changes do not change that skill source; live PR head/review identities remain in the delivery record and PR.
 - Branch: `ridge/maintainer-refine-20261105`.
 - Observation: 2026-11-05, Python 3.14.6 on macOS.
 - Assignment: refine only `skills/smoky-maintainer/` and dedicated proof. No other skill, manifest, installer, runtime or global configuration change.
@@ -21,7 +22,9 @@ Accepted authoring decisions: assessment and recommendations are separate from e
 - Public source comparisons are pinned and credited in [source-comparisons.md](../../skills/smoky-maintainer/references/source-comparisons.md). No upstream text, code or templates were copied. Personal portfolio, worker, host and release policies were not imported.
 - The applicable private binding required no change: it already supplies private priorities/discovery and routes execution under owning contracts. No private-binding PR or duplicated public business policy was manufactured.
 
-## Checks
+## Initial checks — original source `49d217a`
+
+These checks belong to the original source, not the later authorization repair.
 
 - `git diff --check`: passed before source commit.
 - `python3 -m unittest discover -s tests -q`: **205 tests passed**, 98.589 seconds. This includes existing portable-skill metadata/local-reference/license/privacy checks and package/discovery checks. No dependency installation and no new prose-matching tests.
@@ -44,7 +47,13 @@ Copilot review `5786984498`, inline comment `4482027721`, identified a supported
 
 Copilot review `5787326237` confirmed the dependency fix resolved and raised two supported low findings: inline `4482290777` identified stale publication/initial-request next steps in `STATE.md`; inline `4482290861` identified incomplete authorization definitions. Both dispositions: `required_fix`, repaired. State now separates completed publication/repairs from live review evidence kept in the delivery record. Authorization covers an applicable assignment, explicit approval or standing repository policy; routine fixes without such authority are `needs_owner`. Separate execution handoff and no-repeat-approval rules remain intact. Scenario 1 now explicitly lacks authorization; scenario 5 manually checks assignment, approval, standing-policy and missing-authorization variants. These remain writer checks, not independent harness runs.
 
-## Source hashes
+## Post-repair validation and provenance correction
+
+For repaired skill source `3f9f89fe788e12d1cdb34c502cbdb8ba848ca4ff`, the existing suite passed **208 tests in 97.295 seconds**, and `git diff --check` and same-diff proof-media placement passed. The expanded authorization variants in walkthrough 5 check this repaired source, not the original `49d217a`; walkthrough 2's conditional ordering was introduced in `3a54f4ff7ba6d36aaf9d5ebd6cd49633dfdc882f`. No independent harness behavior is claimed.
+
+Copilot review `5787504372`, inline comments `4482431103` and `4482431192`, identified ambiguous original-versus-repaired provenance and stale PR-description source claims. Both dispositions: `required_fix`. This proof and the scenario header now distinguish the revisions and their checks. The PR description is maintained separately with current source/review identities; original proof-only publication is not described as the final repaired head. Current-head CI/review clearance still requires terminal evidence in the delivery record and PR.
+
+## Repaired skill source hashes — `3f9f89f`
 
 ```text
 a480be6d9712084a5395a7605815a10378558a1c122cd370fa762d7f8df75eca  skills/smoky-maintainer/SKILL.md
