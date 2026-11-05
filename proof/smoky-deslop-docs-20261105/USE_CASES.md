@@ -68,3 +68,18 @@ judge output, and grant no authority.
 and both negative controls passed. Manual status/gate/alias comparisons passed
 within these bounded examples. Broader autonomous forward-testing remains
 unproved; repository CI and required external reviews remain separate gates.
+
+## Optimization-safe proof repair (2026-11-05)
+
+Copilot identified that `assert` checks disappear with Python optimization.
+Reproduction: substitute the unsafe handler for the cleanup result; ordinary
+Python failed, but `python3 -O` printed PASS and exited 0. This was a genuine
+proof defect, not a defect in the authored skill rules.
+
+All proof predicates now use explicit checks that exit nonzero with a reason.
+`tests/test_cleanup_documentation_proof.py` runs the safe fixtures and five
+fault injections under normal Python, `-O`, `-OO` and `PYTHONOPTIMIZE=1` (24
+subprocess cases). Unsafe guard removal, an ineffective guard-removal negative
+control, a dropped-preview rewrite, an ineffective documentation negative
+control, and a wrong executable each fail before their stage reports PASS.
+The safe examples pass in every mode. No gated command or service is invoked.

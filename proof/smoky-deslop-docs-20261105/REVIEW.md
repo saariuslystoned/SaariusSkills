@@ -24,6 +24,16 @@ request is required after committing/pushing it, and the resulting tuple and CI
 state will be posted in the PR's final review checkpoint. Do not describe a queued
 request as accepted. The sole assigned lead retains review/repair ownership.
 
+## Continuation: owner-requested Copilot review
+
+- Bounded observation: 2026-11-05T14:16:31Z–14:28:51Z; stopped on publication before the 14:31:31Z deadline. Submitted reviews, inline comments and live head were checked at intervals below 60 seconds; no daemon, new worker or enrollment.
+- Reviewed head: `85d2aef8a9b337dce5783f50acf4b32bc0177197`; live base remained `7594b58ec25b91ad7749604b62580d534e12c313`. Copilot's publication binds the head, not an explicit immutable reviewed-base field.
+- Published 2026-11-05T14:28:36Z: [review 5786503694](https://github.com/saariuslystoned/SaariusSkills/pull/215#pullrequestreview-5786503694), state `COMMENTED`, one medium finding, changes recommended.
+- [Finding 4481665403](https://github.com/saariuslystoned/SaariusSkills/pull/215#discussion_r4481665403): assertions vanish under optimization, potentially reporting false PASS. Disposition `required_fix`: reproduced and repaired with explicit fail-closed predicates plus 24 subprocess cases across four optimization modes. See USE_CASES.md and PROOF.md. No rejected or deferred source findings.
+- Previous generation 2 comprehensive P3 clean/zero findings and both CI platforms' success at that head are preserved in [the prior PR checkpoint](https://github.com/saariuslystoned/SaariusSkills/pull/215#issuecomment-6659475341), not carried onto the repair head.
+- Repair-head CI, renewed comprehensive exact-tuple review and renewed Copilot review must be requested/observed after commit/push. Their exact identities and actual state will be posted in the PR checkpoint; this source-time record does not pre-claim terminal review. No additional source edits are planned unless review identifies a scoped genuine defect.
+- Copilot is supplementary, not signed native ClawSweeper evidence. Native gate and Jev ineligibility below remain unchanged.
+
 ## Native route blocker and Jev baseline
 
 No signed native target sender is installed in this repository, and the owning

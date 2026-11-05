@@ -51,6 +51,12 @@ def observe(source: str) -> tuple:
     return tuple(outcomes)
 
 
+def require(condition: bool, message: str) -> None:
+    # Unlike assert, proof checks must run with -O / PYTHONOPTIMIZE too.
+    if not condition:
+        raise SystemExit(f"FAIL: {message}")
+
+
 def parse_documented_command(text: str) -> argparse.Namespace:
     # Synthetic owning parser: no execution handler is defined or invoked.
     parser = argparse.ArgumentParser(prog="tool")
@@ -62,26 +68,26 @@ def parse_documented_command(text: str) -> argparse.Namespace:
         try:
             parser.parse_args(["export", "--help"])
         except SystemExit as error:
-            assert error.code == 0
-    assert "--preview" in help_output.getvalue()
+            require(error.code == 0, "parser help must exit successfully")
+    require("--preview" in help_output.getvalue(), "help must document --preview")
     literal, = re.findall(r"`([^`]+)`", text)
     program, *args = shlex.split(literal)
-    assert program == "tool"
+    require(program == "tool", "documented executable must be tool")
     return parser.parse_args(args)
 
 
 def main() -> None:
-    assert observe(BEFORE) == observe(AFTER)
-    assert observe(AFTER)[1] == ("PermissionError", "denied")
-    assert observe(AFTER)[2][0] == "KeyError"
-    assert observe(UNSAFE) != observe(BEFORE)
+    require(observe(BEFORE) == observe(AFTER), "cleanup changed handler behavior")
+    require(observe(AFTER)[1] == ("PermissionError", "denied"), "permission guard must reject unauthorized reads")
+    require(observe(AFTER)[2][0] == "KeyError", "malformed input behavior must be preserved")
+    require(observe(UNSAFE) != observe(BEFORE), "guard-removal negative control must differ")
     print("PASS cleanup: allowed, denied and malformed direct calls preserved; guard-removal negative control detected")
 
     before = parse_documented_command(ORIGINAL_DOC)
     after = parse_documented_command(REWRITE)
     unsafe = parse_documented_command(UNSAFE_DOC)
-    assert vars(before) == vars(after) == {"command": "export", "preview": True}
-    assert vars(unsafe) != vars(before)
+    require(vars(before) == vars(after) == {"command": "export", "preview": True}, "rewrite must preserve literal parser mode")
+    require(vars(unsafe) != vars(before), "dropped-preview negative control must differ")
     print("PASS docs: literal resolves to same parser mode; dropped-preview negative control detected; no export executed")
     print("LIMIT: status, approval and alias meaning require the manual source comparison in USE_CASES.md")
 
