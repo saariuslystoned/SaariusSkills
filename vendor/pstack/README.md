@@ -16,8 +16,8 @@ and no upstream PStack aliases under root `skills/`.
   [`../../skills/pstack-playbooks/`](../../skills/pstack-playbooks/) are authored
   Saarius skills. Edit them directly; upstream refreshes never write there.
 
-The upstream pin remains `a66a8931c2dd71f1ed6abf6a52b1898a9f389ae4`
-(2026-10-20). The ten selected skills are `architect`, `automate-me`,
+The upstream pin is `2776ddd2355d6d6c8747d3964600f28daf62f049`
+(2026-11-05). The ten selected skills are `architect`, `automate-me`,
 `blast-radius`, `create-verification-skill`, `how`,
 `maintain-verification-skill`, `reflect`, `tdd`, `unslop` and `why`.
 Other upstream skills, agents, automations and assets are not imported.
