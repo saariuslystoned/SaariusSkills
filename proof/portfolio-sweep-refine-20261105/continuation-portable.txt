@@ -1,0 +1,10 @@
+test_audit_fixture_is_read_only_and_reports_real_gaps (test_portable_skills.PortableSkillTests.test_audit_fixture_is_read_only_and_reports_real_gaps) ... ok
+test_discovery_metadata_license_and_local_references (test_portable_skills.PortableSkillTests.test_discovery_metadata_license_and_local_references) ... ok
+test_pstack_keeps_its_separate_optional_marketplace_route (test_portable_skills.PortableSkillTests.test_pstack_keeps_its_separate_optional_marketplace_route) ... ok
+test_public_core_contains_no_operator_bindings (test_portable_skills.PortableSkillTests.test_public_core_contains_no_operator_bindings) ... ok
+test_retired_viewer_is_not_packaged_or_discovered (test_portable_skills.PortableSkillTests.test_retired_viewer_is_not_packaged_or_discovered) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.037s
+
+OK
