@@ -72,6 +72,11 @@ def read_frontmatter(path: Path) -> tuple[dict[str, str], str, bool, bool]:
                 supported = False
                 continue
             value = value[1:-1]
+        elif value.lower() in {"~", "null", "true", "false", "yes", "no", "on", "off", "y", "n"} or re.match(r"[+\-.0-9]", value):
+            # Implicit null/bool/number/date types vary by YAML version. Do not
+            # certify them as strings; a native validator must resolve them.
+            supported = False
+            continue
         data[key] = value
     return data, "\n".join(lines[end + 1:]).strip(), supported, True
 
