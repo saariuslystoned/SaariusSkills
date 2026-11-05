@@ -118,6 +118,17 @@ class SkillCleanerTests(unittest.TestCase):
                 self.assertEqual(skill["unverified"], ["frontmatter-needs-validator"])
                 self.assertFalse(skill["metadata_verified"])
 
+    def test_colon_without_mapping_separator_is_unverified_not_a_duplicate(self):
+        for directory in ("one", "two"):
+            path = self.skill(directory)
+            (path / "SKILL.md").write_text("---\nname:example\ndescription:Check files.\n---\nFollow the task.\n")
+        report = self.report("--root", self.shelf)
+        self.assertEqual(report["duplicate_names"], {})
+        for skill in report["skills"]:
+            self.assertFalse(skill["metadata_verified"])
+            self.assertEqual(skill["packaging_errors"], [])
+            self.assertEqual(skill["unverified"], ["frontmatter-needs-validator"])
+
     def test_invalid_or_nonmapping_yaml_is_not_flat_metadata(self):
         path = self.skill()
         invalid_values = ("Check: files", "Check:\tfiles", "]files", "}files", "@files", "`files", "%files", "? files")

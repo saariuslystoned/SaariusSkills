@@ -54,6 +54,10 @@ def read_frontmatter(path: Path) -> tuple[dict[str, str], str, bool, bool]:
             supported = False
             continue
         key, value = line.split(":", 1)
+        if value and not value[0].isspace():
+            # Without separation, name:example is a YAML scalar, not a field.
+            supported = False
+            continue
         key, value = key.strip(), value.strip()
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", key):
             supported = False
