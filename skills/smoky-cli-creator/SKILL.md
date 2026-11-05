@@ -25,7 +25,7 @@ For authorized implementation, use the established parser, facade, language and 
 
 ## Verify and hand off
 
-Exercise representative user workflows and failure paths against the delivered command—not just compilation or `--help`. When output is generated, build and exercise representative resulting output, not templates alone. Use deterministic/golden tests only for real stable observable contracts; prefer focused assertions for individual semantics and never snapshot private or incidental content.
+Exercise representative user workflows and failure paths against the delivered command—not just compilation or `--help`. When output is generated, validate representative resulting artifacts, not templates alone: build and exercise generated code/CLIs where applicable, parse or load configuration, and check reports with their intended consumer. Use focused tests for individual semantics. Reserve golden snapshots for real stable observable contracts; keep them deterministic and never snapshot private or incidental content.
 
 Separate mechanical results (parsing, tests, stream separation, exits) from reasoned judgments (discoverability, usefulness, compatibility). For spec-only work, report design checks and unproved runtime behavior rather than claiming execution. Use `smoky-behavior-validator` only when genuinely independent observable-interface proof is appropriate and available; authoring-source inspection is not black-box proof. Use `smoky-worktree` when available and needed for source isolation, or follow the repository's existing isolation mechanism. Neither skill is a prerequisite for standalone use.
 

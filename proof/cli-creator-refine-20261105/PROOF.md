@@ -66,8 +66,64 @@ against a real service.
 
 ## Review and gates
 
-Required publication gates are exact-head CI, signed native ClawSweeper and
-comprehensive Spark-2 review. Their request IDs/results and any dispositions
-belong in the PR/task review record; submission is not a clean verdict.
-The assigned lead retains PR/review/repair ownership until clean/green or a
-concrete blocker. Merge and live skill installation remain outside this work.
+The initial route required CI, signed native ClawSweeper and comprehensive
+Spark-2 review. Native enrollment was absent; no native verdict is claimed.
+The current owner-selected route instead requires actual current-head Copilot,
+comprehensive P3 exact-base/head review and CI. No shared enrollment/integration
+changes are authorized. Request IDs, actual verdicts and dispositions belong in
+the PR/task review record; successful delivery or submission is not clean review.
+The assigned lead retains PR/review/repair ownership. Ryan's conditional merge
+authorization is retained by the coordinator/closer, not exercised by this worker.
+Live skill installation remains outside the assignment.
+
+## First Copilot findings and repair
+
+Owner steering supplied on this continuation cites Skill Refinery message
+`1567958128006271179` in channel `1567890272011165777`: get PR #221 review-clean,
+with merge preauthorized after the required clean reviews. This is a scoped
+paraphrase of supplied provenance, not an independently retrieved quotation.
+No duplicate first review was requested.
+
+The owner-triggered [Copilot run 42077291157](https://github.com/saariuslystoned/SaariusSkills/actions/runs/42077291157)
+completed successfully, but its actual [review 5789441856](https://github.com/saariuslystoned/SaariusSkills/pull/221#pullrequestreview-5789441856)
+recommended changes on `7ce1efab955c3bb05029aea802c8e64f83e98189`:
+
+- [4483964509](https://github.com/saariuslystoned/SaariusSkills/pull/221#discussion_r4483964509):
+  `required_fix`. The core unconditionally required building generated output
+  and ambiguously grouped deterministic tests with golden snapshots. Core and
+  reference now choose validation by artifact type (code/CLI, config, report),
+  permit focused tests and restrict only golden snapshots to stable contracts.
+  Design check: a generated report is checked by its consumer, not compiled;
+  generated CLI code is still built and exercised; a focused parser test does
+  not acquire a golden-fixture requirement.
+- [4483964585](https://github.com/saariuslystoned/SaariusSkills/pull/221#discussion_r4483964585):
+  `required_fix`. The MIT paragraph's scope also encompassed the condensed
+  clig.dev reference. The pinned clig.dev README confirms CC BY-SA 4.0. Notices
+  now explicitly limit MIT to cli-printing-press and create-cli SKILL.md,
+  distinguish the guide/condensed reference and link the separate license.
+  No guide prose or condensed reference is vendored by this change.
+
+The original comprehensive request `req-20261105T164826Z-2171980758` was fetched
+and verified clean/P3/exact-tuple, but covers base `19a31ea47001323ff39dea9d6dfd621f4d9c68f0`
+and the original head only. It cannot attest the repaired source/current main.
+CI run `42068059872` passed both platforms on that old head, not this repair.
+
+Main advanced through the other assigned refinery slices to
+`6730419d5f4d622c1ed62b25c2eece28ed2266a5`. No paths overlap this four-file slice.
+The supported materializer refused that non-ancestor base on the old branch;
+main was therefore integrated without conflicts for current-base review and
+integration testing, not to stimulate a duplicate pending review. Upstream
+changes are preserved without independent edits to their source/shared files.
+Renewed Copilot and comprehensive review are required after publishing repair.
+
+Repair validation: `python3 -m unittest discover -s tests -q` passed **206 tests**
+in 106.293 s on the integrated source (the retired session-viewer tests account
+for the count change). `git diff --check` passed. Rechecked artifact-specific
+verification examples, attribution scope against the pinned source/README,
+local references, and the public diff for private/runtime content. These are
+document/package checks and author judgments, not product runtime proof.
+
+Jev baseline: `ineligible` because no canonical native ClawSweeper publication
+exists; Copilot alone is not eligible input. Judge not-run, no labels or owner
+interruption, timing not measured. Native absence is disclosed, not claimed
+clean and not a blocker under the explicit owner-selected route.
