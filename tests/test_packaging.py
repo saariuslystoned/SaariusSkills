@@ -24,6 +24,35 @@ CI_PERFORMANCE_SKILL = ROOT / "skills" / "smoky-ci-performance"
 
 
 class PackagingTests(unittest.TestCase):
+    def test_cleanup_and_documentation_cores_are_discoverable_and_attributed(self) -> None:
+        import re
+
+        names = ("smoky-deslop", "smoky-technical-documentation")
+        cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
+        for name in names:
+            directory = ROOT / "skills" / name
+            for manifest in (".codex-plugin/plugin.json", ".claude-plugin/plugin.json"):
+                roots = json.loads((ROOT / manifest).read_text())["skills"]
+                discovered = [p.name for root in roots for p in (ROOT / root).iterdir()
+                              if p.is_dir() and (p / "SKILL.md").is_file()]
+                self.assertEqual(discovered.count(name), 1, manifest)
+            self.assertEqual(cursor["skills"].count(f"./skills/{name}/"), 1)
+            # AGY/path installs use root skills; root plugin has no path list.
+            self.assertTrue((directory / "SKILL.md").is_file())
+            self.assertEqual((directory / "LICENSE").read_bytes(), (ROOT / "LICENSE").read_bytes())
+            notice = (directory / "THIRD_PARTY_NOTICES.md").read_text()
+            self.assertIn("Copyright (c) 2026 Vincent Koc", notice)
+            upstream_license = (ROOT / "LICENSE").read_text().replace("Bobby Bones", "Vincent Koc")
+            self.assertIn(upstream_license.strip(), notice)
+            self.assertIn("c9ca51e3a4e93fe10266d78e430c6575a5b19d30", notice)
+            self.assertIn(f"${name}", (directory / "agents/openai.yaml").read_text())
+            for document in directory.rglob("*.md"):
+                for target in re.findall(r"\]\(([^)]+)\)", document.read_text()):
+                    if "://" not in target and not target.startswith("#"):
+                        self.assertTrue((document.parent / target.split("#")[0]).is_file(), target)
+            for catalog in ("README.md", "docs/portable-skills.md"):
+                self.assertIn(f"skills/{name}/SKILL.md", (ROOT / catalog).read_text())
+
     def test_ryan_mode_is_discoverable_without_an_obsolete_alias(self) -> None:
         skill = ROOT / "skills" / "ryan-mode"
         for filename in ("SKILL.md", "SOURCE.md", "LICENSE"):

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Changed-code Cleanup"
+  short_description: "Clean scoped code diffs without changing behavior."
+  default_prompt: "Use $smoky-deslop to clean the requested code diff while preserving behavior, repository idioms and exact-source review gates."
