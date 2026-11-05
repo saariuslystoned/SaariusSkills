@@ -239,3 +239,44 @@ frontmatter (Ruby Psych), local references and scoped privacy checks passed.
 No test framework, product fixtures or prose-matching tests added; x-api and
 shared files remain unchanged. Fresh current-head CI/Copilot and current-base/head
 comprehensive P3 evidence are required.
+
+## Clarification outcome and terminal-backed stdin repair
+
+One evidence-backed clarification in the existing metadata thread explained
+its corrected source/test/route/history and the separate no-input requirement;
+the addressed outdated thread was resolved without claiming reviewer approval.
+[Review 5790268792](https://github.com/saariuslystoned/SaariusSkills/pull/221#pullrequestreview-5790268792)
+on `1bb4767f1e6666c547c459777686663395e6f719` confirms metadata finding
+4484196119 resolved, but identifies a concrete new case:
+
+- [4484615164](https://github.com/saariuslystoned/SaariusSkills/pull/221#discussion_r4484615164):
+  `required_fix`. A controlling terminal can exist while stdin remains a pipe.
+  A command that ignores no-input mode but prompts only when stdin itself is
+  a terminal can pass the previous closed/piped-input checks. The guidance now
+  requires both closed/piped and terminal-backed stdin for supported no-input
+  mode, each bounded by a timeout, with no interactive responses, no interaction
+  and actionable nonzero failure for missing required input/confirmation.
+  Terminal-free defaults and separately requested interactive cases are preserved.
+
+This is a reasoned reproduction of a verification-guidance gap, not a reproduced
+product-runtime defect. The new terminal-backed case would catch the conditional
+prompt described above; merely having a separate controlling terminal would not.
+No product fixtures, test framework or source-blind runtime proof are claimed.
+The clarification thus made progress rather than repeating an unsupported verdict;
+ordinary scoped repair applies. No source changes were made for the rejected
+metadata repeat.
+
+Main advanced through the unrelated maintainer PR to
+`5ac651993a81c759ca9d9e37187d6283b925342e`. The materializer refused that
+non-ancestor base on the unchanged head. With the concrete guidance repair now
+required, main was integrated without conflict or independent edits to its files
+for renewed exact-base review. The PR delta remains the four assigned CLI files.
+Existing current-head CI `42085132138` and comprehensive epoch 5
+`req-20261105T183306Z-23606911954` are retained only for their recorded old tuple;
+fresh CI, Copilot and comprehensive P3 are required after this repair.
+
+Terminal-backed repair validation: **226 tests passed** in 98.241 s on the
+integrated source. Whitespace, Ruby Psych frontmatter, local references and
+scoped public privacy checks passed. These are package/document checks and
+reasoned instruction walkthroughs, not executed product behavior. No shared
+source changes beyond the preserved upstream merge; x-api remains unchanged.

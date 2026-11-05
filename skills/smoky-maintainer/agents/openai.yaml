@@ -1,4 +1,4 @@
 interface:
-  display_name: "Portfolio Maintainer"
-  short_description: "Prepare repository priorities and owner decisions."
-  default_prompt: "Use $smoky-maintainer for the current bounded task, following repository instructions and any optional local binding."
+  display_name: "Maintenance Assessment"
+  short_description: "Assess selected repositories and recommend priorities."
+  default_prompt: "Use $smoky-maintainer to assess the selected repository or portfolio and recommend a focus with evidence, tradeoffs and the next decision or execution handoff. Follow repository instructions and any optional local binding; do not start maintenance."

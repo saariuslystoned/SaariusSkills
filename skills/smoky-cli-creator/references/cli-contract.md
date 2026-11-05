@@ -44,7 +44,7 @@ compatibility risks:
 Use the repository's test harness and safe synthetic fixtures or an approved disposable target. Exercise the actual entry point and a representative end-to-end task, checking useful results, stdout/stderr, exit status and state changes. Add failure cases for touched behavior: malformed/missing input, unavailable dependency, missing authority, empty/partial results or conflicting config. Verify unattended behavior in separate cases:
 
 - Default execution without a controlling terminal and without an explicit no-input flag: use closed/piped stdin and a bounded timeout; require no prompts, pagers or selectors, and fail promptly with actionable diagnostics and a nonzero exit if required input/confirmation is missing.
-- Where an explicit no-input mode is supported, test it separately with closed/piped stdin and a bounded timeout; require the same noninteractive behavior and missing-input/confirmation failure, even when a controlling terminal is available.
+- Where an explicit no-input mode is supported, test it separately with both closed/piped stdin and terminal-backed stdin, including a controlling terminal available. Bound each case with a timeout and supply no interactive responses; require the same noninteractive behavior and actionable nonzero failure for missing required input/confirmation. Terminal-backed stdin catches commands that improperly prompt only when stdin itself is a terminal.
 
 Test explicitly requested terminal-backed interaction separately with a terminal available and no-input mode off; piping stdin alone does not make a call unattended. Verify previews leave the promised target unchanged. Do not perform consequential external actions just to test help or parsing; name any live verification gap.
 
