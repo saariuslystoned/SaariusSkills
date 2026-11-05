@@ -24,7 +24,9 @@ Acceptance: start with assigned observable criteria; permit target-owned publish
 - Existing private binding reviewed: **no change needed**. It already supplies authorized test targets/identities, action/privacy gates, target-owned proof and separate code-aware review. No private binding source or operating topology is published here; no companion repository PR is needed.
 - No other skills, manifests, runtime, profiles or installed copies changed. No new exact-prose tests added.
 
-## Validation
+## Initial-authoring validation (historical)
+
+These outputs and the twelve walkthroughs below record initial authoring at `1bbb34a51ae1d5ecc5a221dc8e2c0f16ac762589`, before integration and review repairs. They are not current-head evidence; later repair checks are recorded separately below.
 
 - `python3 -m unittest tests.test_packaging tests.test_portable_skills -q`: **PASS, 36 tests**; [output](package-checks.txt).
 - `python3 -m unittest discover -s tests -q`: **PASS, 205 tests**, 100.773 seconds; [output](all-tests.txt). Negative-fixture EmDash drift/refusal diagnostics are expected test output, not working-tree failures.
