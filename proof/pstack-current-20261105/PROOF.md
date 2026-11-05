@@ -19,7 +19,7 @@ The existing updater refreshed the exact upstream commit. Among 35 upstream file
 - `python3 -m unittest discover -s tests -p 'test_sync_pstack_skills.py'` passed all 10 tests.
 - `python3 -m unittest discover -s tests -p 'test_packaging.py'` passed all 30 tests.
 - All 7 portable skill tests passed.
-- Full repository suite passed; raw output: `full-suite.txt`.
+- Full repository suite passed all 208 tests in 152.423 seconds; raw output: `full-suite.txt`.
 - The updater's snapshot reader compared all 35 vendored upstream files against the exact fetched upstream commit. All bytes match.
 - `git diff --name-only` before this proof contained only the vendor README, upstream manifest and Reflect skill. Root authored skills and discovery metadata have no diff.
 - `comparison.json` records the changed-file comparison and preservation assertions.

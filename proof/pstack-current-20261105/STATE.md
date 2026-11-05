@@ -1,6 +1,6 @@
 # PStack refresh state
 
-Status: locally verified; final suite running before commit and PR.
+Status: locally verified; 208-test full suite passed; source committed for PR review.
 
 Owner: parent coordinator following refresh_pstack handoff.
 Branch: codex/pstack-current-20261105
