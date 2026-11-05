@@ -41,7 +41,12 @@ compatibility risks:
 
 ## Verification choices
 
-Use the repository's test harness and safe synthetic fixtures or an approved disposable target. Exercise the actual entry point and a representative end-to-end task, checking useful results, stdout/stderr, exit status and state changes. Add failure cases for touched behavior: malformed/missing input, unavailable dependency, missing authority, empty/partial results or conflicting config. Test genuinely unattended calls without a controlling terminal or with the supported explicit no-input mode, using closed/piped stdin and a bounded timeout. Test explicitly requested terminal-backed interaction separately; piping stdin alone does not make a call unattended. Verify previews leave the promised target unchanged. Do not perform consequential external actions just to test help or parsing; name any live verification gap.
+Use the repository's test harness and safe synthetic fixtures or an approved disposable target. Exercise the actual entry point and a representative end-to-end task, checking useful results, stdout/stderr, exit status and state changes. Add failure cases for touched behavior: malformed/missing input, unavailable dependency, missing authority, empty/partial results or conflicting config. Verify unattended behavior in separate cases:
+
+- Default execution without a controlling terminal and without an explicit no-input flag: use closed/piped stdin and a bounded timeout; require no prompts, pagers or selectors, and fail promptly with actionable diagnostics and a nonzero exit if required input/confirmation is missing.
+- Where an explicit no-input mode is supported, test it separately with closed/piped stdin and a bounded timeout; require the same noninteractive behavior and missing-input/confirmation failure, even when a controlling terminal is available.
+
+Test explicitly requested terminal-backed interaction separately with a terminal available and no-input mode off; piping stdin alone does not make a call unattended. Verify previews leave the promised target unchanged. Do not perform consequential external actions just to test help or parsing; name any live verification gap.
 
 Preserve regression coverage for old invocations and machine consumers. For cache-backed commands, test applicable local/live selection and stale, unknown or failed-refresh reporting. For generators/templates, generate representative affected variants and validate the resulting artifacts with their intended consumer: build generated code/CLIs where applicable and exercise their commands and failure paths; parse or load configuration and check reports for useful, correct content. Template snapshots alone cannot prove usable generated output.
 

@@ -54,7 +54,7 @@ instructions yields a proportionate interface decision.
 | Spec only: design `notes find QUERY` for humans and a script | Supply synopsis, query/empty-result semantics, human display and consumer-required structured shape, stderr and exits plus examples. Walk through success, no matches and missing query. Stop with runtime behavior unproved; do not edit source or implement a tool. |
 | New CLI request for a service with a mature official CLI | First compare the requested workflow with the official command and existing repo facade. If it already serves the workflow, recommend its invocation, not generation. If only a local transformation is missing, specify that narrow gap; do not silently replace the requested product or create a duplicate API client. |
 | Authorized implementation: extend existing `bundle inspect FILE` with `--summary` | Write a short delta spec, then implement in the existing parser/helper and update help/tests within source authority. Exercise the delivered entry point on a synthetic bundle and bad input; compare old invocation behavior. Do not pause for a second design approval or install/publish the result. |
-| Unattended mutation: `records apply` receives piped input but lacks required confirmation | No prompt/selector/pager; fail promptly with nonzero exit and actionable stderr, without mutation. A no-input or controlling-terminal-free test with closed/piped stdin and a bounded timeout detects hangs; test defined machine error output if offered. `--force` may skip a local prompt only after actual authority is established, never authorize the action. |
+| Unattended mutation: `records apply` receives piped input but lacks required confirmation | No prompt/selector/pager; fail promptly with nonzero exit and actionable stderr, without mutation. Test terminal-free defaults without a no-input flag and supported explicit no-input mode separately, each with closed/piped stdin and a bounded timeout to detect hangs; test defined machine error output if offered. `--force` may skip a local prompt only after actual authority is established, never authorize the action. |
 | Cache-backed `inventory list` with an existing source selector | Distinguish a local read from a live check/refresh using the existing interface. Report known observation time and scope, or unknown/stale/partial; a failed refresh must not look fresh. Test selection and fallback reporting. A file-only filter with no cache gets none of these features. |
 | Authorized template change producing a CLI | Generate the affected representative variant, build the result and invoke its normal task and invalid-input path against safe fixtures. Template compilation or a matching snapshot alone is insufficient. No generator/runtime dependency is introduced by this skill authoring task. |
 | Proposed golden for a stable offline structured command; unrelated timestamp-heavy/private diagnostics | Consider the small stable public schema/artifact subset; use focused assertions for field logic. Exclude incidental/private diagnostics. Inspect any intentional contract change rather than blindly accepting fixture updates. A documentation edit alone needs no golden test. |
@@ -199,3 +199,43 @@ Third repair validation: **226 tests passed** in 101.700 s; whitespace and
 scoped reference/privacy checks pass. The unattended/terminal-backed cases
 remain author design checks, not independent runtime proof. Renewed exact-head
 CI/Copilot and exact-base/head comprehensive P3 evidence are required.
+
+## Fourth Copilot findings and scoped repair
+
+[Review 5789863953](https://github.com/saariuslystoned/SaariusSkills/pull/221#pullrequestreview-5789863953)
+on `05eaf47bc8277ac6b29881d01ebedcf85f0b7949` resolved the previous
+controlling-terminal finding but recommended a distinct verification fix:
+
+- [4484303770](https://github.com/saariuslystoned/SaariusSkills/pull/221#discussion_r4484303770):
+  `required_fix`. Replaced either/or verification with separate cases for
+  terminal-free default execution without a no-input flag and, where supported,
+  explicit no-input mode. Each uses closed/piped stdin and a bounded timeout,
+  forbids interaction and requires actionable nonzero failure for missing
+  input/confirmation. The explicit mode must suppress interaction even when
+  a terminal exists. Separately requested terminal-backed interactive cases
+  remain permitted with a terminal available and no-input mode off.
+- Repeated [4484196119](https://github.com/saariuslystoned/SaariusSkills/pull/221#discussion_r4484196119):
+  `reject_false_positive` against verified current PR metadata. The description
+  already identified the then-current tuple, 226-test result and Copilot/P3/CI
+  route before that review request, with initial evidence labeled historical.
+  No source change is manufactured for that repeated metadata concern.
+
+The coordinator reassessed the repeated finding and authorized this one narrow
+cycle: prior distinct repairs were resolved, not nonconverging. No renewed human
+merge-authorization question or duplicate pending review is needed. CI
+`42082419853` and comprehensive epoch 4 `req-20261105T181601Z-233211917374`
+were clean for the previous tuple, not clearance for this repair.
+
+Reasoned walkthrough: a CLI that suppresses prompts only when its no-input flag
+is set must fail the independent terminal-free default case. A CLI that still
+prompts through a terminal in explicit no-input mode must fail that separate
+case. Explicitly requested piped selection with a terminal and no-input off
+remains its own interactive case. These are author instruction checks, not
+executed product tests or independent black-box proof. This change remains
+skill guidance, not a product CLI or test-fixture project.
+
+Fourth repair validation: **226 tests passed** in 99.800 s. Whitespace,
+frontmatter (Ruby Psych), local references and scoped privacy checks passed.
+No test framework, product fixtures or prose-matching tests added; x-api and
+shared files remain unchanged. Fresh current-head CI/Copilot and current-base/head
+comprehensive P3 evidence are required.
