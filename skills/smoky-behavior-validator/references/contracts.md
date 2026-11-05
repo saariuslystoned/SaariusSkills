@@ -21,7 +21,7 @@ Select checks relevant to the claim, rather than applying every probe to every t
 - CLI: check relevant standard streams, exit codes, non-interactive behavior, output/state and any claimed dry-run boundary.
 - API: check response semantics, relevant freshness and externally observable state changes where promised, using authorized fixtures. HTTP success can satisfy a status-only criterion, but alone cannot prove additional promised response content or state changes.
 - Registered test device: bind the exact device/app/test identity; observe the action and visible result, then reopen when relevant. Missing registration or access is blocked, not permission to substitute a personal device.
-- Artifact: identify the exact file/version (hash when useful), open it in an appropriate viewer or consumer and inspect the claimed content, not merely its existence.
+- Artifact: identify the exact file/version (hash when useful). Existence evidence can satisfy an existence-only criterion; when content is promised, open it in an appropriate viewer or consumer and inspect that content, not merely its existence.
 
 Relevant edge cases can expose a violation of an existing criterion. If their expected outcome is unspecified, report the observation and expectation gap without declaring an invented product failure. Exclude aesthetic/code-quality preferences unless observable acceptance explicitly covers them.
 

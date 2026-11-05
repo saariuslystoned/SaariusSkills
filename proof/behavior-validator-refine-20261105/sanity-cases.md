@@ -44,4 +44,8 @@ Additional manual synthetic cases for the distinct follow-up finding; not actual
 | Clean context still lacks evidence | Fresh context has not observed the required reopen result | Remains `blocked`; a new context alone is not verification. No pass or fail inferred. |
 | Clean observed violation plus a separate missing observation | Clean context observes a criterion violation, but another in-scope clause remains inconclusive | Preserve `fail` and `blocked`; overall `violates_contract`. The independence fix does not suppress genuine clean failures or erase other blockers. |
 
+## Existence-only artifact follow-up
+
+Copilot's subsequent current-head review raised a distinct, previously missed requirement mismatch. Manual synthetic case: the acceptance criterion promises only that a named artifact exists at the authorized path; exact target identity and file-existence evidence are available, but no viewer is available or authorized. Outcome: `pass` for existence alone, no content claim, viewer installation or extra permission required. In contrast, the original missing-column and inconclusive-content cases still require content evidence: existence alone cannot satisfy them. This is a guidance walkthrough, not actual filesystem/product validation.
+
 Walkthrough result: decisions above are expressible without implementation evidence, domain-specific checkout rules, runtime dependencies or fixed prose assertions. This is an author judgment of guidance consistency only; actual source-blind product validation and installed-harness execution remain unproved.
