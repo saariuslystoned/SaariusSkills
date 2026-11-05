@@ -1,10 +1,13 @@
 # Behavior report
 
+The verdict rules below apply to every report, inline or structured. For a small check, an inline contract, target/version/environment and observation time, action/result, clause status, reproducible steps and limits suffice. Link larger evidence only when useful. This JSON is an optional example, not a required packet or measured confidence score.
+
 ```json
 {
   "overall_behavior": "satisfies_contract",
   "overall_confidence": 0.9,
   "target": {"type": "CLI", "access": "<authorized command>", "version": "<exact version>"},
+  "observed_at": "<timestamp>",
   "contract": {"path": "behavior-contract.md", "version": "<revision>"},
   "checks": [{
     "contract_clause": "Task 1",
@@ -20,4 +23,15 @@
 }
 ```
 
-Overall behavior is `satisfies_contract`, `violates_contract` or `blocked`. Each clause is `pass`, `fail`, `blocked` or `out_of_scope`. Use fail for an observed violation or inadequate evidence for a claimed pass; use blocked for missing access, fixtures or tools. Confidence fields are optional estimates, not measured accuracy; record the remaining uncertainty instead of inventing precision. Never embed credentials, private user data, authentication links or unrelated log contents.
+Source-blind independence is a prerequisite for both `pass` and `fail`. If context is contaminated by implementation details, mark affected clauses `blocked` and keep their observations provisional until a clean source-blind context verifies them, even when they appear to show a violation. Provisional observations cannot establish overall `violates_contract` or `satisfies_contract`.
+
+Each clause is `pass`, `fail`, `blocked` or `out_of_scope`:
+
+- `pass`: observed evidence supports the stated criterion on the identified target.
+- `fail`: an observed result violates that criterion. Missing or inconclusive observations alone are not proof of a product defect.
+- `blocked`: the clause cannot be decided because required evidence is missing or inconclusive, required expectations, authorization, access, fixtures or tools are missing, or source-blind independence cannot be established. Reject an unsupported claimed pass as `blocked`; only source-blind observed evidence of a violation can establish `fail`. Name the evidence gap or dependency and next action; use `blocked_source_required` as a blocker reason when applicable.
+- `out_of_scope`: explicitly excluded or outside the assignment; give the scope reason, not a passing verdict.
+
+Overall behavior is `violates_contract` if any in-scope clause fails, otherwise `blocked` if any in-scope clause is blocked, otherwise `satisfies_contract` only when all in-scope clauses pass. If none is in scope, report that explicitly instead of claiming satisfaction (omit the overall field in structured output). Preserve mixed clause results and blockers even when a failure determines the overall value.
+
+`anti_cheat_probes` holds the relevant edge checks actually run; it can be empty. Unspecified exploratory outcomes are observations/gaps, not new requirements. Identify live versus synthetic/mock targets explicitly. Confidence fields are optional estimates, not measured accuracy; record remaining uncertainty instead of inventing precision. Never embed credentials, private user data, authentication links or unrelated log contents.
