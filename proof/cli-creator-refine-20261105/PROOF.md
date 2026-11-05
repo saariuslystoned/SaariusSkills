@@ -78,10 +78,11 @@ Live skill installation remains outside the assignment.
 
 ## First Copilot findings and repair
 
-Owner steering supplied on this continuation cites Skill Refinery message
-`1567958128006271179` in channel `1567890272011165777`: get PR #221 review-clean,
-with merge preauthorized after the required clean reviews. This is a scoped
-paraphrase of supplied provenance, not an independently retrieved quotation.
+The owner directed PR #221 to reach clean review and conditionally authorized
+merge after the required clean reviews. The worker prepares evidence and
+repairs; the assigned coordinator retains the merge step. This is a curated
+summary of supplied authorization, not a verbatim quotation. Its private
+origin identifiers remain in the existing private task record.
 No duplicate first review was requested.
 
 The owner-triggered [Copilot run 42077291157](https://github.com/saariuslystoned/SaariusSkills/actions/runs/42077291157)
@@ -127,3 +128,39 @@ Jev baseline: `ineligible` because no canonical native ClawSweeper publication
 exists; Copilot alone is not eligible input. Judge not-run, no labels or owner
 interruption, timing not measured. Native absence is disclosed, not claimed
 clean and not a blocker under the explicit owner-selected route.
+
+## Second Copilot findings and repair
+
+[Review 5789584157](https://github.com/saariuslystoned/SaariusSkills/pull/221#pullrequestreview-5789584157)
+on `8fe58b6bfdd32c7cb9685c9dc5bbd0570f8dcc5e` explicitly resolved the first two
+findings, but recommended two distinct changes:
+
+- [4484079921](https://github.com/saariuslystoned/SaariusSkills/pull/221#discussion_r4484079921):
+  `required_fix`. Removed raw private coordination identifiers from this public
+  proof; retained the authorization decision in curated form and its origin
+  identifiers only in the private task record. No history rewrite is claimed.
+- [4484079999](https://github.com/saariuslystoned/SaariusSkills/pull/221#discussion_r4484079999):
+  `required_fix`. Non-TTY stdin alone is not proof of unattended operation.
+  The contract now permits an explicitly requested, terminal-backed selector
+  or pager consuming piped data when a separate terminal exists and no-input
+  mode is off. Unattended/no-input calls still cannot prompt or hang; piped
+  data never grants consent. Design check: piped selection with an explicit
+  interactive request and available terminal may interact; absent terminal
+  or no-input mode fails promptly if interaction is required. Piped mutation
+  input without authority/confirmation still fails without mutation.
+
+CI `42078970650` and comprehensive epoch 2
+`req-20261105T175356Z-22804244315` were clean on that previous tuple, not the
+second repair. The comprehensive actual output reported no actionable defects,
+with exact-tuple/comprehensive/P3 attestation, but did not independently verify
+reported tests or upstream licensing. Main meanwhile advanced to
+`30128a680575dc3d17fd1417003e5fce90f85465` with the separate skill-cleaner slice;
+this was integrated without conflict or edits to its source/shared files for
+renewed current-base validation. No duplicate pending review was requested.
+
+Second repair validation: **226 tests passed** in 99.649 s on the integrated
+source (including the newly merged skill-cleaner coverage). Whitespace,
+references, frontmatter and public-proof privacy checks passed. The explicit
+terminal/no-input cases above are reasoned instruction walkthroughs, not
+executed product behavior or independent harness proof. Fresh CI, Copilot and
+comprehensive P3 evidence are still required for the published repaired tuple.

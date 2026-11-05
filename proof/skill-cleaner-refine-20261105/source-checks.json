@@ -1,0 +1,12 @@
+{
+  "flat_frontmatter": "pass",
+  "full_upstream_licenses_and_local_license": "pass",
+  "local_markdown_links": "pass",
+  "private_binding_and_machine_path_scan": "pass",
+  "scope": "cleaner package + dedicated test/proof only; git diff separately checked",
+  "upstream_doc_hashes": {
+    "finder-scorecard.md": "80460e87baa280946efb076c3c4302d31fa9d8a4c9bf975491515dd044b3364c",
+    "finder-skill.md": "2865a3fa2e176fe06fda6fff679fae560c6adba48bef82b12d369a2c9eeded20",
+    "steipete-skill.md": "32e482ba17945ac7ee1c8d40087346b093193df034391a331da76ca42adeae37"
+  }
+}

@@ -1,4 +1,4 @@
 interface:
-  display_name: "Skill Auditor"
-  short_description: "Audit skill metadata and reference health."
-  default_prompt: "Use $smoky-skill-cleaner for the current bounded task, following repository instructions and any optional local binding."
+  display_name: "Skill Cleaner"
+  short_description: "Assess skill packaging and practical usefulness."
+  default_prompt: "Use $smoky-skill-cleaner to audit only the selected skills, separating packaging facts from evidence-backed usefulness recommendations. Do not apply cleanup."
