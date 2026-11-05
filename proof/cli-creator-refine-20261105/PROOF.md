@@ -2,7 +2,10 @@
 
 ## Scope and source
 
-Base: `19a31ea47001323ff39dea9d6dfd621f4d9c68f0` in SaariusSkills.
+Original authoring base (historical):
+`19a31ea47001323ff39dea9d6dfd621f4d9c68f0` in SaariusSkills.
+Current source and review evidence are identified in the PR description and
+subsequent review records; initial checks below are not current-head clearance.
 This packet accompanies only `skills/smoky-cli-creator/` authoring changes.
 The accepted scope is selective discovery, compact specification, authorized
 implementation and real-use verification—not a CLI product or generator.
@@ -19,7 +22,7 @@ private credential conventions and ship/install permissions. This is adapted
 guidance, not wholesale upstream text or code. MIT notices are distributable
 with the skill. No shared packaging or other skill changed.
 
-## Mechanical validation
+## Initial mechanical validation (historical)
 
 - `python3 -m unittest discover -s tests -q`: **208 tests passed** in 99.305 s,
   including existing packaging, metadata, reference and public-boundary tests.
@@ -51,7 +54,7 @@ instructions yields a proportionate interface decision.
 | Spec only: design `notes find QUERY` for humans and a script | Supply synopsis, query/empty-result semantics, human display and consumer-required structured shape, stderr and exits plus examples. Walk through success, no matches and missing query. Stop with runtime behavior unproved; do not edit source or implement a tool. |
 | New CLI request for a service with a mature official CLI | First compare the requested workflow with the official command and existing repo facade. If it already serves the workflow, recommend its invocation, not generation. If only a local transformation is missing, specify that narrow gap; do not silently replace the requested product or create a duplicate API client. |
 | Authorized implementation: extend existing `bundle inspect FILE` with `--summary` | Write a short delta spec, then implement in the existing parser/helper and update help/tests within source authority. Exercise the delivered entry point on a synthetic bundle and bad input; compare old invocation behavior. Do not pause for a second design approval or install/publish the result. |
-| Unattended mutation: `records apply` receives piped input but lacks required confirmation | No prompt/selector/pager; fail promptly with nonzero exit and actionable stderr, without mutation. Closed/piped stdin and a bounded timeout test detect hangs; test defined machine error output if offered. `--force` may skip a local prompt only after actual authority is established, never authorize the action. |
+| Unattended mutation: `records apply` receives piped input but lacks required confirmation | No prompt/selector/pager; fail promptly with nonzero exit and actionable stderr, without mutation. A no-input or controlling-terminal-free test with closed/piped stdin and a bounded timeout detects hangs; test defined machine error output if offered. `--force` may skip a local prompt only after actual authority is established, never authorize the action. |
 | Cache-backed `inventory list` with an existing source selector | Distinguish a local read from a live check/refresh using the existing interface. Report known observation time and scope, or unknown/stale/partial; a failed refresh must not look fresh. Test selection and fallback reporting. A file-only filter with no cache gets none of these features. |
 | Authorized template change producing a CLI | Generate the affected representative variant, build the result and invoke its normal task and invalid-input path against safe fixtures. Template compilation or a matching snapshot alone is insufficient. No generator/runtime dependency is introduced by this skill authoring task. |
 | Proposed golden for a stable offline structured command; unrelated timestamp-heavy/private diagnostics | Consider the small stable public schema/artifact subset; use focused assertions for field logic. Exclude incidental/private diagnostics. Inspect any intentional contract change rather than blindly accepting fixture updates. A documentation edit alone needs no golden test. |
@@ -164,3 +167,35 @@ references, frontmatter and public-proof privacy checks passed. The explicit
 terminal/no-input cases above are reasoned instruction walkthroughs, not
 executed product behavior or independent harness proof. Fresh CI, Copilot and
 comprehensive P3 evidence are still required for the published repaired tuple.
+
+## Third Copilot findings and repair
+
+[Review 5789729287](https://github.com/saariuslystoned/SaariusSkills/pull/221#pullrequestreview-5789729287)
+on `7c8921caf0b91e49690981a4f46e2a3956fd8a62` resolved the second-round findings
+but recommended two distinct low-severity fixes:
+
+- [4484196119](https://github.com/saariuslystoned/SaariusSkills/pull/221#discussion_r4484196119):
+  `required_fix`. PR description retained initial source/test/route claims as
+  current. Update it to the published repaired tuple and selected Copilot/P3/CI
+  route, with explicit pending versus terminal evidence. Initial authoring base
+  and mechanical validation here are now labeled historical.
+- [4484196169](https://github.com/saariuslystoned/SaariusSkills/pull/221#discussion_r4484196169):
+  `required_fix`. Closed/piped stdin alone does not remove a controlling
+  terminal. Verification now specifies no controlling terminal or a supported
+  explicit no-input mode, still with bounded timeout and closed/piped stdin;
+  explicitly requested terminal-backed interaction is tested separately.
+  Walkthrough: a piped call with a terminal is not classified unattended solely
+  by its stdin; no-input or terminal-free calls still must not prompt/hang.
+
+CI `42080854144` and comprehensive epoch 3
+`req-20261105T180540Z-229033117017` were clean on the third reviewed source,
+not clearance for this follow-up. The comprehensive actual output had zero
+findings and exact-tuple/comprehensive/P3 attestation; author tests and external
+source claims were not independently verified by that reviewer. Main remains
+`30128a680575dc3d17fd1417003e5fce90f85465`. These are distinct repairs with
+reviewer-confirmed progress, not repeated unresolved findings.
+
+Third repair validation: **226 tests passed** in 101.700 s; whitespace and
+scoped reference/privacy checks pass. The unattended/terminal-backed cases
+remain author design checks, not independent runtime proof. Renewed exact-head
+CI/Copilot and exact-base/head comprehensive P3 evidence are required.
