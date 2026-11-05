@@ -11,7 +11,6 @@ canonical name is `smoky-coordinator`.
 | [`smoky-deslop`](../skills/smoky-deslop/SKILL.md) | Scoped changed-code cleanup that preserves behavior, security and reliability |
 | [`smoky-technical-documentation`](../skills/smoky-technical-documentation/SKILL.md) | Source-truth human/agent docs, command fidelity and policy/status-preserving rewrites |
 | `smoky-worktree` | Fresh source identity and isolated writable ownership |
-| `smoky-session-viewer` | Explicit local JSONL input to private searchable HTML |
 | `smoky-coordinator` | One lead assignment through the configured runtime, bounded specialists, handoffs and exact-source closeout |
 | `smoky-maintainer` | Portfolio selection and decision-ready maintenance briefs |
 | `smoky-portfolio-sweep` | Read-only qualification and serial authorized batch actions |
@@ -28,11 +27,13 @@ skip a repeated load when that profile is already active.
 `dinkus-sweep` is one such installed variant: the DinkusKit profile of
 `smoky-portfolio-sweep`, adding its repositories, batch card and review rails.
 
-The two Python helpers use the standard library. Audit defaults are read-only;
-the session viewer reads a named input and writes only its requested local
-output. Renderer redaction is best-effort: an HTML file can still contain
-private messages, paths and instructions. It is never automatically public-safe.
-Validation uses synthetic fixtures, not real session archives.
+The skill audit helper uses the Python standard library and defaults to
+read-only operation. Validation uses synthetic fixtures, not real session
+archives.
+
+The standalone `smoky-session-viewer` skill and its renderer are retired.
+Historical proof remains available; retirement does not remove installed copies
+or transcript data, and does not designate a replacement viewer.
 
 The instructions are generalized owner-authored workflows. The coordinator
 retains an acknowledgement of Vincent Koc's public
