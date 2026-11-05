@@ -14,9 +14,9 @@ Manual author walkthroughs of synthetic inputs against source `49d217a724949cf30
 
 **Input:** “For Atlas and Beacon, reduce failed checkouts.” Atlas has a reproduced payment retry defect affecting orders (rough estimate: one day); Beacon has a formatting cleanup (one hour) and a planned retry prerequisite (half a day).
 
-**Assessment:** Prioritize Beacon's verified prerequisite, then Atlas's retry repair as the dependency chain serving the stated goal. Defer formatting despite its lower effort. Explain uncertainty in effort and impact rather than assigning scores. If the prerequisite is merely convenient, do not force dependency-first ordering. Recommend a bounded sequence and separate execution handoff.
+**Assessment:** Atlas's reproduced retry defect is the leading goal-backed repair. Beacon's planned item is an unverified dependency claim: confirm whether Atlas's repair requires it before recommending dependency-first ordering. If confirmed, recommend Beacon's prerequisite followed by Atlas's repair; if not required, prioritize Atlas without forcing Beacon first. While that relationship is unknown, keep the sequence conditional rather than calling the prerequisite verified. Defer formatting despite its lower effort. Explain uncertainty in effort and impact rather than assigning scores. Recommend a bounded sequence and separate execution handoff.
 
-**Check:** Compares impact, urgency, dependencies and effort under the user's goal, not easiest-first or arbitrary numerical ranking. Pass by manual inspection.
+**Check:** Compares impact, urgency, dependencies and effort under the user's goal, not easiest-first or arbitrary numerical ranking. Manually checked the confirmed-required, not-required and unknown dependency cases; only the first supports Beacon-first ordering. Pass by manual inspection.
 
 ## 3. No goal, but an existing commitment
 

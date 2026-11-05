@@ -36,6 +36,10 @@ This is documentation/skill-authoring proof, not runtime proof. The walkthroughs
 
 CI and required exact-head reviews must be read from the final PR and existing task record. Local tests and queued reviews do not establish review-clean status or merge authorization. The native review route needs a target-supported trigger and enrollment; absent wiring is an external integration blocker, not a clean verdict and not permission to install it. No merge, release, deploy, account change or runtime refresh is authorized by this proof.
 
+## Review repair — conditional dependency ordering
+
+Copilot review `5786984498`, inline comment `4482027721`, identified a supported low-severity finding in walkthrough 2: its input described a planned prerequisite, but the assessment called it verified. Disposition: `required_fix`, repaired in `SCENARIOS.md`. The sequence now depends on confirming whether Atlas's repair requires Beacon's item; confirmed-required, not-required and unknown cases were manually checked. Only confirmed-required supports Beacon-first ordering. No skill/runtime behavior changed, and these remain author walkthroughs rather than independent execution proof. Fresh current-head review and CI evidence is retained in the delivery task record.
+
 ## Source hashes
 
 ```text
