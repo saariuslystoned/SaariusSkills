@@ -41,3 +41,20 @@ spend, merge or deployment is claimed. PR and exact-head review evidence
 remain pending coordinator delivery. Further proof commits do not change the
 recorded implementation source. [STATE.md](STATE.md) records the current
 handoff; [events.jsonl](events.jsonl) retains earlier checkpoints append-only.
+
+
+## Continuation status
+
+The owner resumed integration work with **no merge or deployment**. Companion
+guidance and plugin manifests remain unchanged at source
+`2bbd109b8cdbac191b16089a83a468d67d40f4f0`; this continuation updates proof only.
+The separate runtime now has a prepared native consumer; that does not prove
+this guidance installed or any provider operation. Native authorization and
+activation remain separate. No credentials, account settings, installed client
+configuration, gateway service, provider call, send, spend, merge or deployment
+was changed by this companion task.
+
+Both Linux and macOS CI passed exact prior head
+`ab526898d4c1e95d2673ca163f623682c8e6dec1` in
+[run42258918053](https://github.com/saariuslystoned/SaariusSkills/actions/runs/42258918053).
+A new proof-only head requires its own CI; the prior result remains historical.

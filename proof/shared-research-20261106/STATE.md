@@ -1,24 +1,17 @@
-# Companion guidance delivery state
+# Companion guidance state
 
-Status: PREPARED / PACKAGING-TESTED; DELIVERY AND REVIEW PENDING.
-Branch: `ridge/shared-research-20261106`.
-Base: `820a8397b559a8ae865bf2531fb6b420812562f1`.
-Implementation source: `2bbd109b8cdbac191b16089a83a468d67d40f4f0`.
-Implementation writer stopped. Assigning coordinator is closer and delivery
-owner; `delivery_record` stopped; the assigning coordinator owns final delivery.
+GUIDANCE UNCHANGED / PROOF UPDATED; NO MERGE OR DEPLOYMENT.
 
-| Check or state | Result |
-| --- | --- |
-| New shared-research discovery test | PASS, 1/1 |
-| Plugin correction tests | PASS, 1/1 |
-| Packaging suite | 34 tests; one existing test has two missing-`/usr/bin/time` subcase failures |
-| Exact-base reproduction | Same existing two exit-127 failures |
-| Full repository suite | Timed out at 120 seconds; unverified |
-| Implementation commit / PR / exact-head reviews | `2bbd109b8cdbac191b16089a83a468d67d40f4f0` / pending delivery and reviews |
-| Installation / actual harness discovery / live provider use | Not established |
-| Runtime, credentials, merge or deployment changes | None |
+Branch: `ridge/shared-research-20261106`. Source:
+`2bbd109b8cdbac191b16089a83a468d67d40f4f0`. Root is delivery owner; writer stopped.
 
-Next: coordinator records final source identity and PR, completes applicable CI
-and review evidence, and presents the reviewable guidance. This companion does
-not authorize runtime activation or remove human merge/deployment gates.
+The new skill's packaging/discovery test and plugin-correction test passed.
+Linux and macOS CI passed prior exact head `ab526898d4c1e95d2673ca163f623682c8e6dec1`
+([run42258918053](https://github.com/saariuslystoned/SaariusSkills/actions/runs/42258918053)).
+This proof-only update needs new exact-head CI. Guidance/manifests are unchanged.
+
+Runtime preparation and native client enrollment belong to the separate runtime
+owner. This companion adds no server, credential handling, runtime installation
+or authorization; actual installed skill discovery and provider use remain
+unproven. No source or native-account setup is authorized by these proof updates.
 See [PROOF.md](PROOF.md) and append-only [events.jsonl](events.jsonl).

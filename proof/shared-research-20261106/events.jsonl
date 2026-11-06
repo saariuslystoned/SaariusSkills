@@ -7,3 +7,5 @@
 {"at": "2026-11-06T17:05:59.979286+00:00", "owner": "delivery_record", "event": "current_proof_curated", "scope": "proof_only", "status": "local_checks_recorded_delivery_pending"}
 {"at": "2026-11-06T17:06:36.818084+00:00", "owner": "delivery_record", "event": "proof_handoff", "source_committed": true, "next_owner": "root_coordinator", "mutation_scope": "proof_only", "writer": "stopped"}
 {"at": "2026-11-06T17:07:35.192109+00:00", "event": "coordinator_delivery_handoff", "writer_stopped": true, "next": "proof commit, non-force push, PR, exact-head CI and review evidence"}
+{"at": "2026-11-06T17:43:17.532163+00:00", "event": "consumer_access_resume_proof_only", "input_head": "ab526898d4c1e95d2673ca163f623682c8e6dec1", "guidance_source": "unchanged", "runtime_owner": "ai-shed", "merge_deploy": "explicitly excluded", "writer": "stopped", "next_owner": "root_closer_delivery"}
+{"at": "2026-11-06T18:22:50.290015+00:00", "event": "companion_continuation_proof_curated", "guidance_source": "unchanged", "prior_linux_macos_ci": "success", "native_account_or_runtime_mutation": false, "next": "proof-only commit and exact-head CI"}
