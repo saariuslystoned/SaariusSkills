@@ -21,6 +21,7 @@ DINKUSKIT_LIVE_TEST_SKILL = ROOT / "skills" / "dinkuskit-live-test"
 DINKUS_SWEEP_SKILL = ROOT / "skills" / "dinkus-sweep"
 HARNESS2_SKILL = ROOT / "skills" / "harness2"
 CI_PERFORMANCE_SKILL = ROOT / "skills" / "smoky-ci-performance"
+CHARACTER_STUDIO_SKILL = ROOT / "skills" / "smoky-character-studio"
 
 
 class PackagingTests(unittest.TestCase):
@@ -793,6 +794,46 @@ exit "$1"
         self.assertIn("headRefOid", coordinator)
         self.assertIn("needs-evidence", scenarios)
         self.assertNotIn("- `repair` if any leftover item is repair.", rubric)
+
+    def test_smoky_character_studio_skill_is_packaged(self) -> None:
+        skill = (CHARACTER_STUDIO_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (
+            CHARACTER_STUDIO_SKILL / "agents" / "openai.yaml"
+        ).read_text(encoding="utf-8")
+        contract = (
+            CHARACTER_STUDIO_SKILL / "references" / "sprite-v2-contract.md"
+        ).read_text(encoding="utf-8")
+        helper = CHARACTER_STUDIO_SKILL / "scripts" / "compile_pet_atlas.py"
+        cursor = json.loads(
+            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertLessEqual(len(skill.splitlines()), 500)
+        self.assertIn("name: smoky-character-studio\n", skill)
+        self.assertIn("$smoky-character-studio", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("./skills/smoky-character-studio/", cursor["skills"])
+        self.assertEqual(
+            (CHARACTER_STUDIO_SKILL / "LICENSE").read_bytes(),
+            (ROOT / "LICENSE").read_bytes(),
+        )
+        self.assertIn("#FF00FF", skill)
+        self.assertIn("sprite_version: 2", skill)
+        self.assertIn("1536×2288", contract)
+        self.assertIn("Clank", contract)
+        self.assertIn("Bobby Bones", contract)
+        self.assertIn("Blaze", contract)
+        self.assertTrue(helper.is_file())
+        self.assertTrue(helper.stat().st_mode & 0o111)
+        spec_run = subprocess.run(
+            [sys.executable, str(helper), "spec"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(spec_run.returncode, 0, spec_run.stderr)
+        spec_payload = json.loads(spec_run.stdout)
+        self.assertEqual(spec_payload["populated_frames"], 73)
+        self.assertEqual(spec_payload["unused_cells"], 15)
 
 
 if __name__ == "__main__":
