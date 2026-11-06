@@ -22,6 +22,11 @@ rule before the candidate measurement. Include other metrics that could reveal
 a shifted cost or regression, such as tail latency, CPU, memory, payload size,
 cold start or total work. Use the task's actual budget and requirements.
 
+When load affects the question, record request rate, concurrency and workload
+mix alongside error/timeout rates and relevant saturation signals. For
+streaming, UI, agent or terminal flows, measure time to first useful output and
+completion time when both matter. Check how buffering changes that tradeoff.
+
 Bind measurements to the source revision, build, runtime, relevant config,
 dependency inputs and environment. Separate cold and warm runs and record
 cache state. Account for the cost of creating or warming a cache as well as

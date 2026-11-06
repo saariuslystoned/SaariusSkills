@@ -35,6 +35,13 @@ repo-owned bindings and the local-only Python helpers.
   `smoky-ci-performance` skill and preserves its capture helper and receipt
   compatibility.
 
+For the performance migration, update prompts and configured skill references
+from `smoky-ci-performance` to `smoky-performance`. Update scripts from
+`skills/smoky-ci-performance/scripts/capture.py` to
+`skills/smoky-performance/scripts/capture.py`. Use `smoky-performance` as the
+canonical entrypoint. Existing capture receipts retain the
+`smoky-ci-performance.capture.v1` schema.
+
 The cleanup and documentation cores adapt pinned MIT-licensed dotskills guidance; see the
 [third-party notices](THIRD_PARTY_NOTICES.md#dotskills-portable-adaptations).
 The simplification and application-performance cores adapt OpenClaw guidance

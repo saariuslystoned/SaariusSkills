@@ -33,3 +33,9 @@ The GitHub connector refused creation with HTTP 403, while the already authentic
 The exact-diff media inventory found zero added or modified media files. The media-placement wrapper refused an unknown asset destination for this repository before inspecting candidates. This is a tooling limitation for this text-only change. There is no media placement to resolve or publish. The repository's only workflow at the base is tests.yml, and the initial PR readback exposed no native ClawSweeper review or intake. Missing native review remains missing evidence rather than a clean verdict. A separate comprehensive review can be tracked in the PR conversation.
 
 No installation, release or merge is claimed.
+
+## Review comment follow-up
+
+Addressed [the focused review suggestions](https://github.com/saariuslystoned/SaariusSkills/pull/223#issuecomment-6674024602) in the two skill cores and README. Performance workload definition now includes conditional load, error and saturation evidence plus time to first useful output and completion time. Simplification requires a brief mapping from affected test contracts to retained proof. README gives the old and new skill names and capture paths explicitly, while distinguishing receipt compatibility from invocation migration.
+
+The follow-up changes instruction text and proof only. Packaging tests passed with 31 tests in 0.580 seconds, both skill validators passed, and diff checks passed. The full 227-test local run above covers the unchanged executable helper. Current-head repository CI remains the independent platform check. See the PR conversation for the review of the revised head. Practical effectiveness remains unmeasured pending real task evidence.

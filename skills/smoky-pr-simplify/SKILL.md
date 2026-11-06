@@ -61,9 +61,10 @@ ordering, cancellation, restart, rejection, upgrade and consumer risks.
 Consolidate duplicated setup and same-contract assertions into an existing
 suite where possible. Challenge tests that repeat a mock's supplied behavior,
 assert incidental implementation shape or require production hooks with no
-production caller. Static and slow tests can protect real contracts. Record
-what coverage remains before removing anything, and preserve the strength of
-the assertions that remain.
+production caller. Static and slow tests can protect real contracts. Before
+consolidating or removing tests, briefly map each affected distinct failure
+contract to its retained test or other proof in the existing task or PR
+evidence. Preserve the strength of the assertions that remain.
 
 ## Verify and hand back
 
