@@ -1,0 +1,6 @@
+interface:
+  display_name: "AGY Sidebar Session"
+  short_description: "Start, message, and orchestrate top-level Antigravity sidebar sessions and local RPCs."
+  default_prompt: "Use $agy-sidebar-session to start or manage a top-level Antigravity sidebar conversation under the target project."
+policy:
+  allow_implicit_invocation: true
