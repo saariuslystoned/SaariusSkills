@@ -20,10 +20,41 @@ JEVSWEEPER_SKILL = ROOT / "skills" / "jevsweeper"
 DINKUSKIT_LIVE_TEST_SKILL = ROOT / "skills" / "dinkuskit-live-test"
 DINKUS_SWEEP_SKILL = ROOT / "skills" / "dinkus-sweep"
 HARNESS2_SKILL = ROOT / "skills" / "harness2"
-CI_PERFORMANCE_SKILL = ROOT / "skills" / "smoky-ci-performance"
+PERFORMANCE_SKILL = ROOT / "skills" / "smoky-performance"
 
 
 class PackagingTests(unittest.TestCase):
+    def test_simplification_and_performance_cores_are_discoverable_and_attributed(self) -> None:
+        import re
+
+        names = ("smoky-pr-simplify", "smoky-performance")
+        cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
+        self.assertFalse((ROOT / "skills/smoky-ci-performance").exists())
+        self.assertNotIn("./skills/smoky-ci-performance/", cursor["skills"])
+        for name in names:
+            directory = ROOT / "skills" / name
+            for manifest in (".codex-plugin/plugin.json", ".claude-plugin/plugin.json"):
+                roots = json.loads((ROOT / manifest).read_text())["skills"]
+                discovered = [p.name for root in roots for p in (ROOT / root).iterdir()
+                              if p.is_dir() and (p / "SKILL.md").is_file()]
+                self.assertEqual(discovered.count(name), 1, manifest)
+            self.assertEqual(cursor["skills"].count(f"./skills/{name}/"), 1)
+            self.assertIn(f"name: {name}\n", (directory / "SKILL.md").read_text())
+            metadata = (directory / "agents/openai.yaml").read_text()
+            self.assertIn(f"${name}", metadata)
+            self.assertIn("allow_implicit_invocation: true", metadata)
+            self.assertEqual((directory / "LICENSE").read_bytes(), (ROOT / "LICENSE").read_bytes())
+            notice = (directory / "THIRD_PARTY_NOTICES.md").read_text()
+            upstream_license = (ROOT / "LICENSE").read_text().replace("Bobby Bones", "OpenClaw Foundation")
+            self.assertIn(upstream_license.strip(), notice)
+            self.assertIn("85c39026a90f58164595249f69c311ed71b44df8", notice)
+            for document in directory.rglob("*.md"):
+                for target in re.findall(r"\]\(([^)]+)\)", document.read_text()):
+                    if "://" not in target and not target.startswith("#"):
+                        self.assertTrue((document.parent / target.split("#")[0]).is_file(), target)
+            for catalog in ("README.md", "docs/portable-skills.md"):
+                self.assertIn(f"skills/{name}/SKILL.md", (ROOT / catalog).read_text())
+
     def test_cleanup_and_documentation_cores_are_discoverable_and_attributed(self) -> None:
         import re
 
@@ -184,24 +215,24 @@ class PackagingTests(unittest.TestCase):
             (ROOT / "LICENSE").read_bytes(),
         )
 
-    def test_ci_performance_skill_contract_and_metadata_are_packaged(self) -> None:
-        skill = (CI_PERFORMANCE_SKILL / "SKILL.md").read_text(encoding="utf-8")
-        metadata = (CI_PERFORMANCE_SKILL / "agents" / "openai.yaml").read_text(
+    def test_performance_skill_retains_ci_contract_and_resources(self) -> None:
+        skill = (PERFORMANCE_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (PERFORMANCE_SKILL / "agents" / "openai.yaml").read_text(
             encoding="utf-8"
         )
         cursor = json.loads((ROOT / ".cursor-plugin" / "plugin.json").read_text())
-        self.assertIn("name: smoky-ci-performance\n", skill)
-        self.assertIn("./skills/smoky-ci-performance/", cursor["skills"])
-        self.assertIn("$smoky-ci-performance", metadata)
+        self.assertIn("name: smoky-performance\n", skill)
+        self.assertIn("./skills/smoky-performance/", cursor["skills"])
+        self.assertIn("$smoky-performance", metadata)
         self.assertIn("allow_implicit_invocation: true", metadata)
         self.assertTrue(
-            (CI_PERFORMANCE_SKILL / "references" / "benchmark-protocol.md").is_file()
+            (PERFORMANCE_SKILL / "references" / "benchmark-protocol.md").is_file()
         )
         self.assertTrue(
-            (CI_PERFORMANCE_SKILL / "references" / "ci-efficiency.md").is_file()
+            (PERFORMANCE_SKILL / "references" / "ci-efficiency.md").is_file()
         )
         protocol = (
-            CI_PERFORMANCE_SKILL / "references" / "benchmark-protocol.md"
+            PERFORMANCE_SKILL / "references" / "benchmark-protocol.md"
         ).read_text(encoding="utf-8")
         self.assertIn("macOS:", protocol)
         self.assertIn("Linux:", protocol)
@@ -212,18 +243,21 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("Missing REQUIRED execution evidence", protocol)
         self.assertIn("OpenClaw", protocol)
         self.assertEqual(
-            (CI_PERFORMANCE_SKILL / "LICENSE").read_bytes(),
+            (PERFORMANCE_SKILL / "LICENSE").read_bytes(),
             (ROOT / "LICENSE").read_bytes(),
         )
-        helper = CI_PERFORMANCE_SKILL / "scripts" / "capture.py"
+        helper = PERFORMANCE_SKILL / "scripts" / "capture.py"
         self.assertTrue(helper.is_file())
         self.assertTrue(helper.stat().st_mode & 0o111)
         self.assertTrue(
-            (CI_PERFORMANCE_SKILL / "references" / "capture-contract.md").is_file()
+            (PERFORMANCE_SKILL / "references" / "capture-contract.md").is_file()
+        )
+        self.assertTrue(
+            (PERFORMANCE_SKILL / "references" / "test-and-ci.md").is_file()
         )
 
     def test_ci_performance_capture_recipe_preserves_status_and_streams(self) -> None:
-        protocol_path = CI_PERFORMANCE_SKILL / "references" / "benchmark-protocol.md"
+        protocol_path = PERFORMANCE_SKILL / "references" / "benchmark-protocol.md"
         protocol = protocol_path.read_text(encoding="utf-8")
         recipes = {}
         for heading in ("macOS:", "Linux:"):

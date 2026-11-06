@@ -14,7 +14,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER = ROOT / "skills" / "smoky-ci-performance" / "scripts" / "capture.py"
+HELPER = ROOT / "skills" / "smoky-performance" / "scripts" / "capture.py"
 
 
 def load_helper():
@@ -82,6 +82,7 @@ class CaptureHelperTests(unittest.TestCase):
                     self.assertTrue(result.stdout.startswith(b"{"))
                     self.assertNotIn(b"ERR\n", result.stderr)
                     record = json.loads((out / "capture.json").read_text(encoding="utf-8"))
+                    self.assertEqual(record["schema"], "smoky-ci-performance.capture.v1")
                     self.assertEqual(result.stdout, (out / "capture.json").read_bytes())
                     self.assertEqual(record["classification"], "complete")
                     self.assertEqual(record["exit"]["raw"], expected)

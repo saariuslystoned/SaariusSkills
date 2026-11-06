@@ -1,6 +1,0 @@
-interface:
-  display_name: "CI and test performance"
-  short_description: "Diagnose and improve test runtime or CI efficiency."
-  default_prompt: "Use $smoky-ci-performance to run one evidence-based test-runtime or CI-efficiency improvement."
-policy:
-  allow_implicit_invocation: true

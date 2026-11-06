@@ -26,9 +26,19 @@ repo-owned bindings and the local-only Python helpers.
 - [smoky-technical-documentation](skills/smoky-technical-documentation/SKILL.md):
   build, review, audit or rewrite human/agent docs against current source truth,
   preserving literal commands, policy gates and release status.
+- [smoky-pr-simplify](skills/smoky-pr-simplify/SKILL.md): reconsider a selected
+  implementation's responsibilities, state and tests before review, then verify
+  its smallest complete form.
+- [smoky-performance](skills/smoky-performance/SKILL.md): measure application,
+  service, test-suite and CI workloads, remove unnecessary work and compare
+  results against a stated acceptance rule. This consolidates the former
+  `smoky-ci-performance` skill and preserves its capture helper and receipt
+  compatibility.
 
-These portable cores adapt pinned MIT-licensed dotskills guidance; see the
+The cleanup and documentation cores adapt pinned MIT-licensed dotskills guidance; see the
 [third-party notices](THIRD_PARTY_NOTICES.md#dotskills-portable-adaptations).
+The simplification and application-performance cores adapt OpenClaw guidance
+with source and license notices in their skill directories.
 They do not replace packaging audits (`smoky-skill-cleaner`) or writing-style
 cleanup (`vendor/pstack/skills/unslop`). Existing plugin/path discovery applies;
 this source update does not install, activate or roll out skills.
