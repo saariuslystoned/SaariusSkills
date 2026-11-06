@@ -1,0 +1,3 @@
+{"event":"scope-acknowledged","assignment":"coordinator-verified-delivery-20261105","base_sha":"42eaec2d62fa15bda220ae46a4feaf788380205e","writer":"assigned-pi-lead","scope":"portable smoky-coordinator skill and proof only","gates":"no merge, runtime change, installation or user-channel sends"}
+{"event":"skill-validated","head_sha":"a27fe4be2b80eedbf89c24d6f102c3c56451b79d","full_suite_tests":227,"packaging_tests":31,"portable_tests":5,"scenario_evidence":"author static reasoning; runtime unproved"}
+{"event":"review-route-inspected","native":"unavailable; repository not enrolled","next":"push and open PR; request exact-head comprehensive review and observe CI","owner":"assigned-pi-lead"}
