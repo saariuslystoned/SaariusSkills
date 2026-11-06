@@ -26,4 +26,10 @@ These checks establish packaging and helper behavior. They do not measure applic
 
 ## Review and publication
 
-Pending PR publication and remote review. The repository CI runs Python 3.14 on Linux and macOS, distinct from this local Python 3.15 result. No installation, release or merge is claimed.
+Published [PR #223](https://github.com/saariuslystoned/SaariusSkills/pull/223). The implementation commit is 87146e2fd88abec030adf026eef40e374d6458ac. Later changes in this proof packet only record publication. The repository CI runs Python 3.14 on Linux and macOS, distinct from this local Python 3.15 result. The PR conversation and checks retain current external review and CI status for the current head.
+
+The GitHub connector refused creation with HTTP 403, while the already authenticated GitHub CLI created the requested PR successfully. No credential or permission change was made.
+
+The exact-diff media inventory found zero added or modified media files. The media-placement wrapper refused an unknown asset destination for this repository before inspecting candidates. This is a tooling limitation for this text-only change. There is no media placement to resolve or publish. The repository's only workflow at the base is tests.yml, and the initial PR readback exposed no native ClawSweeper review or intake. Missing native review remains missing evidence rather than a clean verdict. A separate comprehensive review can be tracked in the PR conversation.
+
+No installation, release or merge is claimed.

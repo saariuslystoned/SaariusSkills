@@ -1,2 +1,3 @@
 {"event":"admitted","base":"cbe0738b611b75cdf1dc458efdeb6863da102597","branch":"codex/smoky-simplify-performance","scope":["smoky-pr-simplify","smoky-performance"],"mode":"mutate","owner":"author_skills","closeout":"pull request"}
 {"event": "local_validation_passed", "tests": 227, "elapsed_seconds": 145.59, "packaging_tests": 31, "capture_tests": 16, "validators": "both passed", "scope": "single performance skill and PR simplification"}
+{"event": "pr_published", "pr": "https://github.com/saariuslystoned/SaariusSkills/pull/223", "implementation_head": "87146e2fd88abec030adf026eef40e374d6458ac", "media_candidates": 0, "external_status": "see PR checks and conversation"}

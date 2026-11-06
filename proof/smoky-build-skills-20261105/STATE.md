@@ -12,8 +12,10 @@
 
 ## Current state
 
-Implementation and local validation complete. The owner approved one consolidated smoky-performance entrypoint replacing smoky-ci-performance. Its capture helper and measurement contracts are retained, including the existing persisted receipt schema. Both skills use portable repository-owned workflows. Upstream source at OpenClaw commit 85c39026a90f58164595249f69c311ed71b44df8 is MIT-licensed by the OpenClaw Foundation. The two source blobs match the earlier observation snapshots.
+PR_OPEN. Implementation and local validation complete. The owner approved one consolidated smoky-performance entrypoint replacing smoky-ci-performance. Its capture helper and measurement contracts are retained, including the existing persisted receipt schema. Both skills use portable repository-owned workflows. Upstream source at OpenClaw commit 85c39026a90f58164595249f69c311ed71b44df8 is MIT-licensed by the OpenClaw Foundation. The two source blobs match the earlier observation snapshots.
 
-The full local suite passed with 227 tests. Packaging and capture tests passed, both skill metadata checks passed, and the complete source diff was inspected. Next action is PR publication, repository CI and the available review workflow. The author lane has returned source ownership to the parent.
+The full local suite passed with 227 tests. Packaging and capture tests passed, both skill metadata checks passed, and the complete source diff was inspected. The implementation is committed as 87146e2fd88abec030adf026eef40e374d6458ac. Subsequent changes in this packet record publication only.
+
+The PR is https://github.com/saariuslystoned/SaariusSkills/pull/223. Current CI and external review status are tracked in its checks and conversation. The author lane returned source ownership to the parent. The next owner action is to review the PR with its current check results under the existing merge gate.
 
 No application performance improvement has been measured by this skill-authoring task.
