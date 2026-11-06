@@ -27,7 +27,7 @@ SUMMARY_KEYS = (
     "cost",
 )
 HELP = """\
-usage: python3 skills/smoky-ci-performance/scripts/capture.py --out DIR -- ARGV...
+usage: python3 skills/smoky-performance/scripts/capture.py --out DIR -- ARGV...
 
 Run ARGV once with no shell. Stdin is closed. Child stdout and stderr go to
 DIR/stdout.txt and DIR/stderr.txt. DIR must be new or empty; a nonempty

@@ -10,9 +10,9 @@ name and purpose:
   metrics for one non-interactive command.
 
 usage and subcommands:
-  python3 skills/smoky-ci-performance/scripts/capture.py --help
-  python3 skills/smoky-ci-performance/scripts/capture.py --version
-  python3 skills/smoky-ci-performance/scripts/capture.py \
+  python3 skills/smoky-performance/scripts/capture.py --help
+  python3 skills/smoky-performance/scripts/capture.py --version
+  python3 skills/smoky-performance/scripts/capture.py \
     --out <new-or-empty-directory> -- <exact argv...>
 
 flags and state changes:
@@ -71,6 +71,10 @@ stdout schema:
     streams          stdout.txt and stderr.txt
     error            null, or {code, message} for a helper failure
 
+  The schema identifier predates the consolidated smoky-performance skill.
+  It remains unchanged for existing receipt readers. Use the command paths
+  above for new captures.
+
   summary.md is one line of `key=json` tokens for classification, exits,
   wall, user, system, max RSS, unit, and cost. Copy those tokens into reports.
   Do not retype them. If a token is null, leave it unknown rather than writing 0.
@@ -101,7 +105,7 @@ preview and authorization:
   run that exact command once. Do not pass secrets in argv.
 
 examples:
-  python3 skills/smoky-ci-performance/scripts/capture.py \
+  python3 skills/smoky-performance/scripts/capture.py \
     --out ./capture-out -- python3 -c 'print("ok")'
 
 compatibility risks:

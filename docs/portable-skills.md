@@ -10,6 +10,8 @@ canonical name is `smoky-coordinator`.
 | `smoky-cli-creator` | Command interface and output contracts |
 | [`smoky-deslop`](../skills/smoky-deslop/SKILL.md) | Scoped changed-code cleanup that preserves behavior, security and reliability |
 | [`smoky-technical-documentation`](../skills/smoky-technical-documentation/SKILL.md) | Source-truth human/agent docs, command fidelity and policy/status-preserving rewrites |
+| [`smoky-pr-simplify`](../skills/smoky-pr-simplify/SKILL.md) | Smallest complete implementation across responsibilities, state and test value before review |
+| [`smoky-performance`](../skills/smoky-performance/SKILL.md) | Comparable application, service, test and CI measurements with bounded improvements |
 | [`smoky-character-studio`](../skills/smoky-character-studio/SKILL.md) | GrillTrack character discovery, Master Identity Pack, `2x2` `#FF00FF` chroma pose sheets, and `sprite_version: 2` extended pet rig compilation |
 | [`agy-sidebar-session`](../skills/agy-sidebar-session/SKILL.md) | Top-level Antigravity 2.0 sidebar session creation, cross-project messaging, trajectory export, and 365 local `LanguageServerService` ConnectRPC calls |
 | `smoky-worktree` | Fresh source identity and isolated writable ownership |
@@ -53,3 +55,8 @@ source and adaptation boundaries. They add no runtime, STE lint requirement or
 repository-wide audit default. Packaging audits remain with
 `smoky-skill-cleaner`; writing-style cleanup remains distinct from code cleanup
 and operational documentation verification.
+
+`smoky-pr-simplify` and `smoky-performance` adapt pinned OpenClaw guidance.
+Each skill directory preserves its source attribution and upstream MIT notice.
+The performance skill includes the former CI performance helper and references.
+Its existing receipt schema stays stable for consumers of prior measurements.

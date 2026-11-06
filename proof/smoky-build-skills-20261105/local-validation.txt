@@ -1,0 +1,89 @@
+Local validation of smoky-pr-simplify and consolidated smoky-performance
+Working tree at validation: codex/smoky-simplify-performance
+Base: cbe0738b611b75cdf1dc458efdeb6863da102597
+The coordinator records the committed head separately.
+The validator installation prefix is normalized as <installed-skill-creator>
+to keep private machine layout out of public proof. Commands otherwise retain
+the arguments used.
+
+Command: python3 -m unittest discover -s tests -p test_packaging.py -q
+Exit: 0
+Elapsed reported by unittest: 0.573 seconds
+Output:
+----------------------------------------------------------------------
+Ran 31 tests in 0.573s
+
+OK
+
+Command: python3 -m unittest discover -s tests -p test_ci_performance_capture.py -q
+Exit: 0
+Elapsed reported by unittest: 1.525 seconds
+Output:
+----------------------------------------------------------------------
+Ran 16 tests in 1.525s
+
+OK
+
+Initial validator command:
+python3 <installed-skill-creator>/scripts/quick_validate.py skills/smoky-pr-simplify
+Exit: 1
+Environment limitation: system Python lacked PyYAML (ModuleNotFoundError: No module named 'yaml').
+The chained second validation and diff check did not execute in that attempt.
+
+Successful validator commands:
+uv run --no-project --with pyyaml python <installed-skill-creator>/scripts/quick_validate.py skills/smoky-pr-simplify
+uv run --no-project --with pyyaml python <installed-skill-creator>/scripts/quick_validate.py skills/smoky-performance
+Exit: 0 for both
+Elapsed for combined validator/diff command reported by tool: 0.278356959 seconds
+Output:
+WARN `--no-project` was provided, but no project was found
+Skill is valid!
+WARN `--no-project` was provided, but no project was found
+Skill is valid!
+
+Command: git diff --check
+Exit: 0
+Output: empty
+
+Command: python3 -m unittest discover -s tests -q
+Exit: 0
+Elapsed reported by unittest: 145.590 seconds
+Full retained test output:
+review packaged correction for changed upstream excerpt: references/block-kit.md
+packaged EmDash skill drift: emdash-cli
+refusing symlink in packaged skill: upgrading-emdash
+----------------------------------------------------------------------
+Ran 227 tests in 145.590s
+
+OK
+EmDash packaged skills updated
+EmDash packaged skills clean
+EmDash packaged skills updated
+EmDash packaged skills clean
+EmDash packaged skills updated
+EmDash packaged skills clean
+PStack updated: 10 upstream skills; 4811f510cfe4b16a56204fcce8b34dd959345c1e; local skills untouched
+PStack updated: 10 upstream skills; 8efc1b64c54b54442def1686dca050cda9351662; local skills untouched
+PStack check clean: 10 upstream + 2 local skills; 8efc1b64c54b54442def1686dca050cda9351662
+PStack updated: 10 upstream skills; 8efc1b64c54b54442def1686dca050cda9351662; local skills untouched
+PStack updated: 10 upstream skills; 8efc1b64c54b54442def1686dca050cda9351662; local skills untouched
+PStack check clean: 10 upstream + 2 local skills; 2776ddd2355d6d6c8747d3964600f28daf62f049
+PStack updated: 10 upstream skills; fc14d8a9da5c76084d97ebf48c22830648027a2d; local skills untouched
+PStack updated: 10 upstream skills; 3210a42db2312825d6fabaa61d74bb7dc4e67a49; local skills untouched
+PStack check clean: 10 upstream + 2 local skills; 3210a42db2312825d6fabaa61d74bb7dc4e67a49
+PStack updated: 10 upstream skills; fc14d8a9da5c76084d97ebf48c22830648027a2d; local skills untouched
+PStack updated: 10 upstream skills; 1de3e9e6502b3797439aedcd0e27cf8e63b7d040; local skills untouched
+PStack updated: 10 upstream skills; 1de3e9e6502b3797439aedcd0e27cf8e63b7d040; local skills untouched
+
+The drift/refusal lines above are emitted by negative-path fixture tests. The
+complete suite returned success. Structural validation and test execution do
+not establish measured performance gains or real-world skill effectiveness.
+
+Review follow-up validation
+Command: python3 -m unittest discover -s tests -p test_packaging.py -q
+Exit: 0
+Ran 31 tests in 0.580s
+Both previously recorded uv quick_validate commands passed.
+Combined test/validator/diff command elapsed: 0.915898542 seconds.
+A final README punctuation edit was followed by git diff --check, exit 0.
+Executable capture helper and its behavior tests are unchanged.
