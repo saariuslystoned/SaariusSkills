@@ -26,6 +26,11 @@ repo-owned bindings and the local-only Python helpers.
 - [smoky-technical-documentation](skills/smoky-technical-documentation/SKILL.md):
   build, review, audit or rewrite human/agent docs against current source truth,
   preserving literal commands, policy gates and release status.
+- [smoky-character-studio](skills/smoky-character-studio/SKILL.md): bring a
+  character, robot mascot, or agent persona to life through a 5-candidate
+  GrillTrack funnel, a 3-sheet Master Identity Pack, `2x2` `#FF00FF` chroma-key
+  pose sheets, and deterministic `sprite_version: 2` extended pet rig
+  compilation (`1536x2288` RGBA PNG, `73` frames).
 
 These portable cores adapt pinned MIT-licensed dotskills guidance; see the
 [third-party notices](THIRD_PARTY_NOTICES.md#dotskills-portable-adaptations).
