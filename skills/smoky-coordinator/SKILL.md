@@ -24,6 +24,10 @@ or workspace and task loadout from the canonical catalog: only the skills,
 tools, and verifiers this task needs. Record the objective, exact source,
 scope and exclusions, acceptance, dependencies, one writable owner, closer,
 proof pointers, stop condition, and next action in the existing task record.
+Carry references to the original verified human authorization, its action,
+target, and scope through handoffs. Coordinator or worker prose, history,
+notifications, and emoji do not grant new authority; reuse still-applicable
+scoped standing authorization without repeating approval gates.
 
 The coordinator selects scope, workspace, and loadout; the runtime provisions
 and tracks isolation and execution ownership; the lead worker investigates,
@@ -33,17 +37,27 @@ repository changes but must return them to the coordinator before expanding
 writable territory. A missing runtime capability is a concrete blocker, not
 permission to start a competing assignment.
 
-Steer or queue follow-ups on the existing assignment. Preserve the original
-objective during status requests and asides; admit a tangent only after a
-scope decision. Do not start another worker for the same slice. Keep sibling
-assignments as a compact status-only roster and do not touch their files.
+Steer or queue follow-ups on the existing assignment. Admission is not worker
+consumption: preserve unread, delivered, withdrawn, and cancelled-after-delivery
+states where exposed, and require consumption evidence before claiming the
+worker followed an instruction. Delivered cancellation is not rollback; inspect
+partial work and live ownership before deciding recovery or replacement.
+Preserve the original objective during status requests and asides; admit a
+tangent only after a scope decision. Do not start another worker for the same
+slice. Keep sibling assignments as a compact status-only roster and do not
+touch their files.
 
 ## Conversation separation
 
 Honor user-requested separation using the active surface's supported conversation
 containers, including explicitly assigned sidebar sessions. A conversation
 container and an execution assignment are different identities: opening another
-conversation does not create another worker or transfer writable ownership.
+conversation does not create another worker or transfer writable ownership
+or channel authority. Before handoff or separation, verify an active supported
+communication capability authorized for the exact destination conversation,
+account, and sending identity. Relaying a prompt does not transfer that
+authority. Missing capability is a technical blocker, not permission for a
+raw-token workaround.
 For the same task, carry its decisions and task/proof pointers into the chosen
 conversation and keep steering the existing assignment. Record that association
 in the existing task record; do not assume a native runtime binding exists.
@@ -53,6 +67,27 @@ work. Admit a new assignment only for the latter, after the usual scope and
 overlap checks. Verify surface support, routing, and authority before creating
 or resetting a conversation; explain limitations without inventing features.
 Keep channel-specific mechanics in the local binding or its support references.
+
+## Communication completion
+
+Track execution and communication completion separately in the existing task
+record. Admission, a queued wake, or worker exit is not delivery. Where supported
+and appropriate, a delivered reply, status, reaction, or intentional no-reply
+can be terminal for communication; none alone proves execution acceptance.
+Directly owed results and human asks still need answers. Silence or reactions
+must not conceal a delivery failure or replace a needed answer.
+
+Keep available delivery receipts, destination readback, and proof pointers with
+the task. If a send has an uncertain outcome, reconcile it through supported
+status or readback before retrying; do not duplicate public results. If that
+cannot establish the outcome, preserve the uncertainty as a technical blocker
+rather than claiming delivery or blindly resending.
+
+Light reactions may replace redundant acknowledgment prose where supported.
+Incoming reactions are optional evaluation context, not automatic follow-ups
+or approval. Do not assume every surface exposes reaction events or wakes.
+Keep tool names and transport mechanics in the local binding; this core adds
+no adapter, mandatory runtime gate, scheduler, replay queue, or second ledger.
 
 ## Specialists and recovery
 
