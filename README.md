@@ -31,6 +31,10 @@ repo-owned bindings and the local-only Python helpers.
   GrillTrack funnel, a 3-sheet Master Identity Pack, `2x2` `#FF00FF` chroma-key
   pose sheets, and deterministic `sprite_version: 2` extended pet rig
   compilation (`1536x2288` RGBA PNG, `73` frames).
+- [agy-sidebar-session](skills/agy-sidebar-session/SKILL.md): start, message,
+  inspect, fork, wait on, stop, and export top-level Antigravity 2.0 sidebar
+  sessions across any project via `agentapi` and the 365 local
+  `LanguageServerService` ConnectRPC endpoints.
 
 These portable cores adapt pinned MIT-licensed dotskills guidance; see the
 [third-party notices](THIRD_PARTY_NOTICES.md#dotskills-portable-adaptations).

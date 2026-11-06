@@ -22,6 +22,7 @@ DINKUS_SWEEP_SKILL = ROOT / "skills" / "dinkus-sweep"
 HARNESS2_SKILL = ROOT / "skills" / "harness2"
 CI_PERFORMANCE_SKILL = ROOT / "skills" / "smoky-ci-performance"
 CHARACTER_STUDIO_SKILL = ROOT / "skills" / "smoky-character-studio"
+AGY_SIDEBAR_SESSION_SKILL = ROOT / "skills" / "agy-sidebar-session"
 
 
 class PackagingTests(unittest.TestCase):
@@ -834,6 +835,41 @@ exit "$1"
         spec_payload = json.loads(spec_run.stdout)
         self.assertEqual(spec_payload["populated_frames"], 73)
         self.assertEqual(spec_payload["unused_cells"], 15)
+
+    def test_agy_sidebar_session_skill_is_packaged(self) -> None:
+        skill = (AGY_SIDEBAR_SESSION_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (
+            AGY_SIDEBAR_SESSION_SKILL / "agents" / "openai.yaml"
+        ).read_text(encoding="utf-8")
+        catalog = (
+            AGY_SIDEBAR_SESSION_SKILL / "references" / "language-server-rpcs.md"
+        ).read_text(encoding="utf-8")
+        helper = AGY_SIDEBAR_SESSION_SKILL / "scripts" / "agy-session.py"
+        cursor = json.loads(
+            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertLessEqual(len(skill.splitlines()), 500)
+        self.assertIn("name: agy-sidebar-session\n", skill)
+        self.assertIn("$agy-sidebar-session", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("./skills/agy-sidebar-session/", cursor["skills"])
+        self.assertEqual(
+            (AGY_SIDEBAR_SESSION_SKILL / "LICENSE").read_bytes(),
+            (ROOT / "LICENSE").read_bytes(),
+        )
+        self.assertIn("agentapi new-conversation", skill)
+        self.assertIn("LanguageServerService", catalog)
+        self.assertIn("WaitForConversationFullyIdle", catalog)
+        self.assertTrue(helper.is_file())
+        self.assertTrue(helper.stat().st_mode & 0o111)
+        help_run = subprocess.run(
+            [sys.executable, str(helper), "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(help_run.returncode, 0, help_run.stderr)
+        self.assertIn("export-md", help_run.stdout)
 
 
 if __name__ == "__main__":
