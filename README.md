@@ -34,6 +34,15 @@ repo-owned bindings and the local-only Python helpers.
   results against a stated acceptance rule. This consolidates the former
   `smoky-ci-performance` skill and preserves its capture helper and receipt
   compatibility.
+- [smoky-character-studio](skills/smoky-character-studio/SKILL.md): bring a
+  character, robot mascot, or agent persona to life through a 5-candidate
+  GrillTrack funnel, a 3-sheet Master Identity Pack, `2x2` `#FF00FF` chroma-key
+  pose sheets, and deterministic `sprite_version: 2` extended pet rig
+  compilation (`1536x2288` RGBA PNG, `73` frames).
+- [agy-sidebar-session](skills/agy-sidebar-session/SKILL.md): start, message,
+  inspect, fork, wait on, stop, and export top-level Antigravity 2.0 sidebar
+  sessions across any project via `agentapi` and the 365 local
+  `LanguageServerService` ConnectRPC endpoints.
 
 For the performance migration, update prompts and configured skill references
 from `smoky-ci-performance` to `smoky-performance`. Update scripts from

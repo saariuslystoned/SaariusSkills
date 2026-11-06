@@ -2,6 +2,7 @@
   "name": "saarius-skills",
   "skills": [
     "./skills/acp-delegation/",
+    "./skills/agy-sidebar-session/",
     "./skills/antigravity-acp-delegation/",
     "./vendor/pstack/skills/architect/",
     "./vendor/pstack/skills/automate-me/",
@@ -29,6 +30,7 @@
     "./vendor/pstack/skills/reflect/",
     "./skills/ryan-mode/",
     "./skills/smoky-behavior-validator/",
+    "./skills/smoky-character-studio/",
     "./skills/smoky-cli-creator/",
     "./skills/smoky-coordinator/",
     "./skills/smoky-deslop/",

@@ -21,3 +21,32 @@ The PR is https://github.com/saariuslystoned/SaariusSkills/pull/223. Current CI 
 Focused owner review suggestions were applied to the instructions and migration documentation. Packaging tests and both validators passed again. No executable behavior changed in the follow-up. Review evidence for earlier heads remains historical, with the revised head tracked on the PR.
 
 No application performance improvement has been measured by this skill-authoring task.
+
+## Landing repair — 2026-11-06
+
+The bound coordinator transferred sole writable repair/review ownership to the
+continuing coordinator-verified-delivery lead; the prior author lane is no longer
+writing this branch. Same assignment, no additional worker. An isolated worktree
+`SaariusSkills-codex-smoky-simplify-performance` was provisioned with the supported
+worktree helper from fetched PR223 head
+`49da97859f7fb1cbefe277135665090e116f39d2`, on the original branch
+`codex/smoky-simplify-performance`. Worktree and active-assignment checks found no
+competing writer. The separate PR225 Ridge mount remains clean and unchanged at
+`30e35b943f2e9a99cb980e1bab8eb1d95d977cea`.
+
+Merged fetched main `0b3dfb038c22efbbf0fd72161d90c02e0be56188` into this task
+lineage, without rebasing or force-pushing. Four additive conflicts were resolved
+by preserving both branches' skill additions, catalog entries and packaging
+constants, while retaining the intentional CI-performance path migration.
+No skill content was rewritten; byte comparisons preserve both PR223 skill trees
+and both newly integrated main skill trees exactly.
+
+Validation passed: all 229 tests, 33 packaging tests, 16 capture-helper tests,
+5 portable metadata/link/license/privacy tests, conflict-marker and staged
+whitespace checks. See [landing repair proof](LANDING-REPAIR.md).
+Next owner action: the continuing lead publishes the merge repair, waits for
+current-head CI and comprehensive exact-tuple P3 review, and adjudicates findings.
+Native evidence remains unavailable; the coordinator is obtaining an explicit
+route decision. No exemption is assumed. Blaze owns all merges and communication;
+the worker retains lifecycle/scoped-repair ownership, including after turn exit.
+No installation, runtime/config change, enrollment or merge by this worker.

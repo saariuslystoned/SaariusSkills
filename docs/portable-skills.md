@@ -12,6 +12,8 @@ canonical name is `smoky-coordinator`.
 | [`smoky-technical-documentation`](../skills/smoky-technical-documentation/SKILL.md) | Source-truth human/agent docs, command fidelity and policy/status-preserving rewrites |
 | [`smoky-pr-simplify`](../skills/smoky-pr-simplify/SKILL.md) | Smallest complete implementation across responsibilities, state and test value before review |
 | [`smoky-performance`](../skills/smoky-performance/SKILL.md) | Comparable application, service, test and CI measurements with bounded improvements |
+| [`smoky-character-studio`](../skills/smoky-character-studio/SKILL.md) | GrillTrack character discovery, Master Identity Pack, `2x2` `#FF00FF` chroma pose sheets, and `sprite_version: 2` extended pet rig compilation |
+| [`agy-sidebar-session`](../skills/agy-sidebar-session/SKILL.md) | Top-level Antigravity 2.0 sidebar session creation, cross-project messaging, trajectory export, and 365 local `LanguageServerService` ConnectRPC calls |
 | `smoky-worktree` | Fresh source identity and isolated writable ownership |
 | `smoky-coordinator` | One lead assignment through the configured runtime, bounded specialists, handoffs and exact-source closeout |
 | `smoky-maintainer` | Bounded repository or selected-portfolio maintenance assessments and priorities; separate execution handoff |
