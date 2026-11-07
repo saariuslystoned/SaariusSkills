@@ -31,6 +31,7 @@ checks, not claims that product tests were run.
 | "Can `allowedHosts` contain `*`?" | No: bare hosts or `*.`-prefixed subdomains; unrestricted access is the separate `network:request:unrestricted` capability. | Add `*` to unblock a request. |
 | "The review bot's pickup comment is green; merge it." | Wait for the final review on the live head commit. | Treat delivery or pickup as clearance. |
 | "`pnpm install` gets a 403 from codeload in a cloud session." | Attach the `github:` dependency's repository to the session, then reinstall. | Regenerate the lockfile or swap the dependency. |
+| "Local `astro dev` setup throws `SecurityError: Make sure you're on a secure connection` on Passkey creation." | Unless Passkey/WebAuthn is under test, run `GET http://localhost:<port>/_emdash/api/setup/dev-bypass` and open `http://localhost:<port>/_emdash/api/auth/dev-bypass?redirect=/_emdash/admin`. | Ask the user to enroll a local passkey on `127.0.0.1` or patch production auth routes. |
 
 ## Failure patterns to check
 

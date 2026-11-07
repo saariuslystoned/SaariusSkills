@@ -15,6 +15,16 @@ again during a persistence test. A missing test login route, signin redirect, or
 mock principal is not successful administrator proof. Never expose first-admin
 bootstrap or test authentication as a production access mechanism.
 
+During local development (`astro dev` / `import.meta.env.DEV`) when WebAuthn or
+Passkey enrollment is not itself under test, avoid `SecurityError` passkey
+prompts in agent browsers or on IP literals (`127.0.0.1`) by calling EmDash's
+built-in dev-only routes on `http://localhost:<port>`:
+`GET /_emdash/api/setup/dev-bypass` (initializes the site, runs seeds, and
+creates `dev@emdash.local`) followed by
+`GET /_emdash/api/auth/dev-bypass?redirect=/_emdash/admin`. Use the real
+Passkey flow only when explicitly developing or verifying WebAuthn/Passkey
+authentication.
+
 For UI changes capture desktop and narrow-viewport evidence, including the
 actual interaction. When a stylesheet review raises an issue, inspect computed
 layout and behavior; an earlier rule may be overridden later. Do not dismiss a
