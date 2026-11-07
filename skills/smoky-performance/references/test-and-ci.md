@@ -19,12 +19,19 @@ task-local temporary directory. Fixtures whose tools search parent directories
 must not inherit an unrelated checkout as their repository root.
 
 Attribute queue, setup, build, import, test and post-test/coverage phases when
-the runner exposes them. Test counts and unchanged assertions do not establish
-instrumented coverage. A present `dist` directory does not establish build
-freshness. Verify its producing command and source/config inputs. Keep long
-test selectors owned by the canonical build or test command. Use an explicitly
-owned prebuilt invocation when appropriate instead of copying selectors to
-skip a required build.
+the runner exposes them. Compare case identities, projects, skips and retries
+alongside source-tree and event selection; a shared count can hide
+substitutions. Label start-to-next-test intervals as such; they can include
+setup and transitions. Summed concurrent case durations are not suite wall time.
+Test counts and unchanged assertions do not establish instrumented coverage. A
+present `dist` directory does not establish build freshness. Verify its
+producing command and source/config inputs. Before removing a build, trace every
+consumer reachable by the selected command, including fixtures and crawls.
+Measure from a clean output path: omitted compilation may shift warming into
+startup. Preserve full, unknown and exceptional execution paths. Keep long test
+selectors owned by the canonical build or test command. Use an explicitly owned
+prebuilt invocation when appropriate instead of copying selectors to skip a
+required build.
 
 Before an expensive benchmark, capture one harmless failing command with the
 [capture helper](capture-contract.md) and verify its status and stream
