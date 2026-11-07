@@ -23,7 +23,12 @@ built-in dev-only routes on `http://localhost:<port>`:
 creates `dev@emdash.local`) followed by
 `GET /_emdash/api/auth/dev-bypass?redirect=/_emdash/admin`. Use the real
 Passkey flow only when explicitly developing or verifying WebAuthn/Passkey
-authentication.
+authentication. When starting `astro dev` for a plugin that writes encrypted
+settings (`type: "secret"` via `ctx.settings.compareAndSet`), supply a valid
+`EMDASH_ENCRYPTION_KEY` formatted as `"emdash_enc_v1_"` followed by 43
+base64url characters (`emdash secrets generate` or
+`node -e 'console.log("emdash_enc_v1_" + Buffer.alloc(32, 7).toString("base64url"))'`),
+never a raw hex string.
 
 For UI changes capture desktop and narrow-viewport evidence, including the
 actual interaction. When a stylesheet review raises an issue, inspect computed

@@ -88,7 +88,11 @@ compares relevant ecommerce platforms before major Commerce or companion-plugin
 decisions in GrillTrack, preserving existing locks and skipping routine fixes.
 [EmDash CI Deploy](skills/emdash-ci-deploy/SKILL.md) covers deployment pipelines,
 isolated targets and verification of the deployed commit while preserving owner
-approval gates. [EmDash Surface FX](skills/emdash-surface-fx/SKILL.md) adds
+approval gates. [EmDash Admin UI](skills/emdash-admin-ui/SKILL.md) designs
+opinionated Kumo-native EmDash admin pages, editor side-panels, and Block Kit
+plugin screens (`stats` KPI cards, 2-column `columns` splits, Kumo `tab`
+underline workspaces, `empty` onboarding cards, `table` badge/code checklists,
+`secret_input`, and `checkbox` groups). [EmDash Surface FX](skills/emdash-surface-fx/SKILL.md) adds
 page-level Bayer/halftone shaders (`dithercn` port), viewport GPU pooling,
 Pretext obstacle text layout, Ephemera receipts/rubber stamps, NumberFlow
 counters, RoughNotation ink callouts, and Tier 1/2/3 DinkusKit storefront

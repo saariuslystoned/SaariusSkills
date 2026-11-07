@@ -126,7 +126,7 @@ class PackagingTests(unittest.TestCase):
 
     def test_emdash_skills_discoverable_with_licenses(self) -> None:
         upstream = ("building-emdash-site", "creating-plugins", "emdash-cli", "upgrading-emdash")
-        names = ("emdash-sites", "emdash-commerce", "emdash-ci-deploy", "emdash-stitch-design", "emdash-surface-fx", *upstream)
+        names = ("emdash-sites", "emdash-admin-ui", "emdash-commerce", "emdash-ci-deploy", "emdash-stitch-design", "emdash-surface-fx", *upstream)
         cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
         codex = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())
         self.assertEqual(codex["skills"], ["./skills/", "./vendor/pstack/skills/"])

@@ -1,0 +1,6 @@
+interface:
+  display_name: "EmDash Admin UI"
+  short_description: "Design opinionated Kumo-native EmDash CMS admin pages, editor side-panels, and Block Kit plugins"
+  default_prompt: "Use $emdash-admin-ui to design or upgrade an EmDash CMS plugin admin page, editor side-panel, or dashboard widget using structured Kumo Block Kit composition (`stats`, 2-column `columns`, `tab` workspaces, `empty` onboarding cards, `table` badge/code checklists, `secret_input`, and `checkbox` groups)."
+policy:
+  allow_implicit_invocation: true
