@@ -1,0 +1,6 @@
+interface:
+  display_name: "Smoky GitHub Design"
+  short_description: "Style GitHub repositories and organizations with banners, marks, social previews, and top-tier README front doors."
+  default_prompt: "Use $smoky-github-design to design, render, and verify a GitHub repository or organization front-door identity pack."
+policy:
+  allow_implicit_invocation: true

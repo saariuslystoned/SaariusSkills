@@ -39,6 +39,11 @@ repo-owned bindings and the local-only Python helpers.
   GrillTrack funnel, a 3-sheet Master Identity Pack, `2x2` `#FF00FF` chroma-key
   pose sheets, and deterministic `sprite_version: 2` extended pet rig
   compilation (`1536x2288` RGBA PNG, `73` frames).
+- [smoky-github-design](skills/smoky-github-design/SKILL.md): style any GitHub
+  repository, GitHub App, or `.github/profile/README.md` organization front door
+  with dual-theme `<picture>` hero banners, `1280x640` OpenGraph social previews,
+  `512x512` character-marks/logos and seamless badges, top-starred README
+  above-the-fold layout, and stdlib asset/visibility verification.
 - [agy-sidebar-session](skills/agy-sidebar-session/SKILL.md): start, message,
   inspect, fork, wait on, stop, and export top-level Antigravity 2.0 sidebar
   sessions across any project via `agentapi` and the 365 local

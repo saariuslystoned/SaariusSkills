@@ -22,6 +22,7 @@ DINKUS_SWEEP_SKILL = ROOT / "skills" / "dinkus-sweep"
 HARNESS2_SKILL = ROOT / "skills" / "harness2"
 PERFORMANCE_SKILL = ROOT / "skills" / "smoky-performance"
 CHARACTER_STUDIO_SKILL = ROOT / "skills" / "smoky-character-studio"
+GITHUB_DESIGN_SKILL = ROOT / "skills" / "smoky-github-design"
 AGY_SIDEBAR_SESSION_SKILL = ROOT / "skills" / "agy-sidebar-session"
 
 
@@ -904,6 +905,289 @@ exit "$1"
         )
         self.assertEqual(help_run.returncode, 0, help_run.stderr)
         self.assertIn("export-md", help_run.stdout)
+
+    def test_smoky_github_design_skill_is_packaged_and_verifies_assets(self) -> None:
+        skill = (GITHUB_DESIGN_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (
+            GITHUB_DESIGN_SKILL / "agents" / "openai.yaml"
+        ).read_text(encoding="utf-8")
+        anatomy = (
+            GITHUB_DESIGN_SKILL / "references" / "top10-github-anatomy.md"
+        ).read_text(encoding="utf-8")
+        recipes = (
+            GITHUB_DESIGN_SKILL / "references" / "style-recipes-and-shelf-hygiene.md"
+        ).read_text(encoding="utf-8")
+        helper = GITHUB_DESIGN_SKILL / "scripts" / "verify_github_assets.py"
+        cursor = json.loads(
+            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertLessEqual(len(skill.splitlines()), 500)
+        self.assertIn("name: smoky-github-design\n", skill)
+        self.assertIn("$smoky-github-design", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("./skills/smoky-github-design/", cursor["skills"])
+        self.assertEqual(
+            (GITHUB_DESIGN_SKILL / "LICENSE").read_bytes(),
+            (ROOT / "LICENSE").read_bytes(),
+        )
+        self.assertIn("prefers-color-scheme", skill)
+        self.assertIn("1280×640", skill)
+        self.assertIn("smoky-character-studio", skill)
+        self.assertIn("openclaw/openclaw", anatomy)
+        self.assertIn("morluto/rea", anatomy)
+        self.assertIn("Character-Mark", recipes)
+        self.assertTrue(helper.is_file())
+        self.assertTrue(helper.stat().st_mode & 0o111)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            svg_mark = tmp_root / "mark.svg"
+            svg_mark.write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>',
+                encoding="utf-8",
+            )
+            readme = tmp_root / "README.md"
+            readme.write_text(
+                '<picture>\n'
+                '  <source media="(prefers-color-scheme: dark)" srcset="docs/banner-dark.jpg">\n'
+                '  <source media="(prefers-color-scheme: light)" srcset="docs/banner-light.jpg">\n'
+                '  <img alt="Demo Banner" src="docs/banner-dark.jpg">\n'
+                '</picture>\n\n'
+                'Inline code docs like `Use an <img> element` or '
+                '`<img src="https://github.com/example/private-shelf/releases/download/v1/x.png">` '
+                'must not be treated as live HTML.\n\n'
+                '    <img src="https://github.com/example/private-shelf/releases/download/v1/indented.png">\n\n'
+                '- ~~~sh\n'
+                '  > /tmp/out\n'
+                '  <img src="https://github.com/example/private-shelf/releases/download/v1/list-fence.png">\n'
+                '  ~~~\n'
+                '-     <img src="https://github.com/example/private-shelf/releases/download/v1/list-indented.png">\n',
+                encoding="utf-8",
+            )
+            ok_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--mark",
+                    str(svg_mark),
+                    "--readme",
+                    str(readme),
+                    "--repo-visibility",
+                    "PUBLIC",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(ok_run.returncode, 0, ok_run.stderr)
+            payload = json.loads(ok_run.stdout)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["assets"][0]["width"], 24)
+            self.assertTrue(payload["readme"]["has_picture"])
+
+            bad_readme = tmp_root / "README-bad.md"
+            bad_readme.write_text(
+                "![Broken](https://github.com/example/private-shelf/releases/download/v1/banner.jpg)\n",
+                encoding="utf-8",
+            )
+            # Fails closed in PUBLIC mode even without --forbid-in-public
+            default_bad_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--readme",
+                    str(bad_readme),
+                    "--repo-visibility",
+                    "PUBLIC",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(default_bad_run.returncode, 1)
+            self.assertIn("unverified GitHub asset shelf", default_bad_run.stdout)
+
+            # Passes when explicitly verified as a public shelf, unless also forbidden
+            public_readme = tmp_root / "README-public-shelf.md"
+            public_readme.write_text(
+                "![Public](https://github.com/example/public-shelf/releases/download/v1/banner.jpg)\n",
+                encoding="utf-8",
+            )
+            allowed_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--readme",
+                    str(public_readme),
+                    "--repo-visibility",
+                    "PUBLIC",
+                    "--allow-public-shelf",
+                    "example/public-shelf",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(allowed_run.returncode, 0, allowed_run.stderr)
+
+            forbidden_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--readme",
+                    str(public_readme),
+                    "--repo-visibility",
+                    "PUBLIC",
+                    "--allow-public-shelf",
+                    "example/public-shelf",
+                    "--forbid-in-public",
+                    "example/public-shelf",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(forbidden_run.returncode, 1)
+
+            # Reference-style Markdown images and /releases/latest/download/ URLs fail closed too
+            ref_readme = tmp_root / "README-ref-latest.md"
+            ref_readme.write_text(
+                "![Banner][hero]\n"
+                "![latest][]\n\n"
+                "[hero]: https://github.com/example/private-shelf/releases/download/v1/banner.png\n"
+                "[latest]: https://github.com/example/latest-shelf/releases/latest/download/banner.png\n",
+                encoding="utf-8",
+            )
+            ref_bad_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--readme",
+                    str(ref_readme),
+                    "--repo-visibility",
+                    "PUBLIC",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(ref_bad_run.returncode, 1)
+            self.assertIn("example/private-shelf", ref_bad_run.stdout)
+            self.assertIn("example/latest-shelf", ref_bad_run.stdout)
+
+            # PRIVATE README rejects embedded GitHub release URLs (Camo auth failure)
+            priv_release_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--readme",
+                    str(bad_readme),
+                    "--repo-visibility",
+                    "PRIVATE",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(priv_release_run.returncode, 1)
+            self.assertIn("Camo", priv_release_run.stdout)
+
+            # Content AFTER a list-item fence (- ~~~sh ... ~~~) is still inspected
+            after_list_fence = tmp_root / "README-after-list-fence.md"
+            after_list_fence.write_text(
+                "- ~~~sh\n"
+                "  echo ok\n"
+                "  ~~~\n\n"
+                "![After](https://github.com/example/private-shelf/releases/download/v1/after.png)\n",
+                encoding="utf-8",
+            )
+            after_list_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--readme",
+                    str(after_list_fence),
+                    "--repo-visibility",
+                    "PUBLIC",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(after_list_run.returncode, 1)
+            self.assertIn("example/private-shelf", after_list_run.stdout)
+
+            zero_mark = tmp_root / "zero.svg"
+            zero_mark.write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 0 0"></svg>',
+                encoding="utf-8",
+            )
+            zero_run = subprocess.run(
+                [sys.executable, str(helper), "--mark", str(zero_mark)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(zero_run.returncode, 1)
+
+            # Social preview rejects 1280x640 SVG/WebP and accepts 1280x640 PNG
+            bad_social_svg = tmp_root / "social.svg"
+            bad_social_svg.write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640"><rect width="1280" height="640"/></svg>',
+                encoding="utf-8",
+            )
+            bad_social_run = subprocess.run(
+                [sys.executable, str(helper), "--social", str(bad_social_svg)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(bad_social_run.returncode, 1)
+            self.assertIn("must be PNG, JPEG, or GIF", bad_social_run.stdout)
+
+            bad_social_webp = tmp_root / "social.webp"
+            bad_social_webp.write_bytes(
+                b"RIFF"
+                + (22).to_bytes(4, "little")
+                + b"WEBP"
+                + b"VP8X"
+                + (10).to_bytes(4, "little")
+                + b"\x00\x00\x00\x00"
+                + (1279).to_bytes(3, "little")
+                + (639).to_bytes(3, "little")
+            )
+            bad_webp_run = subprocess.run(
+                [sys.executable, str(helper), "--social", str(bad_social_webp)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(bad_webp_run.returncode, 1)
+            self.assertIn("must be PNG, JPEG, or GIF", bad_webp_run.stdout)
+
+            import struct
+            import zlib
+
+            ihdr = struct.pack(">IIBBBBB", 1280, 640, 8, 2, 0, 0, 0)
+            valid_png = (
+                b"\x89PNG\r\n\x1a\n"
+                + struct.pack(">I", 13)
+                + b"IHDR"
+                + ihdr
+                + struct.pack(">I", zlib.crc32(b"IHDR" + ihdr) & 0xFFFFFFFF)
+                + struct.pack(">I", 0)
+                + b"IEND"
+                + struct.pack(">I", zlib.crc32(b"IEND") & 0xFFFFFFFF)
+            )
+            good_social_png = tmp_root / "social.png"
+            good_social_png.write_bytes(valid_png)
+            good_social_run = subprocess.run(
+                [sys.executable, str(helper), "--social", str(good_social_png)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(good_social_run.returncode, 0, good_social_run.stderr)
 
 
 if __name__ == "__main__":
