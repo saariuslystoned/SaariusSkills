@@ -14,22 +14,24 @@ Validates:
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import re
 import struct
 import sys
+import urllib.parse
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
 GITHUB_ONE_MIB = 1_048_576
 GITHUB_SETTINGS_RASTER_FORMATS = frozenset({"png", "jpeg", "gif"})
-GITHUB_EXTERNAL_ASSET_RE = re.compile(
-    r"^https?://(?:"
-    r"github\.com/(?P<gh_owner>[^/\s\"']+)/(?P<gh_repo>[^/\s\"']+)/(?:releases/download|raw|blob)/"
-    r"|raw\.githubusercontent\.com/(?P<raw_owner>[^/\s\"']+)/(?P<raw_repo>[^/\s\"']+)/"
-    r")",
-    flags=re.IGNORECASE,
+EPHEMERAL_GITHUB_HOSTS = frozenset(
+    {
+        "private-user-images.githubusercontent.com",
+        "objects.githubusercontent.com",
+        "release-assets.githubusercontent.com",
+    }
 )
 
 
@@ -154,7 +156,12 @@ def check_role(
             f"{role} ({info['path']}) exceeds byte cap: {info['bytes']} > {max_bytes}"
         )
     w, h = info["width"], info["height"]
-    ratio = w / h if h else 0.0
+    if w <= 0 or h <= 0:
+        errors.append(
+            f"{role} ({info['path']}) must have positive dimensions, got {w}x{h}"
+        )
+        return errors
+    ratio = w / h
     if role == "social":
         if info["format"] not in GITHUB_SETTINGS_RASTER_FORMATS:
             errors.append(
@@ -184,13 +191,194 @@ def check_role(
     return errors
 
 
+def _normalize_ref_label(label: str) -> str:
+    return re.sub(r"\s+", " ", label.strip()).casefold()
+
+
+def _strip_code_and_comments(markdown_text: str) -> str:
+    without_fences = re.sub(
+        r"^[ ]{0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^[ ]{0,3}\1[ \t]*$|\Z)",
+        "",
+        markdown_text,
+        flags=re.MULTILINE,
+    )
+    return re.sub(r"<!--[\s\S]*?-->", "", without_fences)
+
+
+def _find_balanced_bracket(text: str, open_idx: int) -> int:
+    depth = 0
+    idx = open_idx
+    while idx < len(text):
+        ch = text[idx]
+        if ch == "\\":
+            idx += 2
+            continue
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                return idx
+        idx += 1
+    return -1
+
+
+def extract_readme_image_urls(rendered_text: str) -> list[str]:
+    urls: list[str] = []
+
+    # 1. HTML media tags (<img>, <source>, <video poster>, <object data>, <embed>, <image>)
+    for tag_match in re.finditer(
+        r"<(?:img|source|video|object|embed|image)\b(?:[^>'\"/]|/[^>]|\"[^\"]*\"|'[^']*')*/?>",
+        rendered_text,
+        flags=re.IGNORECASE,
+    ):
+        tag = tag_match.group(0)
+        for attr_match in re.finditer(
+            r"""\b(src|srcset|poster|data|href|xlink:href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+))""",
+            tag,
+            flags=re.IGNORECASE,
+        ):
+            attr_name = attr_match.group(1).lower()
+            raw_val = html.unescape(
+                attr_match.group(2)
+                if attr_match.group(2) is not None
+                else (
+                    attr_match.group(3)
+                    if attr_match.group(3) is not None
+                    else (attr_match.group(4) or "")
+                )
+            ).strip()
+            if not raw_val:
+                continue
+            if attr_name == "srcset":
+                for candidate in raw_val.split(","):
+                    parts = candidate.strip().split()
+                    if parts:
+                        urls.append(parts[0])
+            else:
+                urls.append(raw_val)
+
+    # 2. GFM link reference definitions: [label]: url or [label]: <url>
+    no_inline_code = re.sub(
+        r"(`+)[\s\S]*?\1", lambda m: " " * len(m.group(0)), rendered_text
+    )
+    ref_defs: dict[str, str] = {}
+    for ref_match in re.finditer(
+        r"^[ ]{0,3}\[([^\^\]]+)\]:[ \t]*(?:\n[ \t]*)?(?:<([^>\n]+)>|([^\s\n]+))",
+        no_inline_code,
+        flags=re.MULTILINE,
+    ):
+        key = _normalize_ref_label(ref_match.group(1))
+        dest = (ref_match.group(2) or ref_match.group(3) or "").strip()
+        if key and dest and key not in ref_defs:
+            ref_defs[key] = html.unescape(dest)
+
+    # 3. GFM inline ![alt](dest), full ![alt][ref], collapsed ![alt][], and shortcut ![alt]
+    idx = 0
+    length = len(no_inline_code)
+    while idx < length - 1:
+        if no_inline_code[idx] == "\\":
+            idx += 2
+            continue
+        if no_inline_code[idx : idx + 2] == "![":
+            close_alt = _find_balanced_bracket(no_inline_code, idx + 1)
+            if close_alt != -1:
+                alt_text = no_inline_code[idx + 2 : close_alt]
+                nxt = close_alt + 1
+                if nxt < length and no_inline_code[nxt] == "(":
+                    p = nxt + 1
+                    while p < length and no_inline_code[p] in " \t\r\n":
+                        p += 1
+                    if p < length and no_inline_code[p] == "<":
+                        end_angle = no_inline_code.find(">", p + 1)
+                        if end_angle != -1:
+                            urls.append(html.unescape(no_inline_code[p + 1 : end_angle].strip()))
+                            close_paren = no_inline_code.find(")", end_angle + 1)
+                            idx = (close_paren + 1) if close_paren != -1 else (end_angle + 1)
+                            continue
+                    elif p < length:
+                        paren_depth = 0
+                        start_dest = p
+                        while p < length:
+                            ch = no_inline_code[p]
+                            if ch == "\\":
+                                p += 2
+                                continue
+                            if ch == "(":
+                                paren_depth += 1
+                            elif ch == ")":
+                                if paren_depth == 0:
+                                    break
+                                paren_depth -= 1
+                            elif ch in " \t\r\n" and paren_depth == 0:
+                                break
+                            p += 1
+                        dest = no_inline_code[start_dest:p].strip()
+                        close_paren = p
+                        while close_paren < length and no_inline_code[close_paren] != ")":
+                            close_paren += 1
+                        if close_paren < length and dest:
+                            urls.append(html.unescape(dest))
+                            idx = close_paren + 1
+                            continue
+                elif nxt < length and no_inline_code[nxt] == "[":
+                    close_ref = _find_balanced_bracket(no_inline_code, nxt)
+                    if close_ref != -1:
+                        raw_label = no_inline_code[nxt + 1 : close_ref] or alt_text
+                        resolved = ref_defs.get(_normalize_ref_label(raw_label))
+                        if resolved:
+                            urls.append(resolved)
+                        idx = close_ref + 1
+                        continue
+                else:
+                    resolved = ref_defs.get(_normalize_ref_label(alt_text))
+                    if resolved:
+                        urls.append(resolved)
+                        idx = close_alt + 1
+                        continue
+        idx += 1
+
+    return urls
+
+
+def classify_github_asset_repo(url: str) -> tuple[str | None, bool]:
+    """Return ((owner/repo) or None, is_ephemeral_signed_host)."""
+    candidate = "https:" + url if url.startswith("//") else url
+    parsed = urllib.parse.urlsplit(candidate)
+    host = urllib.parse.unquote(parsed.hostname or "").lower()
+    if not host:
+        return None, False
+    if host in EPHEMERAL_GITHUB_HOSTS:
+        return None, True
+    segments = [
+        urllib.parse.unquote(seg)
+        for seg in parsed.path.split("/")
+        if seg
+    ]
+    if host in {"github.com", "www.github.com"} and len(segments) >= 3:
+        owner, repo, surface = segments[0], segments[1], segments[2].lower()
+        if owner.lower() != "user-attachments" and surface in {
+            "releases",
+            "raw",
+            "blob",
+            "assets",
+        }:
+            return f"{owner}/{repo}", False
+    elif host in {"raw.githubusercontent.com", "codeload.github.com"} and len(segments) >= 2:
+        return f"{segments[0]}/{segments[1]}", False
+    elif host == "media.githubusercontent.com" and len(segments) >= 3 and segments[0].lower() == "media":
+        return f"{segments[1]}/{segments[2]}", False
+    return None, False
+
+
 def inspect_readme(
     readme_path: Path,
     repo_visibility: str,
     private_hosts_or_repos: list[str],
     allowed_public_shelves: list[str] | None = None,
 ) -> dict[str, Any]:
-    text = readme_path.read_text(encoding="utf-8")
+    raw_text = readme_path.read_text(encoding="utf-8")
+    text = _strip_code_and_comments(raw_text)
     errors: list[str] = []
     warnings: list[str] = []
     allowed_shelves = {
@@ -199,44 +387,46 @@ def inspect_readme(
         if shelf and shelf.strip()
     }
 
-    has_picture = "<picture>" in text and "</picture>" in text
-    has_dark = "prefers-color-scheme: dark" in text
-    has_light = "prefers-color-scheme: light" in text
+    has_picture = bool(
+        re.search(r"<picture\b", text, flags=re.IGNORECASE)
+        and re.search(r"</picture>", text, flags=re.IGNORECASE)
+    )
+    has_dark = "prefers-color-scheme: dark" in text.lower()
+    has_light = "prefers-color-scheme: light" in text.lower()
     if has_picture and not (has_dark and has_light):
         warnings.append(
             "<picture> present without both prefers-color-scheme: dark and light <source> tags"
         )
 
     for img_tag in re.findall(r"<img\b[^>]*>", text, flags=re.IGNORECASE):
-        if not re.search(r'\balt\s*=\s*["\'][^"\']+["\']', img_tag, flags=re.IGNORECASE):
+        if not re.search(r'\balt\s*=\s*(?:"[^"]+"|\'[^\']+\')', img_tag, flags=re.IGNORECASE):
             errors.append(f"<img> tag missing non-empty alt attribute: {img_tag[:80]}")
 
-    urls = re.findall(r'(?:src|srcset)\s*=\s*["\']([^"\']+)["\']', text)
-    urls += re.findall(r"!\[[^\]]*\]\(([^)]+)\)", text)
+    urls = extract_readme_image_urls(text)
 
     for raw_url in urls:
-        url = raw_url.strip().split()[0]
+        url = raw_url.strip()
+        unquoted_url = urllib.parse.unquote(url)
         if url.startswith(("file://", "/Users/", "/home/")):
             errors.append(f"README references machine-local path: {url}")
-        if "private-user-images.githubusercontent.com" in url.lower():
+        gh_repo_slug, is_ephemeral = classify_github_asset_repo(url)
+        if is_ephemeral:
             errors.append(f"README references expiring signed GitHub asset URL: {url}")
         if repo_visibility == "PUBLIC":
             matched_forbidden = False
             for priv in private_hosts_or_repos:
-                if priv and priv.lower() in url.lower():
+                if priv and (
+                    priv.lower() in url.lower() or priv.lower() in unquoted_url.lower()
+                ):
                     errors.append(
                         f"PUBLIC README references private asset shelf '{priv}': {url}"
                     )
                     matched_forbidden = True
-            gh_match = GITHUB_EXTERNAL_ASSET_RE.match(url)
-            if gh_match and not matched_forbidden:
-                owner = gh_match.group("gh_owner") or gh_match.group("raw_owner")
-                repo = gh_match.group("gh_repo") or gh_match.group("raw_repo")
-                slug = f"{owner}/{repo}".lower()
-                if slug not in allowed_shelves:
+            if gh_repo_slug and not matched_forbidden:
+                if gh_repo_slug.lower() not in allowed_shelves:
                     errors.append(
-                        f"PUBLIC README references unverified GitHub asset shelf '{owner}/{repo}' "
-                        f"(verify unauthenticated HTTP 200 and pass --allow-public-shelf {owner}/{repo}, "
+                        f"PUBLIC README references unverified GitHub asset shelf '{gh_repo_slug}' "
+                        f"(verify unauthenticated HTTP 200 and pass --allow-public-shelf {gh_repo_slug}, "
                         f"or use repo-local .github/assets/): {url}"
                     )
 

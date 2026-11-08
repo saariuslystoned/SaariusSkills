@@ -1040,6 +1040,45 @@ exit "$1"
             )
             self.assertEqual(forbidden_run.returncode, 1)
 
+            # Reference-style Markdown images and /releases/latest/download/ URLs fail closed too
+            ref_readme = tmp_root / "README-ref-latest.md"
+            ref_readme.write_text(
+                "![Banner][hero]\n"
+                "![latest][]\n\n"
+                "[hero]: https://github.com/example/private-shelf/releases/download/v1/banner.png\n"
+                "[latest]: https://github.com/example/latest-shelf/releases/latest/download/banner.png\n",
+                encoding="utf-8",
+            )
+            ref_bad_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--readme",
+                    str(ref_readme),
+                    "--repo-visibility",
+                    "PUBLIC",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(ref_bad_run.returncode, 1)
+            self.assertIn("example/private-shelf", ref_bad_run.stdout)
+            self.assertIn("example/latest-shelf", ref_bad_run.stdout)
+
+            zero_mark = tmp_root / "zero.svg"
+            zero_mark.write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 0 0"></svg>',
+                encoding="utf-8",
+            )
+            zero_run = subprocess.run(
+                [sys.executable, str(helper), "--mark", str(zero_mark)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(zero_run.returncode, 1)
+
             # Social preview rejects 1280x640 SVG/WebP and accepts 1280x640 PNG
             bad_social_svg = tmp_root / "social.svg"
             bad_social_svg.write_text(
