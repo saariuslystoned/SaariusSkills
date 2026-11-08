@@ -22,6 +22,7 @@ DINKUS_SWEEP_SKILL = ROOT / "skills" / "dinkus-sweep"
 HARNESS2_SKILL = ROOT / "skills" / "harness2"
 PERFORMANCE_SKILL = ROOT / "skills" / "smoky-performance"
 CHARACTER_STUDIO_SKILL = ROOT / "skills" / "smoky-character-studio"
+GITHUB_DESIGN_SKILL = ROOT / "skills" / "smoky-github-design"
 AGY_SIDEBAR_SESSION_SKILL = ROOT / "skills" / "agy-sidebar-session"
 
 
@@ -904,6 +905,98 @@ exit "$1"
         )
         self.assertEqual(help_run.returncode, 0, help_run.stderr)
         self.assertIn("export-md", help_run.stdout)
+
+    def test_smoky_github_design_skill_is_packaged_and_verifies_assets(self) -> None:
+        skill = (GITHUB_DESIGN_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (
+            GITHUB_DESIGN_SKILL / "agents" / "openai.yaml"
+        ).read_text(encoding="utf-8")
+        anatomy = (
+            GITHUB_DESIGN_SKILL / "references" / "top10-github-anatomy.md"
+        ).read_text(encoding="utf-8")
+        recipes = (
+            GITHUB_DESIGN_SKILL / "references" / "style-recipes-and-shelf-hygiene.md"
+        ).read_text(encoding="utf-8")
+        helper = GITHUB_DESIGN_SKILL / "scripts" / "verify_github_assets.py"
+        cursor = json.loads(
+            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertLessEqual(len(skill.splitlines()), 500)
+        self.assertIn("name: smoky-github-design\n", skill)
+        self.assertIn("$smoky-github-design", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("./skills/smoky-github-design/", cursor["skills"])
+        self.assertEqual(
+            (GITHUB_DESIGN_SKILL / "LICENSE").read_bytes(),
+            (ROOT / "LICENSE").read_bytes(),
+        )
+        self.assertIn("prefers-color-scheme", skill)
+        self.assertIn("1280×640", skill)
+        self.assertIn("smoky-character-studio", skill)
+        self.assertIn("openclaw/openclaw", anatomy)
+        self.assertIn("morluto/rea", anatomy)
+        self.assertIn("Character-Mark", recipes)
+        self.assertTrue(helper.is_file())
+        self.assertTrue(helper.stat().st_mode & 0o111)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            svg_mark = tmp_root / "mark.svg"
+            svg_mark.write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>',
+                encoding="utf-8",
+            )
+            readme = tmp_root / "README.md"
+            readme.write_text(
+                '<picture>\n'
+                '  <source media="(prefers-color-scheme: dark)" srcset="docs/banner-dark.jpg">\n'
+                '  <source media="(prefers-color-scheme: light)" srcset="docs/banner-light.jpg">\n'
+                '  <img alt="Demo Banner" src="docs/banner-dark.jpg">\n'
+                '</picture>\n',
+                encoding="utf-8",
+            )
+            ok_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--mark",
+                    str(svg_mark),
+                    "--readme",
+                    str(readme),
+                    "--repo-visibility",
+                    "PUBLIC",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(ok_run.returncode, 0, ok_run.stderr)
+            payload = json.loads(ok_run.stdout)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["assets"][0]["width"], 24)
+            self.assertTrue(payload["readme"]["has_picture"])
+
+            bad_readme = tmp_root / "README-bad.md"
+            bad_readme.write_text(
+                "![Broken](https://github.com/example/private-shelf/releases/download/v1/banner.jpg)\n",
+                encoding="utf-8",
+            )
+            bad_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--readme",
+                    str(bad_readme),
+                    "--repo-visibility",
+                    "PUBLIC",
+                    "--forbid-in-public",
+                    "example/private-shelf",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(bad_run.returncode, 1)
 
 
 if __name__ == "__main__":

@@ -13,7 +13,8 @@ Rather than prompting Stitch in a vacuum, start from the real verified EmDash ro
      STITCH_API_KEY="$(security find-generic-password -s google-stitch -w)" stitch status --json
      ```
 2. **Capture Self-Contained Route HTML (`stitch capture`):**
-   - Discover routes with `stitch capture routes`.
+   - Discover routes with `stitch capture routes`. On pure SSR EmDash sites (`output: "server"` without pre-rendered static routes), `stitch capture routes` can report only companion-plugin endpoints (`src/lib/plugin.ts`) and omit `src/pages/*.astro` routes; always cross-check `src/pages/` and crawl the live seeded dev server so every public page enters the surface checklist.
+   - When the local Astro config points at a non-default SQLite file (for example `file:./catalog.db`), pass `-d <db-path>` to `npx emdash init` and `npx emdash seed` before capturing so dynamic collection routes render real seeded entries rather than empty states.
    - Capture a live rendered route, waiting for a selector that appears once dynamic DOM / islands settle:
      ```bash
      stitch capture http://localhost:4321/cart --wait-for="<ready-selector>" -o .stitch/captures/cart.html --json
@@ -67,7 +68,7 @@ Rather than prompting Stitch in a vacuum, start from the real verified EmDash ro
 1. **Pairs at every decision:** Show each candidate's desktop render (full-width `=w2560` or `=w1440` PNG) beside the same screen at a 390 px viewport:
    - Download its HTML with `stitch download screen <SCREEN_ID> --project <PROJECT_ID> --html --output <DIR>`.
    - Render that file locally at `390×844` with headless Chrome or Playwright.
-   - This costs no Stitch credits. Stitch can pin a desktop export to 1280 px with an injected `<style id="stitch-desktop-normalization">` on `html, body`; delete that style before rendering, or the narrow render shows the desktop layout cropped, whatever the design. Use the render to judge hierarchy, content, the nav collapse, hero type scale, grid density and cart and checkout controls at phone width. Check tap targets of at least 44 px and horizontal overflow (`scrollWidth <= clientWidth`) on the implemented page (SKILL.md step 6), not on the export, and never present a Stitch render as a capture of the real site.
+   - This costs no Stitch credits. Stitch can pin a desktop export to 1280 px with both an injected `<style id="stitch-desktop-normalization">` on `html, body` and `<meta name="viewport" content="width=1280, initial-scale=1.0">`; strip `#stitch-desktop-normalization` and replace `width=1280` with `width=device-width` before rendering, or the narrow render shows the desktop layout cropped or keeps desktop media-query breakpoints active. Use the render to judge hierarchy, content, the nav collapse, hero type scale, grid density and cart and checkout controls at phone width. Check tap targets of at least 44 px and horizontal overflow (`scrollWidth <= clientWidth`) on the implemented page (SKILL.md step 6), not on the export, and never present a Stitch render as a capture of the real site.
 2. **Mobile pass after the desktop lock (optional):** When a surface's desktop direction locks, offer one mobile-specific round for what reflow can't fix: the nav pattern, a sticky add-to-cart, tap targets, and dense tables or ledgers.
    - Use `stitch generate variant --device MOBILE` (or `edit_screen` with `device: MOBILE`) on the locked desktop screen, or targeted CSS for the breakpoint.
    - Show it as a desktop + mobile pair, lock mobile separately, and record both locks in the GrillTrack ledger.
