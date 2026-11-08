@@ -23,6 +23,14 @@ from pathlib import Path
 from typing import Any
 
 GITHUB_ONE_MIB = 1_048_576
+GITHUB_SETTINGS_RASTER_FORMATS = frozenset({"png", "jpeg", "gif"})
+GITHUB_EXTERNAL_ASSET_RE = re.compile(
+    r"^https?://(?:"
+    r"github\.com/(?P<gh_owner>[^/\s\"']+)/(?P<gh_repo>[^/\s\"']+)/(?:releases/download|raw|blob)/"
+    r"|raw\.githubusercontent\.com/(?P<raw_owner>[^/\s\"']+)/(?P<raw_repo>[^/\s\"']+)/"
+    r")",
+    flags=re.IGNORECASE,
+)
 
 
 def parse_png_dimensions(data: bytes) -> tuple[int, int]:
@@ -148,11 +156,19 @@ def check_role(
     w, h = info["width"], info["height"]
     ratio = w / h if h else 0.0
     if role == "social":
+        if info["format"] not in GITHUB_SETTINGS_RASTER_FORMATS:
+            errors.append(
+                f"social preview ({info['path']}) must be PNG, JPEG, or GIF for GitHub upload, got {info['format']}"
+            )
         if (w, h) != (1280, 640):
             errors.append(
                 f"social preview ({info['path']}) must be exact 1280x640, got {w}x{h}"
             )
     elif role == "avatar":
+        if info["format"] not in GITHUB_SETTINGS_RASTER_FORMATS:
+            errors.append(
+                f"avatar ({info['path']}) must be PNG, JPEG, or GIF for GitHub upload, got {info['format']}"
+            )
         if w != h or w < 256:
             errors.append(
                 f"avatar ({info['path']}) must be 1:1 square >= 256x256, got {w}x{h}"
@@ -172,10 +188,16 @@ def inspect_readme(
     readme_path: Path,
     repo_visibility: str,
     private_hosts_or_repos: list[str],
+    allowed_public_shelves: list[str] | None = None,
 ) -> dict[str, Any]:
     text = readme_path.read_text(encoding="utf-8")
     errors: list[str] = []
     warnings: list[str] = []
+    allowed_shelves = {
+        shelf.strip().strip("/").lower()
+        for shelf in (allowed_public_shelves or [])
+        if shelf and shelf.strip()
+    }
 
     has_picture = "<picture>" in text and "</picture>" in text
     has_dark = "prefers-color-scheme: dark" in text
@@ -196,11 +218,26 @@ def inspect_readme(
         url = raw_url.strip().split()[0]
         if url.startswith(("file://", "/Users/", "/home/")):
             errors.append(f"README references machine-local path: {url}")
+        if "private-user-images.githubusercontent.com" in url.lower():
+            errors.append(f"README references expiring signed GitHub asset URL: {url}")
         if repo_visibility == "PUBLIC":
+            matched_forbidden = False
             for priv in private_hosts_or_repos:
                 if priv and priv.lower() in url.lower():
                     errors.append(
                         f"PUBLIC README references private asset shelf '{priv}': {url}"
+                    )
+                    matched_forbidden = True
+            gh_match = GITHUB_EXTERNAL_ASSET_RE.match(url)
+            if gh_match and not matched_forbidden:
+                owner = gh_match.group("gh_owner") or gh_match.group("raw_owner")
+                repo = gh_match.group("gh_repo") or gh_match.group("raw_repo")
+                slug = f"{owner}/{repo}".lower()
+                if slug not in allowed_shelves:
+                    errors.append(
+                        f"PUBLIC README references unverified GitHub asset shelf '{owner}/{repo}' "
+                        f"(verify unauthenticated HTTP 200 and pass --allow-public-shelf {owner}/{repo}, "
+                        f"or use repo-local .github/assets/): {url}"
                     )
 
     return {
@@ -233,7 +270,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--forbid-in-public",
         action="append",
         default=[],
-        help="Substring (e.g. private asset repo slug) forbidden in PUBLIC README image URLs",
+        help="Substring (e.g. private asset repo slug or internal host) forbidden in PUBLIC README image URLs",
+    )
+    parser.add_argument(
+        "--allow-public-shelf",
+        action="append",
+        default=[],
+        help="GitHub <owner/repo> shelf explicitly verified as PUBLIC (unauthenticated HTTP 200) for PUBLIC README release/raw image URLs",
     )
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
     return parser
@@ -270,7 +313,10 @@ def main(argv: list[str] | None = None) -> int:
             errors.append(f"Missing README file: {args.readme}")
         else:
             readme_report = inspect_readme(
-                args.readme, args.repo_visibility, args.forbid_in_public
+                args.readme,
+                args.repo_visibility,
+                args.forbid_in_public,
+                args.allow_public_shelf,
             )
             errors.extend(readme_report["errors"])
             warnings.extend(readme_report["warnings"])

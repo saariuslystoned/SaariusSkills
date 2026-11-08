@@ -37,8 +37,8 @@ Produce only the surfaces the target repository, GitHub App, or organization act
 | Surface | Aspect / Pixels | Format & Byte Cap | Critical Framing Rule |
 | --- | --- | --- | --- |
 | **README Hero Banner (Dark + Light)** | `16:9` (`1600×900` or `1376×768`) or `3.2:1` (`1600×500`) | `.jpg` / `.webp` / `.png` (`< 500 KB` target; `< 1 MB` hard cap) | Pair `prefers-color-scheme: dark` and `light` in `<picture>` whenever a dark backdrop would clash on Light GitHub (`#ffffff`), or give dark banners a clean rounded border/frame. |
-| **Repo OpenGraph Social Preview** | Exact `2:1` (`1280×640`) | `.png` or `.jpg` (**`< 1 MB` GitHub hard limit**) | Keep all title typography and hero focal points inside the central **`1080×520` safe zone** so X/Discord/Slack cards never clip edges. |
-| **GitHub App / Org Avatar** | `1:1` (`512×512` & `1024×1024`) | `.png` (`< 1 MB` GitHub hard limit) | High-contrast silhouette legible at `64×64` org header and `32×32` commit/timeline badges. |
+| **Repo OpenGraph Social Preview** | Exact `2:1` (`1280×640`) | `.png`, `.jpg`, or `.gif` (**`< 1 MB` GitHub hard limit** — SVG/WebP rejected by GitHub upload) | Keep all title typography and hero focal points inside the central **`1080×520` safe zone** so X/Discord/Slack cards never clip edges. |
+| **GitHub App / Org Avatar** | `1:1` (`512×512` & `1024×1024`) | `.png`, `.jpg`, or `.gif` (`< 1 MB` GitHub hard limit) | High-contrast silhouette legible at `64×64` org header and `32×32` commit/timeline badges. |
 | **GitHub App PR-Comment Seamless Badge** | `1:1` (`512×512`) | `.png` (`< 1 MB`) | Tight facial/visor crop (`~65%` frame fill) with a **feathered radial edge vignette** into `#0D1117` / transparent so `40×40` circular/rounded-square `[bot]` PR badges never show harsh crop seams. |
 | **Vector Favicon / Navbar Mark** | `1:1` (`viewBox="0 0 24 24"` or `32 32`) | `.svg` (`< 8 KB`) | Derived cleanly from the locked Mode A/B/C silhouette using `currentColor` or semantic CSS tokens. |
 
@@ -88,11 +88,13 @@ Always run the bundled standard-library verifier before opening a PR or uploadin
 python3 skills/smoky-github-design/scripts/verify_github_assets.py \
   --readme <path/to/README.md> \
   --repo-visibility <PUBLIC|PRIVATE> \
+  --forbid-in-public <org/private-asset-shelf> \
   --banner <path/to/banner-16x9.jpg> \
   --social <path/to/social-1280x640.png> \
-  --avatar <path/to/avatar-512x512.png>
+  --avatar <path/to/avatar-512x512.png> \
+  --mark <path/to/logo.svg>
 ```
 
-It validates PNG/JPEG/WebP/SVG dimensions without third-party dependencies, enforces GitHub's `< 1,048,576`-byte cap, checks `<picture>` `prefers-color-scheme` dark/light sources and `alt` attributes, and rejects private-shelf URLs inside public READMEs.
+It validates PNG/JPEG/WebP/GIF/SVG dimensions without third-party dependencies, enforces GitHub's `< 1,048,576`-byte cap and PNG/JPEG/GIF format rules on `--social` and `--avatar` uploads (while allowing WebP/SVG for `--banner` and `--mark`), checks `<picture>` `prefers-color-scheme` dark/light sources and `alt` attributes, and fails closed in `PUBLIC` mode on both `--forbid-in-public` patterns and any external GitHub release/raw shelf URL not explicitly verified and passed via `--allow-public-shelf <owner/repo>`.
 
 This skill owns design and verification judgment only; repository commits, release uploads, GitHub App/Settings mutations, and merges follow the active repository's authorization gates.

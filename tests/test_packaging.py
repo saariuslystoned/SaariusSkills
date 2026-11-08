@@ -981,7 +981,8 @@ exit "$1"
                 "![Broken](https://github.com/example/private-shelf/releases/download/v1/banner.jpg)\n",
                 encoding="utf-8",
             )
-            bad_run = subprocess.run(
+            # Fails closed in PUBLIC mode even without --forbid-in-public
+            default_bad_run = subprocess.run(
                 [
                     sys.executable,
                     str(helper),
@@ -989,14 +990,114 @@ exit "$1"
                     str(bad_readme),
                     "--repo-visibility",
                     "PUBLIC",
-                    "--forbid-in-public",
-                    "example/private-shelf",
                 ],
                 capture_output=True,
                 text=True,
                 check=False,
             )
-            self.assertEqual(bad_run.returncode, 1)
+            self.assertEqual(default_bad_run.returncode, 1)
+            self.assertIn("unverified GitHub asset shelf", default_bad_run.stdout)
+
+            # Passes when explicitly verified as a public shelf, unless also forbidden
+            public_readme = tmp_root / "README-public-shelf.md"
+            public_readme.write_text(
+                "![Public](https://github.com/example/public-shelf/releases/download/v1/banner.jpg)\n",
+                encoding="utf-8",
+            )
+            allowed_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--readme",
+                    str(public_readme),
+                    "--repo-visibility",
+                    "PUBLIC",
+                    "--allow-public-shelf",
+                    "example/public-shelf",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(allowed_run.returncode, 0, allowed_run.stderr)
+
+            forbidden_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--readme",
+                    str(public_readme),
+                    "--repo-visibility",
+                    "PUBLIC",
+                    "--allow-public-shelf",
+                    "example/public-shelf",
+                    "--forbid-in-public",
+                    "example/public-shelf",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(forbidden_run.returncode, 1)
+
+            # Social preview rejects 1280x640 SVG/WebP and accepts 1280x640 PNG
+            bad_social_svg = tmp_root / "social.svg"
+            bad_social_svg.write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640"><rect width="1280" height="640"/></svg>',
+                encoding="utf-8",
+            )
+            bad_social_run = subprocess.run(
+                [sys.executable, str(helper), "--social", str(bad_social_svg)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(bad_social_run.returncode, 1)
+            self.assertIn("must be PNG, JPEG, or GIF", bad_social_run.stdout)
+
+            bad_social_webp = tmp_root / "social.webp"
+            bad_social_webp.write_bytes(
+                b"RIFF"
+                + (22).to_bytes(4, "little")
+                + b"WEBP"
+                + b"VP8X"
+                + (10).to_bytes(4, "little")
+                + b"\x00\x00\x00\x00"
+                + (1279).to_bytes(3, "little")
+                + (639).to_bytes(3, "little")
+            )
+            bad_webp_run = subprocess.run(
+                [sys.executable, str(helper), "--social", str(bad_social_webp)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(bad_webp_run.returncode, 1)
+            self.assertIn("must be PNG, JPEG, or GIF", bad_webp_run.stdout)
+
+            import struct
+            import zlib
+
+            ihdr = struct.pack(">IIBBBBB", 1280, 640, 8, 2, 0, 0, 0)
+            valid_png = (
+                b"\x89PNG\r\n\x1a\n"
+                + struct.pack(">I", 13)
+                + b"IHDR"
+                + ihdr
+                + struct.pack(">I", zlib.crc32(b"IHDR" + ihdr) & 0xFFFFFFFF)
+                + struct.pack(">I", 0)
+                + b"IEND"
+                + struct.pack(">I", zlib.crc32(b"IEND") & 0xFFFFFFFF)
+            )
+            good_social_png = tmp_root / "social.png"
+            good_social_png.write_bytes(valid_png)
+            good_social_run = subprocess.run(
+                [sys.executable, str(helper), "--social", str(good_social_png)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(good_social_run.returncode, 0, good_social_run.stderr)
 
 
 if __name__ == "__main__":
