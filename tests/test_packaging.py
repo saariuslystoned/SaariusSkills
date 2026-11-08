@@ -952,7 +952,10 @@ exit "$1"
                 '  <source media="(prefers-color-scheme: dark)" srcset="docs/banner-dark.jpg">\n'
                 '  <source media="(prefers-color-scheme: light)" srcset="docs/banner-light.jpg">\n'
                 '  <img alt="Demo Banner" src="docs/banner-dark.jpg">\n'
-                '</picture>\n',
+                '</picture>\n\n'
+                'Inline code docs like `Use an <img> element` or '
+                '`<img src="https://github.com/example/private-shelf/releases/download/v1/x.png">` '
+                'must not be treated as live HTML.\n',
                 encoding="utf-8",
             )
             ok_run = subprocess.run(

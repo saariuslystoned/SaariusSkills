@@ -196,13 +196,53 @@ def _normalize_ref_label(label: str) -> str:
 
 
 def _strip_code_and_comments(markdown_text: str) -> str:
-    without_fences = re.sub(
-        r"^[ ]{0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^[ ]{0,3}\1[ \t]*$|\Z)",
-        "",
-        markdown_text,
-        flags=re.MULTILINE,
+    out_lines: list[str] = []
+    fence_char = ""
+    fence_len = 0
+    for line in markdown_text.splitlines(keepends=True):
+        stripped = line.lstrip(" ")
+        indent = len(line) - len(stripped)
+        if not fence_char:
+            m = re.match(r"^(`{3,}|~{3,})(.*)$", stripped) if indent <= 3 else None
+            if m and ("`" not in m.group(2) if m.group(1)[0] == "`" else True):
+                fence_char = m.group(1)[0]
+                fence_len = len(m.group(1))
+                out_lines.append("\n" if line.endswith("\n") else "")
+                continue
+            out_lines.append(line)
+        else:
+            m = (
+                re.match(
+                    rf"^({re.escape(fence_char)}{{{fence_len},}})[ \t]*\r?\n?$",
+                    stripped,
+                )
+                if indent <= 3
+                else None
+            )
+            if m:
+                fence_char = ""
+                fence_len = 0
+            out_lines.append("\n" if line.endswith("\n") else "")
+    without_fences = "".join(out_lines)
+
+    # Blank CommonMark inline code spans within each paragraph block before HTML parsing
+    blocks = re.split(r"(\r?\n[ \t]*\r?\n)", without_fences)
+    cleaned_blocks = [
+        re.sub(
+            r"(`+)(?!`)([\s\S]*?)(?<!`)\1(?!`)",
+            lambda m: re.sub(r"[^\r\n]", " ", m.group(0)),
+            blk,
+        )
+        for blk in blocks
+    ]
+    without_inline_code = "".join(cleaned_blocks)
+    without_comments = re.sub(r"<!--[\s\S]*?-->", "", without_inline_code)
+    return re.sub(
+        r"<(code|pre)\b[^>]*>[\s\S]*?</\1>",
+        lambda m: re.sub(r"[^\r\n]", " ", m.group(0)),
+        without_comments,
+        flags=re.IGNORECASE,
     )
-    return re.sub(r"<!--[\s\S]*?-->", "", without_fences)
 
 
 def _find_balanced_bracket(text: str, open_idx: int) -> int:
@@ -259,9 +299,7 @@ def extract_readme_image_urls(rendered_text: str) -> list[str]:
                 urls.append(raw_val)
 
     # 2. GFM link reference definitions: [label]: url or [label]: <url>
-    no_inline_code = re.sub(
-        r"(`+)[\s\S]*?\1", lambda m: " " * len(m.group(0)), rendered_text
-    )
+    no_inline_code = rendered_text
     ref_defs: dict[str, str] = {}
     for ref_match in re.finditer(
         r"^[ ]{0,3}\[([^\^\]]+)\]:[ \t]*(?:\n[ \t]*)?(?:<([^>\n]+)>|([^\s\n]+))",
@@ -398,8 +436,30 @@ def inspect_readme(
             "<picture> present without both prefers-color-scheme: dark and light <source> tags"
         )
 
-    for img_tag in re.findall(r"<img\b[^>]*>", text, flags=re.IGNORECASE):
-        if not re.search(r'\balt\s*=\s*(?:"[^"]+"|\'[^\']+\')', img_tag, flags=re.IGNORECASE):
+    for img_match in re.finditer(
+        r"<img\b(?:[^>'\"/]|/[^>]|\"[^\"]*\"|'[^']*')*/?>",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        img_tag = img_match.group(0)
+        alt_match = re.search(
+            r"""\balt\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"'=]+))""",
+            img_tag,
+            flags=re.IGNORECASE,
+        )
+        alt_val = html.unescape(
+            (
+                alt_match.group(1)
+                if alt_match and alt_match.group(1) is not None
+                else (
+                    alt_match.group(2)
+                    if alt_match and alt_match.group(2) is not None
+                    else (alt_match.group(3) if alt_match else "")
+                )
+            )
+            or ""
+        ).strip()
+        if not alt_val:
             errors.append(f"<img> tag missing non-empty alt attribute: {img_tag[:80]}")
 
     urls = extract_readme_image_urls(text)
