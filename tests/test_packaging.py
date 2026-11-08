@@ -956,7 +956,12 @@ exit "$1"
                 'Inline code docs like `Use an <img> element` or '
                 '`<img src="https://github.com/example/private-shelf/releases/download/v1/x.png">` '
                 'must not be treated as live HTML.\n\n'
-                '    <img src="https://github.com/example/private-shelf/releases/download/v1/indented.png">\n',
+                '    <img src="https://github.com/example/private-shelf/releases/download/v1/indented.png">\n\n'
+                '- ~~~sh\n'
+                '  > /tmp/out\n'
+                '  <img src="https://github.com/example/private-shelf/releases/download/v1/list-fence.png">\n'
+                '  ~~~\n'
+                '-     <img src="https://github.com/example/private-shelf/releases/download/v1/list-indented.png">\n',
                 encoding="utf-8",
             )
             ok_run = subprocess.run(
@@ -1086,6 +1091,31 @@ exit "$1"
             )
             self.assertEqual(priv_release_run.returncode, 1)
             self.assertIn("Camo", priv_release_run.stdout)
+
+            # Content AFTER a list-item fence (- ~~~sh ... ~~~) is still inspected
+            after_list_fence = tmp_root / "README-after-list-fence.md"
+            after_list_fence.write_text(
+                "- ~~~sh\n"
+                "  echo ok\n"
+                "  ~~~\n\n"
+                "![After](https://github.com/example/private-shelf/releases/download/v1/after.png)\n",
+                encoding="utf-8",
+            )
+            after_list_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--readme",
+                    str(after_list_fence),
+                    "--repo-visibility",
+                    "PUBLIC",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(after_list_run.returncode, 1)
+            self.assertIn("example/private-shelf", after_list_run.stdout)
 
             zero_mark = tmp_root / "zero.svg"
             zero_mark.write_text(

@@ -195,11 +195,11 @@ def _normalize_ref_label(label: str) -> str:
     return re.sub(r"\s+", " ", label.strip()).casefold()
 
 
-def _peel_blockquotes(line: str) -> tuple[int, str]:
+def _peel_blockquotes(line: str, max_depth: int | None = None) -> tuple[int, str]:
     """Peel CommonMark leading '>' markers, returning (bq_depth, remainder_expanded)."""
     expanded = line.expandtabs(4)
     depth = 0
-    while True:
+    while max_depth is None or depth < max_depth:
         stripped = expanded.lstrip(" ")
         lead = len(expanded) - len(stripped)
         if lead <= 3 and stripped.startswith(">"):
@@ -218,27 +218,57 @@ def _strip_code_and_comments(markdown_text: str) -> str:
     fence_char = ""
     fence_len = 0
     fence_bq = 0
+    fence_list_depth = 0
     in_indented_code = False
     in_html_block = False
     in_html_comment = False
+    comment_bq = 0
+    comment_list_depth = 0
     raw_html_close: str | None = None
+    raw_html_bq = 0
+    raw_html_list_depth = 0
     in_paragraph = False
     prev_bq = 0
     list_stack: list[int] = []
 
     for line in markdown_text.splitlines(keepends=True):
         nl = "\n" if line.endswith("\n") else ""
-        bq_depth, body = _peel_blockquotes(line)
+        bq_depth, body = _peel_blockquotes(
+            line, max_depth=fence_bq if fence_char else None
+        )
         body_no_eol = body.rstrip("\r\n")
         stripped = body_no_eol.lstrip(" ")
         col_indent = len(body_no_eol) - len(stripped)
         is_blank = stripped == ""
 
-        if fence_char:
-            if bq_depth < fence_bq:
+        if bq_depth != prev_bq:
+            if fence_char and bq_depth < fence_bq:
                 fence_char = ""
                 fence_len = 0
-            else:
+            if in_html_comment and bq_depth < comment_bq:
+                in_html_comment = False
+            if raw_html_close is not None and bq_depth < raw_html_bq:
+                raw_html_close = None
+            in_indented_code = False
+            in_html_block = False
+            if bq_depth > prev_bq or is_blank:
+                in_paragraph = False
+            list_stack.clear()
+            prev_bq = bq_depth
+
+        if not is_blank:
+            while list_stack and col_indent < list_stack[-1]:
+                list_stack.pop()
+            if fence_char and len(list_stack) < fence_list_depth:
+                fence_char = ""
+                fence_len = 0
+            if in_html_comment and len(list_stack) < comment_list_depth:
+                in_html_comment = False
+            if raw_html_close is not None and len(list_stack) < raw_html_list_depth:
+                raw_html_close = None
+
+        if fence_char:
+            if not is_blank:
                 base_indent = list_stack[-1] if list_stack else 0
                 rel_indent = col_indent - base_indent
                 m_close = (
@@ -246,21 +276,11 @@ def _strip_code_and_comments(markdown_text: str) -> str:
                     if 0 <= rel_indent <= 3
                     else None
                 )
-                if m_close:
+                if m_close and bq_depth == fence_bq:
                     fence_char = ""
                     fence_len = 0
-                out_lines.append(nl)
-                continue
-
-        if bq_depth != prev_bq:
-            in_indented_code = False
-            in_html_block = False
-            in_html_comment = False
-            raw_html_close = None
-            if bq_depth > prev_bq or is_blank:
-                in_paragraph = False
-            list_stack.clear()
-            prev_bq = bq_depth
+            out_lines.append(nl)
+            continue
 
         if in_html_comment:
             if "-->" in body_no_eol:
@@ -283,8 +303,6 @@ def _strip_code_and_comments(markdown_text: str) -> str:
             out_lines.append(nl)
             continue
 
-        while list_stack and col_indent < list_stack[-1]:
-            list_stack.pop()
         base_indent = list_stack[-1] if list_stack else 0
         rel_indent = col_indent - base_indent
 
@@ -294,12 +312,57 @@ def _strip_code_and_comments(markdown_text: str) -> str:
                 continue
             in_indented_code = False
 
-        if rel_indent <= 3:
+        # Peel CommonMark list markers on this line (supports nested lists & list-item fences)
+        empty_list_line = False
+        while rel_indent <= 3 and not in_html_block:
+            if re.match(
+                r"^(?:-[ \t]*){3,}$|^(?:\*[ \t]*){3,}$|^(?:_[ \t]*){3,}$",
+                stripped.strip(),
+            ):
+                break
+            m_list = re.match(r"^([-*+]|\d{1,9}[.)])(?:([ \t]+)(.*)|()())$", stripped)
+            if not m_list:
+                break
+            marker = m_list.group(1)
+            spaces = m_list.group(2)
+            rest = m_list.group(3)
+            # In CommonMark, an empty list item or ordered list != 1 cannot interrupt a paragraph
+            if in_paragraph and (
+                rest == "" or (marker[0].isdigit() and marker[:-1] != "1")
+            ):
+                break
+            marker_len = len(marker)
+            in_paragraph = False
+            in_indented_code = False
+            if rest == "":
+                list_stack.append(col_indent + marker_len + 1)
+                empty_list_line = True
+                break
+            space_count = len(spaces)
+            if space_count >= 5:
+                content_base = col_indent + marker_len + 1
+                raw_after_col = col_indent + marker_len + space_count
+            else:
+                content_base = col_indent + marker_len + space_count
+                raw_after_col = content_base
+            list_stack.append(content_base)
+            base_indent = content_base
+            stripped = rest.lstrip(" ")
+            col_indent = raw_after_col + (len(rest) - len(stripped))
+            rel_indent = col_indent - base_indent
+            body_no_eol = (" " * col_indent) + stripped
+
+        if empty_list_line:
+            out_lines.append(nl)
+            continue
+
+        if rel_indent <= 3 and not in_html_block:
             m_fence = re.match(r"^(`{3,}|~{3,})(.*)$", stripped)
             if m_fence and ("`" not in m_fence.group(2) if m_fence.group(1)[0] == "`" else True):
                 fence_char = m_fence.group(1)[0]
                 fence_len = len(m_fence.group(1))
                 fence_bq = bq_depth
+                fence_list_depth = len(list_stack)
                 in_paragraph = False
                 in_html_block = False
                 out_lines.append(nl)
@@ -317,12 +380,14 @@ def _strip_code_and_comments(markdown_text: str) -> str:
         if rel_indent <= 3:
             if stripped.startswith("<!--"):
                 in_paragraph = False
-                if "-->" in stripped[4:]:
-                    idx_end = body_no_eol.find("-->", col_indent + 4) + 3
-                    out_lines.append(body_no_eol[idx_end:] + nl)
-                else:
+                cleaned_line = re.sub(r"<!--.*?-->", "", body_no_eol)
+                if "<!--" in cleaned_line:
                     in_html_comment = True
-                    out_lines.append(nl)
+                    comment_bq = bq_depth
+                    comment_list_depth = len(list_stack)
+                    out_lines.append(cleaned_line[: cleaned_line.find("<!--")] + nl)
+                else:
+                    out_lines.append(cleaned_line + nl)
                 continue
 
             m_raw = re.match(
@@ -335,6 +400,8 @@ def _strip_code_and_comments(markdown_text: str) -> str:
                 in_paragraph = False
                 if not re.search(rf"</{tag_nm}\s*>", stripped, flags=re.IGNORECASE):
                     raw_html_close = tag_nm
+                    raw_html_bq = bq_depth
+                    raw_html_list_depth = len(list_stack)
                 out_lines.append(nl)
                 continue
 
@@ -349,23 +416,6 @@ def _strip_code_and_comments(markdown_text: str) -> str:
                 stripped.strip(),
             ):
                 in_paragraph = False
-                out_lines.append(body_no_eol + nl)
-                continue
-
-            m_list = re.match(r"^(?:[-*+]|\d{1,9}[.)])([ \t]+)(.*)$", stripped)
-            if m_list:
-                marker_w = len(m_list.group(0)) - len(m_list.group(2))
-                rest = m_list.group(2)
-                if rest == "":
-                    list_stack.append(col_indent + 2)
-                    in_paragraph = False
-                else:
-                    list_stack.append(col_indent + marker_w)
-                    in_paragraph = not bool(
-                        re.match(r"^</?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)", rest)
-                    )
-                    if not in_paragraph:
-                        in_html_block = True
                 out_lines.append(body_no_eol + nl)
                 continue
 
