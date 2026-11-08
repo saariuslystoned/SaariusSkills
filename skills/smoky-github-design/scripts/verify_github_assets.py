@@ -195,38 +195,187 @@ def _normalize_ref_label(label: str) -> str:
     return re.sub(r"\s+", " ", label.strip()).casefold()
 
 
+def _peel_blockquotes(line: str) -> tuple[int, str]:
+    """Peel CommonMark leading '>' markers, returning (bq_depth, remainder_expanded)."""
+    expanded = line.expandtabs(4)
+    depth = 0
+    while True:
+        stripped = expanded.lstrip(" ")
+        lead = len(expanded) - len(stripped)
+        if lead <= 3 and stripped.startswith(">"):
+            depth += 1
+            after = stripped[1:]
+            if after.startswith(" "):
+                after = after[1:]
+            expanded = after
+        else:
+            break
+    return depth, expanded
+
+
 def _strip_code_and_comments(markdown_text: str) -> str:
     out_lines: list[str] = []
     fence_char = ""
     fence_len = 0
+    fence_bq = 0
+    in_indented_code = False
+    in_html_block = False
+    in_html_comment = False
+    raw_html_close: str | None = None
+    in_paragraph = False
+    prev_bq = 0
+    list_stack: list[int] = []
+
     for line in markdown_text.splitlines(keepends=True):
-        stripped = line.lstrip(" ")
-        indent = len(line) - len(stripped)
-        if not fence_char:
-            m = re.match(r"^(`{3,}|~{3,})(.*)$", stripped) if indent <= 3 else None
-            if m and ("`" not in m.group(2) if m.group(1)[0] == "`" else True):
-                fence_char = m.group(1)[0]
-                fence_len = len(m.group(1))
-                out_lines.append("\n" if line.endswith("\n") else "")
-                continue
-            out_lines.append(line)
-        else:
-            m = (
-                re.match(
-                    rf"^({re.escape(fence_char)}{{{fence_len},}})[ \t]*\r?\n?$",
-                    stripped,
-                )
-                if indent <= 3
-                else None
-            )
-            if m:
+        nl = "\n" if line.endswith("\n") else ""
+        bq_depth, body = _peel_blockquotes(line)
+        body_no_eol = body.rstrip("\r\n")
+        stripped = body_no_eol.lstrip(" ")
+        col_indent = len(body_no_eol) - len(stripped)
+        is_blank = stripped == ""
+
+        if fence_char:
+            if bq_depth < fence_bq:
                 fence_char = ""
                 fence_len = 0
-            out_lines.append("\n" if line.endswith("\n") else "")
-    without_fences = "".join(out_lines)
+            else:
+                base_indent = list_stack[-1] if list_stack else 0
+                rel_indent = col_indent - base_indent
+                m_close = (
+                    re.match(rf"^({re.escape(fence_char)}{{{fence_len},}})[ \t]*$", stripped)
+                    if 0 <= rel_indent <= 3
+                    else None
+                )
+                if m_close:
+                    fence_char = ""
+                    fence_len = 0
+                out_lines.append(nl)
+                continue
+
+        if bq_depth != prev_bq:
+            in_indented_code = False
+            in_html_block = False
+            in_html_comment = False
+            raw_html_close = None
+            if bq_depth > prev_bq or is_blank:
+                in_paragraph = False
+            list_stack.clear()
+            prev_bq = bq_depth
+
+        if in_html_comment:
+            if "-->" in body_no_eol:
+                idx_end = body_no_eol.find("-->") + 3
+                out_lines.append(body_no_eol[idx_end:] + nl)
+                in_html_comment = False
+            else:
+                out_lines.append(nl)
+            continue
+
+        if raw_html_close is not None:
+            if re.search(rf"</{raw_html_close}\s*>", body_no_eol, flags=re.IGNORECASE):
+                raw_html_close = None
+            out_lines.append(nl)
+            continue
+
+        if is_blank:
+            in_paragraph = False
+            in_html_block = False
+            out_lines.append(nl)
+            continue
+
+        while list_stack and col_indent < list_stack[-1]:
+            list_stack.pop()
+        base_indent = list_stack[-1] if list_stack else 0
+        rel_indent = col_indent - base_indent
+
+        if in_indented_code:
+            if rel_indent >= 4:
+                out_lines.append(nl)
+                continue
+            in_indented_code = False
+
+        if rel_indent <= 3:
+            m_fence = re.match(r"^(`{3,}|~{3,})(.*)$", stripped)
+            if m_fence and ("`" not in m_fence.group(2) if m_fence.group(1)[0] == "`" else True):
+                fence_char = m_fence.group(1)[0]
+                fence_len = len(m_fence.group(1))
+                fence_bq = bq_depth
+                in_paragraph = False
+                in_html_block = False
+                out_lines.append(nl)
+                continue
+
+        if rel_indent >= 4 and not in_paragraph and not in_html_block:
+            in_indented_code = True
+            out_lines.append(nl)
+            continue
+
+        if in_html_block:
+            out_lines.append(body_no_eol + nl)
+            continue
+
+        if rel_indent <= 3:
+            if stripped.startswith("<!--"):
+                in_paragraph = False
+                if "-->" in stripped[4:]:
+                    idx_end = body_no_eol.find("-->", col_indent + 4) + 3
+                    out_lines.append(body_no_eol[idx_end:] + nl)
+                else:
+                    in_html_comment = True
+                    out_lines.append(nl)
+                continue
+
+            m_raw = re.match(
+                r"^<(pre|script|style|textarea)(?:[\s>]|$)",
+                stripped,
+                flags=re.IGNORECASE,
+            )
+            if m_raw:
+                tag_nm = m_raw.group(1).lower()
+                in_paragraph = False
+                if not re.search(rf"</{tag_nm}\s*>", stripped, flags=re.IGNORECASE):
+                    raw_html_close = tag_nm
+                out_lines.append(nl)
+                continue
+
+            if re.match(r"^</?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)|^<![A-Za-z]|^<\?", stripped):
+                in_html_block = True
+                in_paragraph = False
+                out_lines.append(body_no_eol + nl)
+                continue
+
+            if re.match(r"^#{1,6}(?:[ \t]+|$)", stripped) or re.match(
+                r"^(?:-[ \t]*){3,}$|^(?:\*[ \t]*){3,}$|^(?:_[ \t]*){3,}$",
+                stripped.strip(),
+            ):
+                in_paragraph = False
+                out_lines.append(body_no_eol + nl)
+                continue
+
+            m_list = re.match(r"^(?:[-*+]|\d{1,9}[.)])([ \t]+)(.*)$", stripped)
+            if m_list:
+                marker_w = len(m_list.group(0)) - len(m_list.group(2))
+                rest = m_list.group(2)
+                if rest == "":
+                    list_stack.append(col_indent + 2)
+                    in_paragraph = False
+                else:
+                    list_stack.append(col_indent + marker_w)
+                    in_paragraph = not bool(
+                        re.match(r"^</?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)", rest)
+                    )
+                    if not in_paragraph:
+                        in_html_block = True
+                out_lines.append(body_no_eol + nl)
+                continue
+
+        in_paragraph = True
+        out_lines.append(body_no_eol + nl)
+
+    without_blocks = "".join(out_lines)
 
     # Blank CommonMark inline code spans within each paragraph block before HTML parsing
-    blocks = re.split(r"(\r?\n[ \t]*\r?\n)", without_fences)
+    blocks = re.split(r"(\r?\n[ \t]*\r?\n)", without_blocks)
     cleaned_blocks = [
         re.sub(
             r"(`+)(?!`)([\s\S]*?)(?<!`)\1(?!`)",
@@ -379,15 +528,15 @@ def extract_readme_image_urls(rendered_text: str) -> list[str]:
     return urls
 
 
-def classify_github_asset_repo(url: str) -> tuple[str | None, bool]:
-    """Return ((owner/repo) or None, is_ephemeral_signed_host)."""
+def classify_github_asset_repo(url: str) -> tuple[str | None, str | None, bool]:
+    """Return ((owner/repo) or None, surface_kind or None, is_ephemeral_signed_host)."""
     candidate = "https:" + url if url.startswith("//") else url
     parsed = urllib.parse.urlsplit(candidate)
     host = urllib.parse.unquote(parsed.hostname or "").lower()
     if not host:
-        return None, False
+        return None, None, False
     if host in EPHEMERAL_GITHUB_HOSTS:
-        return None, True
+        return None, "ephemeral", True
     segments = [
         urllib.parse.unquote(seg)
         for seg in parsed.path.split("/")
@@ -400,13 +549,14 @@ def classify_github_asset_repo(url: str) -> tuple[str | None, bool]:
             "raw",
             "blob",
             "assets",
+            "archive",
         }:
-            return f"{owner}/{repo}", False
+            return f"{owner}/{repo}", surface, False
     elif host in {"raw.githubusercontent.com", "codeload.github.com"} and len(segments) >= 2:
-        return f"{segments[0]}/{segments[1]}", False
+        return f"{segments[0]}/{segments[1]}", "raw", False
     elif host == "media.githubusercontent.com" and len(segments) >= 3 and segments[0].lower() == "media":
-        return f"{segments[1]}/{segments[2]}", False
-    return None, False
+        return f"{segments[1]}/{segments[2]}", "media", False
+    return None, None, False
 
 
 def inspect_readme(
@@ -469,7 +619,7 @@ def inspect_readme(
         unquoted_url = urllib.parse.unquote(url)
         if url.startswith(("file://", "/Users/", "/home/")):
             errors.append(f"README references machine-local path: {url}")
-        gh_repo_slug, is_ephemeral = classify_github_asset_repo(url)
+        gh_repo_slug, gh_surface, is_ephemeral = classify_github_asset_repo(url)
         if is_ephemeral:
             errors.append(f"README references expiring signed GitHub asset URL: {url}")
         if repo_visibility == "PUBLIC":
@@ -489,6 +639,17 @@ def inspect_readme(
                         f"(verify unauthenticated HTTP 200 and pass --allow-public-shelf {gh_repo_slug}, "
                         f"or use repo-local .github/assets/): {url}"
                     )
+        elif (
+            repo_visibility == "PRIVATE"
+            and gh_repo_slug
+            and gh_surface == "releases"
+            and gh_repo_slug.lower() not in allowed_shelves
+        ):
+            errors.append(
+                f"PRIVATE README embeds GitHub release URL '{gh_repo_slug}' that fails under "
+                f"GitHub's unauthenticated Camo image proxy (use repo-local .github/assets/ for "
+                f"embedded README images, or pass --allow-public-shelf {gh_repo_slug} if the shelf is public): {url}"
+            )
 
     return {
         "path": str(readme_path),

@@ -955,7 +955,8 @@ exit "$1"
                 '</picture>\n\n'
                 'Inline code docs like `Use an <img> element` or '
                 '`<img src="https://github.com/example/private-shelf/releases/download/v1/x.png">` '
-                'must not be treated as live HTML.\n',
+                'must not be treated as live HTML.\n\n'
+                '    <img src="https://github.com/example/private-shelf/releases/download/v1/indented.png">\n',
                 encoding="utf-8",
             )
             ok_run = subprocess.run(
@@ -1068,6 +1069,23 @@ exit "$1"
             self.assertEqual(ref_bad_run.returncode, 1)
             self.assertIn("example/private-shelf", ref_bad_run.stdout)
             self.assertIn("example/latest-shelf", ref_bad_run.stdout)
+
+            # PRIVATE README rejects embedded GitHub release URLs (Camo auth failure)
+            priv_release_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--readme",
+                    str(bad_readme),
+                    "--repo-visibility",
+                    "PRIVATE",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(priv_release_run.returncode, 1)
+            self.assertIn("Camo", priv_release_run.stdout)
 
             zero_mark = tmp_root / "zero.svg"
             zero_mark.write_text(

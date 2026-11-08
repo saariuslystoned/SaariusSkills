@@ -72,7 +72,7 @@ Grounded in the live top-starred GitHub audit ([references/top10-github-anatomy.
 
 Before writing image URLs into `README.md` or `.github/profile/README.md`, check repository visibility (`gh repo view <owner/repo> --json visibility`):
 
-- **Private Repository**: Host multi-hundred-KB binary banners/packs on the owner's designated immutable asset-release repository (or git-tracked `docs/assets/` only if no external release shelf is configured), keeping source repositories lean.
+- **Private Repository**: For **embedded `README.md` banners and inline artwork**, use compact repository-relative paths (for example `.github/assets/banner-{dark,light}.webp` or `.jpg`, `< 250 KB`) so GitHub renders them with the viewer's repository session — **never embed private GitHub release-download URLs (`releases/download/...` or `releases/latest/download/...`) in `<img src>` or `<picture>`**, because GitHub's anonymized Camo image proxy cannot forward viewer credentials and renders broken images even for authorized readers. Keep multi-MB master packs, PR proof boards, and downloadable archives on the designated private immutable asset-release repository.
 - **Public Repository**: **Never link an asset hosted on a `PRIVATE` GitHub repository's release URL** — anonymous visitors and OpenGraph crawlers receive `404` broken images. Use either:
   1. A designated **public** immutable release shelf (`200 OK` verified without auth cookies/headers), or
   2. Small, optimized tracked assets (`< 250 KB` `.webp`/`.jpg`/`.svg` under `public/` or `.github/assets/`), respecting the target repository's `AGENTS.md` and `REPO_HYGIENE.md` clean-room rules.

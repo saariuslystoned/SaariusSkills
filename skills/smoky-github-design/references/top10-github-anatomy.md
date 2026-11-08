@@ -1,6 +1,6 @@
 # Top-Starred GitHub Repository & Organization Front-Door Anatomy
 
-Synthesized from live inspection of GitHub's highest-starred repositories (`codecrafters-io/build-your-own-x`, `sindresorhus/awesome`, `public-apis/public-apis`, `freeCodeCamp/freeCodeCamp`, `morluto/rea`, `EbookFoundation/free-programming-books`, `openclaw/openclaw`, `donnemartin/system-design-primer`, `nilbuild/developer-roadmap`, `jwasham/coding-interview-university`) plus modern developer-tool exemplars (`anomalyco/opencode`, `n8n-io/n8n`, `emdash-cms/emdash`, `github/.github`, `microsoft/.github`).
+Synthesized from live inspection of GitHub's highest-starred repositories (`codecrafters-io/build-your-own-x`, `sindresorhus/awesome`, `public-apis/public-apis`, `freeCodeCamp/freeCodeCamp`, `morluto/rea`, `EbookFoundation/free-programming-books`, `openclaw/openclaw`, `donnemartin/system-design-primer`, `kamranahmedse/developer-roadmap`, `jwasham/coding-interview-university`) plus modern developer-tool exemplars (`anomalyco/opencode`, `n8n-io/n8n`, `emdash-cms/emdash`, `github/.github`, `microsoft/.github`).
 
 ---
 
@@ -11,7 +11,7 @@ Synthesized from live inspection of GitHub's highest-starred repositories (`code
 | **1. Dual-Theme Product Hero** | `openclaw/openclaw`, `anomalyco/opencode` | `# Title — Tagline` (or `<picture>` ornate mark) → `<picture>` `prefers-color-scheme: light` + `dark` full-width banner → centered `style=flat-square` shield bar → bold 2-sentence thesis → `Website · Docs · Getting started · Vision` dot-nav → 1-command install | Flagship apps, frameworks, AI agents, CLI platforms |
 | **2. Centered Technical Authority + Flow Figure** | `morluto/rea`, `donnemartin/system-design-primer` | `<div align="center">` H1 + H3 value prop → `flat-square` capability/version badges → dot-separated quick-links → inline `npx` setup → crisp SVG investigation/system architecture flow diagram | Protocol/MCP servers, compilers, reverse-engineering & developer infrastructure |
 | **3. Clickable Editorial Banner + Curated Index** | `codecrafters-io/build-your-own-x`, `freeCodeCamp/freeCodeCamp` | Full-width clickable hero banner `[![Alt](banner)](url)` → memorable epigraph or 2-sentence mission → scannable categorized index / TOC | Research catalogs, curated indexes, educational curricula, multi-target workbenches |
-| **4. Compact Mark + Pill Nav + Visual Showcase Grid** | `nilbuild/developer-roadmap`, `sindresorhus/awesome`, `emdash-cms/emdash` | Compact centered SVG/PNG mark (`height="70"`) or clean H1 → monochrome pill links (`#0a0a0a` `style=flat`) → 3-column HTML `<table>` visual template/feature cards with real screenshots | CMS ecosystems, starter kits, multi-package monorepos, `.github/profile/README.md` org front doors |
+| **4. Compact Mark + Pill Nav + Visual Showcase Grid** | `kamranahmedse/developer-roadmap`, `sindresorhus/awesome`, `emdash-cms/emdash` | Compact centered SVG/PNG mark (`height="70"`) or clean H1 → monochrome pill links (`#0a0a0a` `style=flat`) → 3-column HTML `<table>` visual template/feature cards with real screenshots | CMS ecosystems, starter kits, multi-package monorepos, `.github/profile/README.md` org front doors |
 
 ---
 
