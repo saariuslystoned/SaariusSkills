@@ -1389,6 +1389,32 @@ exit "$1"
         self.assertAlmostEqual(cone_panel["outer_radius_in"], 12.0311, places=3)
         self.assertGreater(cone_panel["sector_angle_deg"], 43.0)
 
+        # Long (> 300-byte) inline JSON `--calc-container` must parse directly without ENAMETOOLONG filesystem stat
+        long_inline_json = json.dumps(
+            {
+                "container_type": "cylinder",
+                "diameter_in": 2.125,
+                "straight_height_in": 2.0,
+                "seam_gap_in": 0.25,
+                "height_clearance_in": 0.3125,
+                "corner_radius_in": 0.1092,
+                "lid_recess_in": 2.50,
+                "lid_clearance_in": 0.0,
+                "bleed_in": 0.125,
+                "safety_in": 0.0625,
+                "notes": "x" * 180,
+            }
+        )
+        self.assertGreater(len(long_inline_json.encode("utf-8")), 300)
+        long_calc_run = subprocess.run(
+            [sys.executable, str(helper), "--calc-container", long_inline_json],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(long_calc_run.returncode, 0, long_calc_run.stderr)
+        self.assertEqual(len(json.loads(long_calc_run.stdout)["panels"]), 2)
+
         # 3. UPC-A Modulo-10 encoder & bad check-digit rejection
         upc_ok = subprocess.run(
             [sys.executable, str(helper), "--encode-upca", "85004341302"],

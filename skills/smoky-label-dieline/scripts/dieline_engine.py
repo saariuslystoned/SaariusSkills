@@ -3640,7 +3640,14 @@ def main() -> None:
 
     if args.calc_container:
         raw_arg = args.calc_container.strip()
-        cfg = json.loads(Path(raw_arg).read_text(encoding="utf-8")) if Path(raw_arg).is_file() else json.loads(raw_arg)
+        if raw_arg.startswith("{"):
+            cfg = json.loads(raw_arg)
+        else:
+            try:
+                is_file_path = Path(raw_arg).is_file()
+            except OSError:
+                is_file_path = False
+            cfg = json.loads(Path(raw_arg).read_text(encoding="utf-8")) if is_file_path else json.loads(raw_arg)
         print(json.dumps(calculate_container_dieline(cfg), indent=2))
         return
 
