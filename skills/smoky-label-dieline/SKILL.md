@@ -23,10 +23,10 @@ Every PDF produced by [`scripts/dieline_engine.py`](scripts/dieline_engine.py) e
    - `Diecut` (`Spot: Die Line` + `Spot: Fold Line`), `Safety` (`Spot: Safety Line`), `Bleed` (`Spot: Bleed Line`), `Dimensions`, and `Die Template` — visible in on-screen proofs (`/ViewState /ON`) and explicitly suppressed during printing (`/PrintState /OFF` + `/OCProperties/D/AS` `/Print` usage application).
 3. **Spot Color Separations + Stroke Overprint (`OP=true, op=true, OPM=1`)**:
    - Technical lines use `/Separation` spot plates with `/GSOverprint` so they never knock out underlying CMYK ink or contaminate process plates.
-4. **Pure CMYK Process Space (`0` RGB Leaks) & Standards-Compliant `100% K` Vector Codes**:
-   - Zero `/DeviceRGB` objects (`TAC <= 300%` on rich dark fills).
-   - Retail `12`-digit UPC-A barcodes (Modulo-10 verified, `95` bar modules + `9X` left/right quiet zones = `113X`) enforce GS1 80% minimum retail dimensions (`X >= 0.0104"`, total width `>= 1.1752"`, short bar height `>= 0.72"`) and reject undersized layouts unless `"upc": null` or `allow_non_retail_upc_truncation: true`.
-   - COA QR codes render as pure `CMYK(0, 0, 0, 100)` vector modules with an ISO/IEC 18004 `>= 4`-module clear quiet zone on every side.
+4. **Pure CMYK Process Space (`0` RGB Leaks), Enforced `TAC <= 300%`, & Explicit `100% K` Vector Codes**:
+   - Zero `/DeviceRGB` objects, with channel bounds (`0..100%`) and total area ink coverage (`C + M + Y + K <= 300%`) enforced on custom `palette_cmyk` specs and verified in `--preflight` (`tac_within_limit: true`).
+   - Retail `12`-digit UPC-A barcodes render only when `"upc"` is explicitly supplied in the product spec (never defaulting to another SKU's GTIN). When present, Modulo-10 check digits and `95` bar modules + `9X` left/right quiet zones (`113X`) enforce GS1 80% minimum retail dimensions (`X >= 0.0104"`, total width `>= 1.1752"`, short bar height `>= 0.72"`) unless `allow_non_retail_upc_truncation: true`.
+   - Optional QR codes (`"qr_url"` or `"coa_url"`) render only when explicitly supplied, using pure `CMYK(0, 0, 0, 100)` vector modules with an ISO/IEC 18004 `>= 4`-module clear quiet zone on every side.
 
 ---
 

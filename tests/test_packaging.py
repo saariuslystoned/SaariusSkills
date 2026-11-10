@@ -1473,7 +1473,8 @@ exit "$1"
         self.assertEqual(sq_rect.corner_r, 0.0)
         self.assertGreater(rd_rect.corner_r, 0.0)
 
-        # Folded carton & sleeve barcode stays strictly inside one flat body panel (never crosses fold scores)
+        # Folded carton & sleeve barcode stays strictly inside one flat body panel (never crosses fold scores),
+        # and omitting 'upc' or 'qr_url' never fabricates another SKU's GTIN or URL.
         carton_dp = mod.DielinePanel(
             "carton_rte",
             "tuck_box",
@@ -1483,7 +1484,18 @@ exit "$1"
             height_in=carton_panel["height_in"],
             carton_net=carton_panel["carton_net"],
         )
-        carton_plan = mod.plan_panel_artwork_layout(carton_dp, {"product_name": "RELIEF TINCTURE"})
+        carton_no_upc = mod.plan_panel_artwork_layout(carton_dp, {"product_name": "ROASTED COFFEE"})
+        self.assertIsNone(carton_no_upc["upc_rect"])
+        self.assertIsNone(carton_no_upc["qr_zone"]["qr_rect"])
+
+        carton_plan = mod.plan_panel_artwork_layout(
+            carton_dp,
+            {
+                "product_name": "RELIEF TINCTURE",
+                "upc": "850043413028",
+                "qr_url": "https://example.com/coa",
+            },
+        )
         ux, uy, uw, uh = carton_plan["upc_rect"]
         upc_face = carton_plan["upc_face"]
         self.assertGreaterEqual(ux, upc_face["x0"] + carton_dp.safety)
@@ -1491,6 +1503,19 @@ exit "$1"
         for fx1, fy1, fx2, fy2 in carton_dp.fold_segments():
             if abs(fx1 - fx2) < 1e-6:  # vertical fold score
                 self.assertFalse(ux < fx1 < ux + uw, f"Barcode {ux}..{ux+uw} crossed vertical fold at {fx1}")
+
+        # Custom palette CMYK channel bounds and <= 300% TAC enforcement
+        valid_pal = mod.validate_palette_cmyk({"bg": [70, 40, 50, 30]})
+        self.assertEqual(sum(valid_pal["bg"]), 190.0)
+        with self.assertRaises(ValueError):
+            mod.validate_palette_cmyk({"bg": [100, 100, 100, 100]})
+        with self.assertRaises(ValueError):
+            mod.validate_palette_cmyk({"bg": [-5, 10, 10, 10]})
+        with self.assertRaises(ValueError):
+            mod.plan_panel_artwork_layout(
+                sq_rect,
+                {"product_name": "INK OVERLOAD", "palette_cmyk": {"bg": [100, 100, 100, 100]}},
+            )
 
         # Overflowing directions/ingredients copy is rejected rather than silently dropped
         short_rect = mod.DielinePanel("short", "rect", cx=200.0, cy=200.0, width_in=3.0, height_in=1.1)
@@ -1556,11 +1581,22 @@ exit "$1"
                 good_rep = mod.verify_dieline_pdf(good_pdf)
                 self.assertTrue(good_rep["preflight_pass"])
                 self.assertTrue(good_rep["cmyk_only_no_rgb"])
+                self.assertTrue(good_rep["tac_within_limit"])
                 self.assertTrue(good_rep["non_printing_tech_layers"])
 
                 no_printstate_pdf = tmp_root / "missing_printstate.pdf"
                 no_printstate_pdf.write_bytes(good_pdf.read_bytes().replace(b"/PrintState /OFF", b"/PrintState /ON"))
                 self.assertFalse(mod.verify_dieline_pdf(no_printstate_pdf)["preflight_pass"])
+
+                over_tac_stream = zlib.compress(
+                    b"q /OC /LayerArtwork BDC 1.0 1.0 1.0 1.0 k /GSOverprint gs EMC Q\n"
+                )
+                over_tac_pdf = tmp_root / "over_tac.pdf"
+                over_tac_pdf.write_bytes(good_pdf.read_bytes().replace(stream_body, over_tac_stream))
+                tac_rep = mod.verify_dieline_pdf(over_tac_pdf)
+                self.assertFalse(tac_rep["preflight_pass"])
+                self.assertFalse(tac_rep["tac_within_limit"])
+                self.assertAlmostEqual(tac_rep["max_tac_pct"], 400.0, places=2)
 
                 rgb_pdf = tmp_root / "bad_rgb.pdf"
                 rgb_pdf.write_bytes(good_pdf.read_bytes() + b"\n13 0 obj /DeviceRGB endobj\n")

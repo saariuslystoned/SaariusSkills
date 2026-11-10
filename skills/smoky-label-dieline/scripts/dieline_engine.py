@@ -188,6 +188,56 @@ def resolve_font(font_name: str) -> str:
 # ---------------------------------------------------------------------------
 # Spot & Process CMYK Colors (PCMYKColor uses 0..100 integer percentages)
 # ---------------------------------------------------------------------------
+MAX_CMYK_TAC_PCT = 300.0
+
+
+def validate_cmyk_pct(
+    values: Any,
+    name: str = "cmyk",
+    max_tac_pct: float = MAX_CMYK_TAC_PCT,
+) -> tuple[float, float, float, float]:
+    """
+    Validates a 4-channel CMYK percentage sequence (`[C, M, Y, K]` in `0..100`)
+    and enforces total area ink coverage (`C + M + Y + K <= max_tac_pct`).
+    """
+    if not isinstance(values, (list, tuple)) or len(values) != 4:
+        raise ValueError(f"{name} must be a 4-element [C, M, Y, K] percentage sequence, got {values!r}")
+    out: list[float] = []
+    for idx, ch in enumerate(values):
+        if isinstance(ch, bool) or not isinstance(ch, (int, float)):
+            raise ValueError(f"{name}[{idx}] must be numeric percentage in [0, 100], got {ch!r}")
+        val = float(ch)
+        if not math.isfinite(val) or val < 0.0 or val > 100.0:
+            raise ValueError(f"{name}[{idx}] must be within [0, 100]%, got {val!r}")
+        out.append(val)
+    tac = sum(out)
+    if tac > max_tac_pct + 1e-6:
+        raise ValueError(
+            f"{name} total area ink coverage ({tac:.1f}%) exceeds {max_tac_pct:.0f}% prepress TAC limit: {out!r}"
+        )
+    return (out[0], out[1], out[2], out[3])
+
+
+def validate_palette_cmyk(
+    palette: Any,
+    max_tac_pct: float = MAX_CMYK_TAC_PCT,
+) -> dict[str, tuple[float, float, float, float]]:
+    """Validates every entry in a custom `palette_cmyk` mapping against `[0, 100]%` channels and `TAC <= 300%`."""
+    defaults = {
+        "bg": (78.0, 42.0, 58.0, 35.0),
+        "accent": (8.0, 25.0, 72.0, 2.0),
+        "panel": (65.0, 50.0, 48.0, 78.0),
+    }
+    if palette is None:
+        return dict(defaults)
+    if not isinstance(palette, dict):
+        raise ValueError(f"palette_cmyk must be a mapping of color role -> [C, M, Y, K], got {palette!r}")
+    resolved = dict(defaults)
+    for role, vals in palette.items():
+        resolved[str(role)] = validate_cmyk_pct(vals, name=f"palette_cmyk.{role}", max_tac_pct=max_tac_pct)
+    return resolved
+
+
 if HAS_REPORTLAB:
     SPOT_DIELINE = PCMYKColorSep(81, 0, 8, 0, spotName="Die Line", density=100)
     SPOT_SAFETY = PCMYKColorSep(0, 92, 86, 0, spotName="Safety Line", density=100)
@@ -1498,7 +1548,7 @@ class SmokyDielineSheet:
         smoky_vec = self.brand_vecs.get("smoky_co")
         bcx = col_desc_end + brand_w / 2.0
         company_title = str(self.meta.get("company_header", "SMOKY PRODUCT COMPANY"))
-        origin_line = str(self.meta.get("origin_line", "ORIGIN:   MURPHY, NORTH CAROLINA  •  SMOKYMOUNTAINCBD.COM"))
+        origin_line = str(self.meta.get("origin_line", "ORIGIN:   MURPHY, NORTH CAROLINA  •  SMOKYPRODUCT.CO"))
         if smoky_vec:
             draw_normalized_vector(
                 c,
@@ -1706,21 +1756,58 @@ _RGB_OP_RE = re.compile(
     rb"(?:^|[\s\[\]>])(?:\d+(?:\.\d+)?|\.\d+)\s+(?:\d+(?:\.\d+)?|\.\d+)\s+(?:\d+(?:\.\d+)?|\.\d+)\s+(?:rg|RG)(?=[\s/\[<]|$)"
 )
 _CMYK_OP_RE = re.compile(
-    rb"(?:^|[\s\[\]>])(?:\d+(?:\.\d+)?|\.\d+)\s+(?:\d+(?:\.\d+)?|\.\d+)\s+(?:\d+(?:\.\d+)?|\.\d+)\s+(?:\d+(?:\.\d+)?|\.\d+)\s+(?:k|K)(?=[\s/\[<]|$)"
+    rb"(?:^|[\s\[\]>])([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s+([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s+([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s+([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s+(?:k|K)(?=[\s/\[<]|$)"
 )
 
 
+def _extract_pdf_content_streams_only(raw: bytes) -> bytes:
+    """Extracts decompressed non-font, non-image FlateDecode page content streams (excluding object headers/tint functions)."""
+    parts = bytearray()
+    for m in re.finditer(rb"(?<!end)stream\r?\n", raw):
+        hdr_tail = raw[max(0, m.start() - 320) : m.start()]
+        end = raw.find(b"endstream", m.end())
+        if end == -1:
+            break
+        if (
+            b"/Length1" in hdr_tail
+            or b"/Subtype /Image" in hdr_tail
+            or b"/Subtype/Image" in hdr_tail
+            or b"/FunctionType" in hdr_tail
+        ):
+            continue
+        chunk = raw[m.end() : end].rstrip(b"\r\n")
+        for wbits in (zlib.MAX_WBITS, -zlib.MAX_WBITS):
+            try:
+                parts.extend(b"\n")
+                parts.extend(zlib.decompress(chunk, wbits))
+                break
+            except Exception:
+                continue
+    return bytes(parts)
+
+
 def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | None = None) -> dict[str, Any]:
-    """Verifies OCG layers, non-printing technical PrintState, spot separations, overprint, zero RGB leaks, and exact trim dimensions."""
+    """Verifies OCG layers, non-printing technical PrintState, spot separations, overprint, zero RGB leaks, TAC <= 300%, and exact trim dimensions."""
     raw = Path(pdf_path).read_bytes()
     corpus = _extract_pdf_text_and_content_streams(raw)
+    streams_only = _extract_pdf_content_streams_only(raw)
+
+    cmyk_ops = [
+        (float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4)))
+        for m in _CMYK_OP_RE.finditer(streams_only or corpus)
+    ]
+    max_tac_pct = round(max((sum(op) * 100.0 for op in cmyk_ops), default=0.0), 2)
+    tac_within_limit = all(
+        all(-1e-6 <= ch <= 1.0 + 1e-6 for ch in op) and (sum(op) * 100.0 <= MAX_CMYK_TAC_PCT + 1e-3)
+        for op in cmyk_ops
+    )
 
     has_dieline_spot = (b"Die#20Line" in corpus) or (b"Die Line" in corpus)
     has_safety_spot = (b"Safety#20Line" in corpus) or (b"Safety Line" in corpus)
     has_bleed_spot = (b"Bleed#20Line" in corpus) or (b"Bleed Line" in corpus)
     has_overprint = (b"/GSOverprint" in corpus) and (b"/OP true" in corpus or b"/OPM 1" in corpus)
     has_rgb = (b"/DeviceRGB" in corpus) or bool(_RGB_OP_RE.search(corpus))
-    has_cmyk = (b"/DeviceCMYK" in corpus) or bool(_CMYK_OP_RE.search(corpus))
+    has_cmyk = (b"/DeviceCMYK" in corpus) or bool(cmyk_ops)
     has_nonprinting_tech = (
         ((b"/PrintState /OFF" in corpus) or (b"/PrintState/OFF" in corpus))
         and ((b"/PrintState /ON" in corpus) or (b"/PrintState/ON" in corpus))
@@ -1794,6 +1881,7 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
         and has_nonprinting_tech
         and has_cmyk
         and not has_rgb
+        and tac_within_limit
         and len(ocgs) >= 5
         and all(c["matched_exact_diecut"] for c in panel_checks)
     )
@@ -1802,6 +1890,8 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
         "size_kb": round(len(raw) / 1024.0, 1),
         "preflight_pass": ok,
         "cmyk_only_no_rgb": (has_cmyk and not has_rgb),
+        "tac_within_limit": tac_within_limit,
+        "max_tac_pct": max_tac_pct,
         "overprint_enabled": has_overprint,
         "non_printing_tech_layers": has_nonprinting_tech,
         "spot_separations": {
@@ -1977,6 +2067,64 @@ def layout_wrapped_lines(
     )
 
 
+def _resolve_spec_upc(spec: dict[str, Any]) -> str | None:
+    """Returns explicit normalized UPC string when `spec` provides `'upc'`, or `None` when omitted/empty."""
+    raw = spec.get("upc")
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        raise ValueError(f"'upc' must be an 11- or 12-digit GTIN string or null, got {raw!r}")
+    s = str(raw).strip()
+    return s or None
+
+
+def _resolve_spec_qr_url(spec: dict[str, Any]) -> str | None:
+    """Returns explicit QR URL (`'qr_url'` or `'coa_url'`) when provided, or `None` when omitted/empty."""
+    raw = spec.get("qr_url", spec.get("coa_url"))
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        raise ValueError(f"'qr_url' / 'coa_url' must be a URL string or null, got {raw!r}")
+    s = str(raw).strip()
+    return s or None
+
+
+def _resolve_spec_metrics(spec: dict[str, Any]) -> list[dict[str, str]]:
+    """Normalizes optional `'metrics'` (`[{'value': ..., 'label': ...}]`) or `'cannabinoids'` (`[{'mg': ..., 'name': ...}]`)."""
+    raw = spec.get("metrics") if "metrics" in spec else spec.get("cannabinoids")
+    if not raw:
+        return []
+    out: list[dict[str, str]] = []
+    for item in raw:
+        val = str(item.get("value", item.get("mg", ""))).strip()
+        lbl = str(item.get("label", item.get("name", ""))).strip()
+        if val or lbl:
+            out.append({"mg": val, "name": lbl})
+    return out
+
+
+def _resolve_spec_disclaimer(spec: dict[str, Any]) -> str:
+    """Returns explicit `'disclaimer'` / `'fda_disclaimer'`, defaulting to `FDA_DISCLAIMER_DEFAULT` only when `'cannabinoids'` is supplied."""
+    if "disclaimer" in spec:
+        return "" if spec["disclaimer"] is None else str(spec["disclaimer"])
+    if "fda_disclaimer" in spec:
+        return "" if spec["fda_disclaimer"] is None else str(spec["fda_disclaimer"])
+    if "cannabinoids" in spec and spec["cannabinoids"]:
+        return FDA_DISCLAIMER_DEFAULT
+    return ""
+
+
+def _should_use_smcbd_vector(spec: dict[str, Any], has_smcbd_vec: bool) -> bool:
+    """Uses the Smoky Mountain CBD vector mark only when `'logo_key': 'smcbd'` or brand is `'SMOKY MOUNTAIN CBD'`."""
+    if not has_smcbd_vec:
+        return False
+    logo_key = spec.get("logo_key")
+    if logo_key is not None:
+        return str(logo_key).strip().lower() == "smcbd"
+    brand = str(spec.get("brand", "SMOKY PRODUCT CO.")).strip().upper()
+    return brand == "SMOKY MOUNTAIN CBD"
+
+
 def _plan_qr_fda_zone(
     panel_id: str,
     x0: float,
@@ -1985,7 +2133,58 @@ def _plan_qr_fda_zone(
     h: float,
     fda_text: str,
     has_smcbd_vec: bool,
+    has_qr: bool = True,
+    brand: str = "",
 ) -> dict[str, Any]:
+    if not has_qr:
+        empty_fda = {"font_name": "AvenirCond-Reg", "font_size": 4.2, "leading_pt": 4.8, "lines": [], "height_pt": 0.0}
+        vec_box: tuple[float, float, float, float] | None = None
+        brand_line: dict[str, Any] | None = None
+        fda_avail_h = h
+        if has_smcbd_vec and h >= 22.0:
+            vh = min(28.0, h * (0.34 if fda_text.strip() else 0.65))
+            vy = (y0 + h - vh) if fda_text.strip() else (y0 + (h - vh) / 2.0)
+            vec_box = (x0, vy, w, vh)
+            fda_avail_h = (h - vh - 3.0) if fda_text.strip() else 0.0
+        elif brand.strip() and (not fda_text.strip() or h >= 44.0):
+            bfit = fit_tracked_line(
+                brand.strip().upper(),
+                "AvenirCond-Heavy",
+                max_fs=min(7.2, max(3.8, h * 0.14)),
+                min_fs=3.6,
+                max_w=w * 0.94,
+                base_tracking=0.5,
+                panel_id=panel_id,
+                field_name="side brand",
+            )
+            by = (y0 + h - 0.85 * bfit["font_size"]) if fda_text.strip() else (y0 + h / 2.0 - 0.35 * bfit["font_size"])
+            brand_line = {**bfit, "cx": x0 + w / 2.0, "y": by}
+            fda_avail_h = (h - bfit["font_size"] - 4.0) if fda_text.strip() else 0.0
+        fda_layout = (
+            layout_wrapped_lines(
+                fda_text,
+                "AvenirCond-Reg",
+                max_fs=4.8,
+                min_fs=3.6,
+                max_w=w,
+                max_h=fda_avail_h,
+                line_gap=1.14,
+                panel_id=panel_id,
+                block_name="disclaimer",
+            )
+            if fda_text.strip()
+            else empty_fda
+        )
+        fy = y0 + (fda_avail_h - fda_layout["height_pt"]) / 2.0 if (fda_text.strip() and vec_box is None and brand_line is None) else y0
+        fh_out = fda_layout["height_pt"] if (fda_text.strip() and vec_box is None and brand_line is None) else fda_avail_h
+        return {
+            "qr_rect": None,
+            "vec_box": vec_box,
+            "brand_line": brand_line,
+            "fda_box": (x0, fy, w, fh_out),
+            "fda_layout": fda_layout,
+        }
+
     min_qr = 22.0
     cand_qrs = sorted(
         {round(v, 3) for v in (min(42.0, w, h * 0.48), 34.0, 28.0, min_qr) if min_qr <= v <= min(w, h) + 1e-6},
@@ -2020,6 +2219,7 @@ def _plan_qr_fda_zone(
             return {
                 "qr_rect": (qr_x, qr_y, qr_sz, qr_sz),
                 "vec_box": vec_box,
+                "brand_line": None,
                 "fda_box": (x0, y0, w, fda_h),
                 "fda_layout": fda_layout,
             }
@@ -2044,6 +2244,7 @@ def _plan_qr_fda_zone(
             return {
                 "qr_rect": (x0, y0 + (h - qr_sz) / 2.0, qr_sz, qr_sz),
                 "vec_box": None,
+                "brand_line": None,
                 "fda_box": (x0 + qr_sz + 4.0, y0, fda_w, h),
                 "fda_layout": fda_layout,
             }
@@ -2080,33 +2281,38 @@ def _plan_hero_zone(
         net_wt, "AvenirCond-Demi", max_fs=6.0 * sc, min_fs=3.6, max_w=w * 0.94, base_tracking=0.6 * sc, panel_id=panel_id, field_name="net_wt"
     )
     net_y = y0 + 0.25 * net_line["font_size"]
-    net_top = y0 + net_line["font_size"] + 2.0
+    net_top = (y0 + net_line["font_size"] + 2.0) if net_wt.strip() else y0
 
-    n_cb = max(1, len(cannabinoids))
-    gh = max(13.0, min(22.0 * sc_h, h * 0.24))
-    grid_w = w * 0.92
-    cell_w = grid_w / n_cb
-    gx0 = cx - grid_w / 2.0
-    gy0 = net_top + 1.5
     cells: list[dict[str, Any]] = []
-    for idx, cb in enumerate(cannabinoids):
-        mg_fit = fit_tracked_line(
-            str(cb["mg"]), "DINCond-Bold", max_fs=min(8.2 * sc, gh * 0.42), min_fs=3.6, max_w=cell_w - 3.0, base_tracking=0.25, panel_id=panel_id, field_name="potency mg"
-        )
-        nm_fit = fit_tracked_line(
-            str(cb["name"]), "AvenirCond-Bold", max_fs=min(5.2 * sc, gh * 0.28), min_fs=3.4, max_w=cell_w - 3.0, base_tracking=0.30, panel_id=panel_id, field_name="potency name"
-        )
-        cells.append({"x0": gx0 + idx * cell_w, "w": cell_w, "mg": mg_fit, "name": nm_fit})
+    grid_rect: tuple[float, float, float, float] | None = None
+    if cannabinoids:
+        n_cb = len(cannabinoids)
+        gh = max(13.0, min(22.0 * sc_h, h * 0.24))
+        grid_w = w * 0.92
+        cell_w = grid_w / n_cb
+        gx0 = cx - grid_w / 2.0
+        gy0 = net_top + 1.5
+        for idx, cb in enumerate(cannabinoids):
+            mg_fit = fit_tracked_line(
+                str(cb["mg"]), "DINCond-Bold", max_fs=min(8.2 * sc, gh * 0.42), min_fs=3.6, max_w=cell_w - 3.0, base_tracking=0.25, panel_id=panel_id, field_name="metric value"
+            )
+            nm_fit = fit_tracked_line(
+                str(cb["name"]), "AvenirCond-Bold", max_fs=min(5.2 * sc, gh * 0.28), min_fs=3.4, max_w=cell_w - 3.0, base_tracking=0.30, panel_id=panel_id, field_name="metric label"
+            )
+            cells.append({"x0": gx0 + idx * cell_w, "w": cell_w, "mg": mg_fit, "name": nm_fit})
+        grid_rect = (gx0, gy0, grid_w, gh)
+        rem_y0 = gy0 + gh + 3.0
+    else:
+        rem_y0 = net_top + 2.0
 
-    rem_y0 = gy0 + gh + 3.0
     rem_h = (y0 + h) - rem_y0
     if rem_h < 11.0:
         raise ValueError(
-            f"Panel {panel_id!r}: hero zone height ({h / PT_PER_INCH:.2f}\") cannot stack title, subtitle, potency ledger, and net weight without overlap."
+            f"Panel {panel_id!r}: hero zone height ({h / PT_PER_INCH:.2f}\") cannot stack title, subtitle, metrics, and net weight without overlap."
         )
 
     brand_header: dict[str, Any] | None = None
-    if show_brand_header and rem_h >= 54.0:
+    if show_brand_header and rem_h >= 54.0 and (has_smcbd_vec or brand.strip()):
         bh_alloc = min(32.0, rem_h * 0.26)
         if has_smcbd_vec:
             brand_header = {"kind": "vector", "cx": cx, "cy": y0 + h - bh_alloc / 2.0, "w": min(w * 0.56, bh_alloc * 1.65)}
@@ -2128,7 +2334,8 @@ def _plan_hero_zone(
         panel_id=panel_id,
         block_name="subtitle",
     )
-    title_avail_h = rem_h - sub_layout["height_pt"] - 2.0
+    sub_gap = 2.0 if sub_layout["lines"] else 0.0
+    title_avail_h = rem_h - sub_layout["height_pt"] - sub_gap
     if title_avail_h < 4.5:
         raise ValueError(f"Panel {panel_id!r}: hero title and subtitle overflow vertical safe height.")
 
@@ -2159,7 +2366,7 @@ def _plan_hero_zone(
         )
         title_mode = {"kind": "wrapped", "layout": t_wrap, "height_pt": t_wrap["height_pt"]}
 
-    stack_h = title_mode["height_pt"] + 2.0 + sub_layout["height_pt"]
+    stack_h = title_mode["height_pt"] + sub_gap + sub_layout["height_pt"]
     stack_top = rem_y0 + (rem_h + stack_h) / 2.0
     return {
         "x0": x0,
@@ -2169,8 +2376,8 @@ def _plan_hero_zone(
         "title": title_mode,
         "title_top": stack_top,
         "subtitle": sub_layout,
-        "subtitle_top": stack_top - title_mode["height_pt"] - 2.0,
-        "grid_rect": (gx0, gy0, grid_w, gh),
+        "subtitle_top": stack_top - title_mode["height_pt"] - sub_gap,
+        "grid_rect": grid_rect,
         "cells": cells,
         "net_line": net_line,
         "net_y": net_y,
@@ -2333,20 +2540,26 @@ def plan_panel_artwork_layout(
     """
     Computes and validates complete, zero-truncation artwork layout coordinates for a single `DielinePanel`.
     Guarantees:
+      - Custom `palette_cmyk` channels stay within `[0, 100]%` and `C + M + Y + K <= 300%` TAC.
+      - Retail UPC-A barcodes and QR codes render only when explicitly supplied (`'upc'`, `'qr_url'`/`'coa_url'`).
       - Folded cartons (`tuck_box`) and sleeves (`fold_offsets`) place every barcode, QR code, and text block
         strictly within one flat body panel between fold scores (never wrapping across a crease).
-      - Every word of directions, ingredients, FDA disclaimer, and product identity fits without silent line drops.
+      - Every word of directions, ingredients, disclaimer, and product identity fits without silent line drops.
     """
-    brand = str(spec.get("brand", "SMOKY MOUNTAIN CBD"))
-    product_name = str(spec.get("product_name", "TOPICAL BALM"))
-    subtitle = str(spec.get("subtitle", "FULL SPECTRUM HEMP EXTRACT"))
-    net_wt = str(spec.get("net_wt", "NET WT. 4 OZ (113G)"))
-    cannabinoids = list(spec.get("cannabinoids", [{"mg": "500MG", "name": "CBD"}]))
-    ingredients = str(spec.get("ingredients", "Octyldodecanol, Squalane, Hemp Extract."))
-    directions = str(spec.get("directions", "Apply to affected area and massage thoroughly as needed."))
-    upc = spec.get("upc", "850043413028") if "upc" not in spec else spec.get("upc")
+    validate_palette_cmyk(spec.get("palette_cmyk"))
+    brand = str(spec.get("brand", "SMOKY PRODUCT CO."))
+    product_name = str(spec.get("product_name", "PACKAGED PRODUCT"))
+    subtitle = str(spec.get("subtitle", ""))
+    net_wt = str(spec.get("net_wt", ""))
+    cannabinoids = _resolve_spec_metrics(spec)
+    ingredients = str(spec.get("ingredients", ""))
+    directions = str(spec.get("directions", ""))
+    upc = _resolve_spec_upc(spec)
+    qr_url = _resolve_spec_qr_url(spec)
+    has_qr = bool(qr_url)
+    use_smcbd_vec = _should_use_smcbd_vector(spec, has_smcbd_vec)
     allow_upc_trunc = bool(spec.get("allow_non_retail_upc_truncation", False))
-    fda_text = str(spec.get("fda_disclaimer", FDA_DISCLAIMER_DEFAULT))
+    fda_text = _resolve_spec_disclaimer(spec)
     min_gs1_w = inch(GS1_UPCA_MIN_WIDTH_IN) + 1.4
 
     # 1. Circular cap / standalone circular sticker
@@ -2354,9 +2567,9 @@ def plan_panel_artwork_layout(
         p.shape == "circle"
         and not is_auxiliary_cap
         and (
-            ("upc" in spec and bool(spec["upc"]))
-            or "directions" in spec
-            or "ingredients" in spec
+            bool(upc)
+            or bool(directions.strip())
+            or bool(ingredients.strip())
         )
     )
     if p.shape == "circle" and not standalone_circle_needs_full_zones:
@@ -2368,29 +2581,31 @@ def plan_panel_artwork_layout(
         arch_sub = None
         hero_lines = None
         if r_safe >= 42.0:
-            r_arch = r_safe - 10.0 * sc
-            sub_fit = fit_tracked_line(
-                subtitle.upper(), "AvenirCond-Demi", max_fs=5.8 * sc, min_fs=3.6, max_w=math.pi * r_arch * 1.15, base_tracking=0.8 * sc, panel_id=p.panel_id, field_name="lid subtitle"
-            )
-            arch_sub = {"radius": r_arch, "line": sub_fit}
+            if subtitle.strip():
+                r_arch = r_safe - 10.0 * sc
+                sub_fit = fit_tracked_line(
+                    subtitle.upper(), "AvenirCond-Demi", max_fs=5.8 * sc, min_fs=3.6, max_w=math.pi * r_arch * 1.15, base_tracking=0.8 * sc, panel_id=p.panel_id, field_name="lid subtitle"
+                )
+                arch_sub = {"radius": r_arch, "line": sub_fit}
             chord_title = 2.0 * math.sqrt(max(4.0, (r_safe - 4.0) ** 2 - (r_safe * 0.18) ** 2))
             chord_badge = 2.0 * math.sqrt(max(4.0, (r_safe - 4.0) ** 2 - (r_safe * 0.42) ** 2))
             chord_net = 2.0 * math.sqrt(max(4.0, (r_safe - 4.0) ** 2 - (r_safe * 0.62) ** 2))
-            badge_str = " • ".join(f"{cb['mg']} {cb['name']}" for cb in cannabinoids)
+            badge_str = " • ".join(f"{cb['mg']} {cb['name']}".strip() for cb in cannabinoids)
             hero_lines = {
                 "title": (p.cy - r_safe * 0.18, fit_tracked_line(product_name.upper(), "DINCond-Bold", 16.0 * sc, 4.2, chord_title * 0.92, 1.0 * sc, p.panel_id, "lid title")),
-                "badge": (p.cy - r_safe * 0.42, fit_tracked_line(badge_str, "AvenirCond-Bold", 6.0 * sc, 3.6, chord_badge * 0.92, 0.4 * sc, p.panel_id, "lid potency")),
+                "badge": (p.cy - r_safe * 0.42, fit_tracked_line(badge_str, "AvenirCond-Bold", 6.0 * sc, 3.6, chord_badge * 0.92, 0.4 * sc, p.panel_id, "lid metrics")),
                 "net": (p.cy - r_safe * 0.62, fit_tracked_line(net_wt, "AvenirCond-Med", 5.4 * sc, 3.6, chord_net * 0.92, 0.6 * sc, p.panel_id, "lid net_wt")),
             }
         brand_y = p.cy + (r_safe * 0.18 if r_safe >= 42.0 else 0.0)
         chord_brand = 2.0 * math.sqrt(max(4.0, (r_safe - 4.0) ** 2 - (brand_y - p.cy) ** 2))
         brand_line = (
             None
-            if has_smcbd_vec
+            if use_smcbd_vec
             else fit_tracked_line(brand, "AvenirCond-Heavy", 10.0 * sc, 3.8, chord_brand * 0.90, 0.8 * sc, p.panel_id, "lid brand")
         )
         return {
             "mode": "circle_cap",
+            "use_smcbd_vec": use_smcbd_vec,
             "ring_r": ring_r,
             "sc": sc,
             "arch_sub": arch_sub,
@@ -2428,13 +2643,20 @@ def plan_panel_artwork_layout(
             raise ValueError(
                 f"Conical panel {p.panel_id!r} arc span ({2.0 * r1_safe * half_theta_safe / PT_PER_INCH:.2f}\") is too narrow for center and wing zones."
             )
-        badge_line = " • ".join(f"{cb['mg']} {cb['name']}" for cb in cannabinoids)
+        badge_line = " • ".join(f"{cb['mg']} {cb['name']}".strip() for cb in cannabinoids)
+        sub_combo = "  |  ".join(part for part in (subtitle.strip().upper(), badge_line.strip()) if part)
         arched_specs = [
             (r_mid + sgn * band_safe * 0.30, fit_tracked_line(brand.upper(), "AvenirCond-Bold", 7.0 * sc, 3.8, max_hero_arc, 0.8 * sc, p.panel_id, "conical brand"), "accent"),
             (r_mid + sgn * band_safe * 0.08, fit_tracked_line(product_name.upper(), "DINCond-Bold", 15.0 * sc, 4.6, max_hero_arc, 1.0 * sc, p.panel_id, "conical title"), "white"),
-            (r_mid - sgn * band_safe * 0.14, fit_tracked_line(f"{subtitle.upper()}  |  {badge_line}", "AvenirCond-Demi", 6.0 * sc, 3.6, max_hero_arc, 0.6 * sc, p.panel_id, "conical subtitle"), "accent"),
-            (r_mid - sgn * band_safe * 0.32, fit_tracked_line(net_wt, "AvenirCond-Med", 5.6 * sc, 3.6, max_hero_arc, 0.6 * sc, p.panel_id, "conical net_wt"), "white"),
         ]
+        if sub_combo:
+            arched_specs.append(
+                (r_mid - sgn * band_safe * 0.14, fit_tracked_line(sub_combo, "AvenirCond-Demi", 6.0 * sc, 3.6, max_hero_arc, 0.6 * sc, p.panel_id, "conical subtitle"), "accent")
+            )
+        if net_wt.strip():
+            arched_specs.append(
+                (r_mid - sgn * band_safe * 0.32, fit_tracked_line(net_wt, "AvenirCond-Med", 5.6 * sc, 3.6, max_hero_arc, 0.6 * sc, p.panel_id, "conical net_wt"), "white")
+            )
         theta_hero_half = max((item[1]["width_pt"] / 2.0) / max(r1_safe, 1.0) for item in arched_specs) + 0.014
         if theta_hero_half >= half_theta_safe - 0.04:
             raise ValueError(f"Conical panel {p.panel_id!r} center hero copy leaves insufficient arc for QR/FDA and barcode wings.")
@@ -2455,13 +2677,24 @@ def plan_panel_artwork_layout(
             if ww < 44.0 or wh < 24.0:
                 continue
             try:
-                left_plan = _plan_qr_fda_zone(p.panel_id, -ww / 2.0, -wh / 2.0, ww, wh, fda_text, has_smcbd_vec)
+                left_plan = _plan_qr_fda_zone(
+                    p.panel_id,
+                    -ww / 2.0,
+                    -wh / 2.0,
+                    ww,
+                    wh,
+                    fda_text,
+                    use_smcbd_vec,
+                    has_qr=has_qr,
+                    brand="",
+                )
                 right_plan = _plan_directions_upc_zone(
                     p.panel_id, -ww / 2.0, -wh / 2.0, ww, wh, directions, ingredients, str(upc) if upc else None, allow_upc_trunc
                 )
                 best_wing = (ww, wh)
                 return {
                     "mode": "conical",
+                    "use_smcbd_vec": use_smcbd_vec,
                     "y_apex": y_apex,
                     "r_mid": r_mid,
                     "top_mode": top_mode,
@@ -2531,18 +2764,19 @@ def plan_panel_artwork_layout(
                 fx, fy, fw, fh = _safe_box(fda_face)
 
                 hero_plan = _plan_hero_zone(
-                    p.panel_id, hx, hy, hw, hh, brand, product_name, subtitle, cannabinoids, net_wt, has_smcbd_vec, show_brand_header=True
+                    p.panel_id, hx, hy, hw, hh, brand, product_name, subtitle, cannabinoids, net_wt, use_smcbd_vec, show_brand_header=True
                 )
                 upc_plan = _plan_directions_upc_zone(
                     p.panel_id, ux, uy, uw, uh, directions, ingredients, str(upc) if upc else None, allow_upc_trunc
                 )
-                qr_plan = _plan_qr_fda_zone(p.panel_id, qx, qy, qw, qh, "", has_smcbd_vec)
+                qr_plan = _plan_qr_fda_zone(p.panel_id, qx, qy, qw, qh, "", use_smcbd_vec, has_qr=has_qr, brand=brand)
                 fda_only = layout_wrapped_lines(
-                    fda_text, "AvenirCond-Reg", max_fs=4.8, min_fs=3.6, max_w=fw, max_h=fh, line_gap=1.15, panel_id=p.panel_id, block_name="FDA disclaimer"
+                    fda_text, "AvenirCond-Reg", max_fs=4.8, min_fs=3.6, max_w=fw, max_h=fh, line_gap=1.15, panel_id=p.panel_id, block_name="disclaimer"
                 )
                 fda_y_mid = fy + (fh - fda_only["height_pt"]) / 2.0
                 return {
                     "mode": "folded_4face",
+                    "use_smcbd_vec": use_smcbd_vec,
                     "faces": faces,
                     "tinted_faces": [qr_face, fda_face],
                     "hero": hero_plan,
@@ -2564,14 +2798,15 @@ def plan_panel_artwork_layout(
             ux, uy, uw, uh = _safe_box(upc_f)
             qx, qy, qw, qh = _safe_box(qrfda_f)
             hero_plan = _plan_hero_zone(
-                p.panel_id, hx, hy, hw, hh, brand, product_name, subtitle, cannabinoids, net_wt, has_smcbd_vec, show_brand_header=True
+                p.panel_id, hx, hy, hw, hh, brand, product_name, subtitle, cannabinoids, net_wt, use_smcbd_vec, show_brand_header=True
             )
             upc_plan = _plan_directions_upc_zone(
                 p.panel_id, ux, uy, uw, uh, directions, ingredients, str(upc) if upc else None, allow_upc_trunc
             )
-            qrfda_plan = _plan_qr_fda_zone(p.panel_id, qx, qy, qw, qh, fda_text, has_smcbd_vec)
+            qrfda_plan = _plan_qr_fda_zone(p.panel_id, qx, qy, qw, qh, fda_text, use_smcbd_vec, has_qr=has_qr, brand=brand)
             return {
                 "mode": "folded_3face",
+                "use_smcbd_vec": use_smcbd_vec,
                 "faces": faces,
                 "tinted_faces": [qrfda_f],
                 "hero": hero_plan,
@@ -2588,15 +2823,16 @@ def plan_panel_artwork_layout(
         sub_hero_w = lw - sub_qr_w - 6.0
         if sub_hero_w < 46.0:
             raise ValueError(f"Folded 2-face panel {p.panel_id!r} face is too narrow for QR/FDA and hero content.")
-        qrfda_plan = _plan_qr_fda_zone(p.panel_id, lx, ly, sub_qr_w, lh, fda_text, has_smcbd_vec)
+        qrfda_plan = _plan_qr_fda_zone(p.panel_id, lx, ly, sub_qr_w, lh, fda_text, use_smcbd_vec, has_qr=has_qr, brand=brand)
         hero_plan = _plan_hero_zone(
-            p.panel_id, lx + sub_qr_w + 6.0, ly, sub_hero_w, lh, brand, product_name, subtitle, cannabinoids, net_wt, has_smcbd_vec
+            p.panel_id, lx + sub_qr_w + 6.0, ly, sub_hero_w, lh, brand, product_name, subtitle, cannabinoids, net_wt, use_smcbd_vec
         )
         upc_plan = _plan_directions_upc_zone(
             p.panel_id, rx, ry, rw, rh, directions, ingredients, str(upc) if upc else None, allow_upc_trunc
         )
         return {
             "mode": "folded_3face",
+            "use_smcbd_vec": use_smcbd_vec,
             "faces": faces,
             "tinted_faces": [],
             "hero": hero_plan,
@@ -2661,7 +2897,9 @@ def plan_panel_artwork_layout(
             )
             continue
         try:
-            qr_plan = _plan_qr_fda_zone(p.panel_id, safe_x0, safe_y0, left_w, safe_h, fda_text, has_smcbd_vec)
+            qr_plan = _plan_qr_fda_zone(
+                p.panel_id, safe_x0, safe_y0, left_w, safe_h, fda_text, use_smcbd_vec, has_qr=has_qr, brand=""
+            )
             hero_plan = _plan_hero_zone(
                 p.panel_id,
                 safe_x0 + left_w + col_gap,
@@ -2673,7 +2911,8 @@ def plan_panel_artwork_layout(
                 subtitle,
                 cannabinoids,
                 net_wt,
-                has_smcbd_vec,
+                use_smcbd_vec,
+                show_brand_header=not (has_qr and use_smcbd_vec),
             )
             upc_plan = _plan_directions_upc_zone(
                 p.panel_id,
@@ -2690,6 +2929,7 @@ def plan_panel_artwork_layout(
             div_right = safe_x0 + safe_w - right_w - col_gap * 0.5
             return {
                 "mode": "flat_3zone",
+                "use_smcbd_vec": use_smcbd_vec,
                 "draw_dividers": draw_dividers,
                 "div_left": div_left,
                 "div_right": div_right,
@@ -2729,14 +2969,19 @@ def _draw_wrapped_block(c: canvas.Canvas, box: tuple[float, float, float, float]
 def _draw_planned_qr_fda(
     c: canvas.Canvas,
     qr_plan: dict[str, Any],
-    coa_url: str,
+    coa_url: str | None,
     smcbd_vec: dict[str, Any] | None,
+    accent_col: PCMYKColor,
 ) -> None:
-    qx, qy, qw, _ = qr_plan["qr_rect"]
-    draw_vector_qr(c, coa_url, qx, qy, qw, quiet_modules=QR_MIN_QUIET_MODULES)
+    if qr_plan.get("qr_rect") and coa_url:
+        qx, qy, qw, _ = qr_plan["qr_rect"]
+        draw_vector_qr(c, coa_url, qx, qy, qw, quiet_modules=QR_MIN_QUIET_MODULES)
     if qr_plan.get("vec_box") and smcbd_vec:
         vx, vy, vw, vh = qr_plan["vec_box"]
         draw_normalized_vector(c, smcbd_vec, vx + vw / 2.0, vy + vh / 2.0, min(46.0, vw * 0.92), CMYK_WHITE)
+    elif qr_plan.get("brand_line"):
+        bl = qr_plan["brand_line"]
+        draw_tracked_text(c, bl["text"], bl["cx"], bl["y"], bl["font_name"], bl["font_size"], accent_col, bl["tracking_pt"])
     _draw_wrapped_block(c, qr_plan["fda_box"], qr_plan["fda_layout"], CMYK_WHITE)
 
 
@@ -2769,26 +3014,29 @@ def _draw_planned_hero(
 
     sub_layout = hero_plan["subtitle"]
     sub_top = hero_plan["subtitle_top"]
-    _draw_wrapped_block(c, (hx0, sub_top - sub_layout["height_pt"], hw, sub_layout["height_pt"]), sub_layout, accent_col, align="center")
+    if sub_layout["lines"]:
+        _draw_wrapped_block(c, (hx0, sub_top - sub_layout["height_pt"], hw, sub_layout["height_pt"]), sub_layout, accent_col, align="center")
 
-    gx0, gy0, grid_w, gh = hero_plan["grid_rect"]
-    c.setFillColor(panel_col)
-    c.setStrokeColor(accent_col)
-    c.setLineWidth(0.7)
-    c.roundRect(gx0, gy0, grid_w, gh, 2.0, stroke=1, fill=1)
-    for idx, cell in enumerate(hero_plan["cells"]):
-        cx_i = cell["x0"]
-        cw_i = cell["w"]
-        if idx > 0:
-            c.setLineWidth(0.45)
-            c.line(cx_i, gy0 + 2.5, cx_i, gy0 + gh - 2.5)
-        mg = cell["mg"]
-        nm = cell["name"]
-        draw_tracked_text(c, mg["text"], cx_i + cw_i / 2.0, gy0 + gh * 0.52, mg["font_name"], mg["font_size"], CMYK_WHITE, mg["tracking_pt"])
-        draw_tracked_text(c, nm["text"], cx_i + cw_i / 2.0, gy0 + gh * 0.16, nm["font_name"], nm["font_size"], accent_col, nm["tracking_pt"])
+    if hero_plan["grid_rect"] and hero_plan["cells"]:
+        gx0, gy0, grid_w, gh = hero_plan["grid_rect"]
+        c.setFillColor(panel_col)
+        c.setStrokeColor(accent_col)
+        c.setLineWidth(0.7)
+        c.roundRect(gx0, gy0, grid_w, gh, 2.0, stroke=1, fill=1)
+        for idx, cell in enumerate(hero_plan["cells"]):
+            cx_i = cell["x0"]
+            cw_i = cell["w"]
+            if idx > 0:
+                c.setLineWidth(0.45)
+                c.line(cx_i, gy0 + 2.5, cx_i, gy0 + gh - 2.5)
+            mg = cell["mg"]
+            nm = cell["name"]
+            draw_tracked_text(c, mg["text"], cx_i + cw_i / 2.0, gy0 + gh * 0.52, mg["font_name"], mg["font_size"], CMYK_WHITE, mg["tracking_pt"])
+            draw_tracked_text(c, nm["text"], cx_i + cw_i / 2.0, gy0 + gh * 0.16, nm["font_name"], nm["font_size"], accent_col, nm["tracking_pt"])
 
     nl = hero_plan["net_line"]
-    draw_tracked_text(c, nl["text"], cx, hero_plan["net_y"], nl["font_name"], nl["font_size"], CMYK_WHITE, nl["tracking_pt"])
+    if nl["text"]:
+        draw_tracked_text(c, nl["text"], cx, hero_plan["net_y"], nl["font_name"], nl["font_size"], CMYK_WHITE, nl["tracking_pt"])
 
 
 def _draw_planned_directions_upc(
@@ -2809,17 +3057,17 @@ def _draw_planned_directions_upc(
 
 
 def build_generic_spec_artwork(spec: dict[str, Any]) -> Callable[[canvas.Canvas, list[DielinePanel], dict[str, Any]], None]:
-    """Creates clean, responsive CMYK packaging artwork pre-verified for fold boundaries and zero copy overflow."""
-    theme = spec.get("palette_cmyk", {})
-    bg_col = PCMYKColor(*theme.get("bg", [78, 42, 58, 35]))
-    accent_col = PCMYKColor(*theme.get("accent", [8, 25, 72, 2]))
-    panel_col = PCMYKColor(*theme.get("panel", [65, 50, 48, 78]))
-    upc = spec.get("upc", "850043413028") if "upc" not in spec else spec.get("upc")
+    """Creates clean, responsive CMYK packaging artwork pre-verified for TAC <= 300%, fold boundaries, and zero copy overflow."""
+    palette = validate_palette_cmyk(spec.get("palette_cmyk"))
+    bg_col = PCMYKColor(*palette["bg"])
+    accent_col = PCMYKColor(*palette["accent"])
+    panel_col = PCMYKColor(*palette["panel"])
+    upc = _resolve_spec_upc(spec)
     allow_upc_trunc = bool(spec.get("allow_non_retail_upc_truncation", False))
-    coa_url = str(spec.get("coa_url", "https://smokymountaincbd.com/lab-results/"))
+    coa_url = _resolve_spec_qr_url(spec)
 
     def _render(c: canvas.Canvas, panels: list[DielinePanel], brand_vecs: dict[str, Any]) -> None:
-        smcbd_vec = brand_vecs.get("smcbd")
+        raw_smcbd_vec = brand_vecs.get("smcbd")
         has_non_circle = any(op.shape != "circle" for op in panels)
 
         for p in panels:
@@ -2827,8 +3075,9 @@ def build_generic_spec_artwork(spec: dict[str, Any]) -> Callable[[canvas.Canvas,
                 p,
                 spec,
                 is_auxiliary_cap=(p.shape == "circle" and has_non_circle),
-                has_smcbd_vec=bool(smcbd_vec),
+                has_smcbd_vec=bool(raw_smcbd_vec),
             )
+            smcbd_vec = raw_smcbd_vec if plan.get("use_smcbd_vec") else None
             c.saveState()
             c.clipPath(p.make_path(c, +p.bleed), stroke=0, fill=0)
             span_w = max(p.w, p.top_w)
@@ -2854,7 +3103,8 @@ def build_generic_spec_artwork(spec: dict[str, Any]) -> Callable[[canvas.Canvas,
                 if plan["hero_lines"]:
                     for key, col in (("title", CMYK_WHITE), ("badge", accent_col), ("net", CMYK_WHITE)):
                         ly, ln = plan["hero_lines"][key]
-                        draw_tracked_text(c, ln["text"], p.cx, ly, ln["font_name"], ln["font_size"], col, ln["tracking_pt"])
+                        if ln["text"]:
+                            draw_tracked_text(c, ln["text"], p.cx, ly, ln["font_name"], ln["font_size"], col, ln["tracking_pt"])
 
             elif mode == "conical":
                 top_mode = plan["top_mode"]
@@ -2883,7 +3133,7 @@ def build_generic_spec_artwork(spec: dict[str, Any]) -> Callable[[canvas.Canvas,
                     c.translate(wx, wy)
                     c.rotate(-math.degrees(ang) if top_mode else math.degrees(ang))
                     if is_left:
-                        _draw_planned_qr_fda(c, wing_plan, coa_url, smcbd_vec)
+                        _draw_planned_qr_fda(c, wing_plan, coa_url, smcbd_vec, accent_col)
                     else:
                         _draw_planned_directions_upc(c, wing_plan, str(upc) if upc else None, allow_upc_trunc, accent_col)
                     c.restoreState()
@@ -2894,7 +3144,7 @@ def build_generic_spec_artwork(spec: dict[str, Any]) -> Callable[[canvas.Canvas,
                     c.rect(tf["x0"], tf["y0"], tf["x1"] - tf["x0"], tf["y1"] - tf["y0"], stroke=0, fill=1)
                 _draw_planned_hero(c, plan["hero"], smcbd_vec, panel_col, accent_col)
                 _draw_planned_directions_upc(c, plan["upc_zone"], str(upc) if upc else None, allow_upc_trunc, accent_col)
-                _draw_planned_qr_fda(c, plan["qr_zone"], coa_url, smcbd_vec)
+                _draw_planned_qr_fda(c, plan["qr_zone"], coa_url, smcbd_vec, accent_col)
                 if mode == "folded_4face":
                     _draw_wrapped_block(c, plan["fda_box"], plan["fda_layout"], CMYK_WHITE)
 
@@ -2907,7 +3157,7 @@ def build_generic_spec_artwork(spec: dict[str, Any]) -> Callable[[canvas.Canvas,
                     c.setLineWidth(0.8)
                     c.line(plan["div_left"], by0, plan["div_left"], by0 + bh)
                     c.line(plan["div_right"], by0, plan["div_right"], by0 + bh)
-                _draw_planned_qr_fda(c, plan["qr_zone"], coa_url, smcbd_vec)
+                _draw_planned_qr_fda(c, plan["qr_zone"], coa_url, smcbd_vec, accent_col)
                 _draw_planned_hero(c, plan["hero"], smcbd_vec, panel_col, accent_col)
                 _draw_planned_directions_upc(c, plan["upc_zone"], str(upc) if upc else None, allow_upc_trunc, accent_col)
 
