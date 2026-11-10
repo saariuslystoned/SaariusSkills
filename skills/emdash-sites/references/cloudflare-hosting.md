@@ -131,13 +131,22 @@ allowlist or sharing one mutable staging database, prefer
   sets a valid `createdAt` `Date` when omitted by upstream's preview user stub,
   preventing `/_emdash/admin` account/profile views from throwing on undefined
   timestamps.
-- **Abuse gates, stale-cookie recovery, and indexing:** Gate
-  `POST /_playground/init` with Cloudflare Turnstile verification and a Worker
-  Rate Limiter binding (`limit({ key })`) before allocating new Durable Object
-  instances. If an incoming `emdash_playground` session cookie fails validation
-  or points at an expired/corrupt preview instance, clear the cookie and recover
-  cleanly instead of trapping the visitor in repeated `500` responses. Send
-  `X-Robots-Tag: noindex, nofollow` on every playground response.
+- **Abuse gates, stale-cookie recovery, and indexing:** Require server-verified
+  admission before passing a session to the upstream Playground middleware on
+  **every request**, including ordinary `GET` routes. Its implicit initialization
+  path can allocate and seed a Durable Object from an `emdash_playground` cookie;
+  protecting only `POST /_playground/init` does not cover that path. Verify
+  Cloudflare Turnstile and a Worker Rate Limiter binding (`limit({ key })`)
+  before admitting a new session, then use a server-issued, authenticated,
+  expiring admission marker bound to that exact session. Reject or redirect
+  unknown sessions to the admission flow without invoking upstream middleware;
+  a well-formed client-supplied cookie alone is not admission. Apply the same
+  check to `POST /_playground/init`. If a session expires or its preview instance
+  is corrupt, clear its cookie and admission marker and return to the gated
+  admission flow instead of silently allocating a replacement. Send
+  `X-Robots-Tag: noindex, nofollow` on every playground response. Verify that
+  fresh forged cookies on `GET /` and direct init requests cannot initialize a
+  Durable Object, while a verified admitted session can use both routes.
 - **Floating Playground pill safe-area (`~56px`):** EmDash's Playground runtime
   injects a floating status/reset pill anchored to the bottom of the viewport.
   Reserve at least `56px` of bottom safe-area clearance (`padding-bottom` or

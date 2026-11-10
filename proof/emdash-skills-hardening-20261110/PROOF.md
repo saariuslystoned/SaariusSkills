@@ -27,3 +27,20 @@ Distills field-verified EmDash, Stitch, Cloudflare Workers, and Playground guard
 ## Gates
 
 - Merge remains human-gated. No live deployments, secret reads, or vendor-mirror edits performed.
+
+## OpenClaw review repair
+
+- Reviewed source: `4f19e81b020d69438039c3e34527a07cf21cf070` against
+  `12895130c874d01dac69e0ecc9f329e1be1475e6`; comprehensive P3 request
+  `req-20261110T175922Z-284074024554` found one P2 documentation defect.
+- Accepted as `required_fix`: gating only `POST /_playground/init` misses the
+  upstream middleware's implicit initialization on ordinary requests carrying
+  an unknown session cookie. Verified the ordinary-route initialization path in
+  [upstream middleware at 5b8d4196](https://github.com/emdash-cms/emdash/blob/5b8d41962a7a7345fd6e345d3609010182a68f87/packages/cloudflare/src/db/playground-middleware.ts).
+- The recipe now requires authenticated, expiring server admission tied to the
+  session before upstream middleware on every request, covers direct init and
+  forged-cookie GET paths, and returns expired/corrupt sessions to admission.
+  The skill summary and scenario table retain the same boundary.
+- Repair validation: `python3 -m unittest tests.test_packaging -q` — 35 tests,
+  OK; `git diff --check` — clean. This proves documentation packaging, not a
+  deployed middleware implementation. No live Worker or account was changed.
