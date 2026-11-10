@@ -251,10 +251,133 @@ def normalize_and_encode_upca(code: str) -> tuple[str, str]:
     return digits, bits
 
 
+GS1_UPCA_MIN_X_IN = 0.0104
+GS1_UPCA_MODULES_TOTAL = 113  # 9X left quiet + 95X symbol + 9X right quiet
+GS1_UPCA_MIN_WIDTH_IN = GS1_UPCA_MODULES_TOTAL * GS1_UPCA_MIN_X_IN  # 1.1752 in (84.6144 pt)
+GS1_UPCA_MIN_BAR_HEIGHT_IN = 0.72  # GS1 80% minimum retail bar height (51.84 pt)
+QR_MIN_QUIET_MODULES = 4.0  # ISO/IEC 18004 / DENSO Wave 4-module quiet zone
+
+
+def develop_conical_wrap(
+    arc_inner_in: float,
+    arc_outer_in: float,
+    band_height_in: float,
+    apex_down: bool = True,
+) -> dict[str, Any]:
+    """
+    Develops a non-stretch tapered cone/frustum band into an exact concentric annular sector.
+    Rejects non-positive bands or extreme squat funnels (> 170 deg sector sweep).
+    """
+    if arc_inner_in <= 0 or arc_outer_in <= 0 or band_height_in <= 0:
+        raise ValueError("Conical wrap arc lengths and slant band height must be positive")
+    s_small = min(arc_inner_in, arc_outer_in)
+    s_large = max(arc_inner_in, arc_outer_in)
+    if s_large - s_small < 1e-6:
+        raise ValueError("Equal inner and outer arcs define a cylindrical rectangle, not a conical sector")
+    theta = (s_large - s_small) / band_height_in
+    theta_deg = math.degrees(theta)
+    if theta <= 0 or theta_deg > 170.0:
+        raise ValueError(
+            f"Unsupported conical sector angle {theta_deg:.2f} deg (must be in (0, 170] deg for single-piece flat development)"
+        )
+    r_inner = s_small / theta
+    r_outer = r_inner + band_height_in
+    bbox_w = 2.0 * r_outer * math.sin(theta / 2.0)
+    bbox_h = r_outer - r_inner * math.cos(theta / 2.0)
+    return {
+        "inner_radius_in": round(r_inner, 6),
+        "outer_radius_in": round(r_outer, 6),
+        "sector_angle_deg": round(theta_deg, 6),
+        "arc_inner_in": round(s_small, 4),
+        "arc_outer_in": round(s_large, 4),
+        "band_height_in": round(band_height_in, 4),
+        "apex_down": bool(apex_down),
+        "bbox_width_in": round(bbox_w, 4),
+        "bbox_height_in": round(bbox_h, 4),
+    }
+
+
+def build_reverse_tuck_carton(
+    width_in: float,
+    depth_in: float,
+    height_in: float,
+    glue_flap_in: float = 0.50,
+    tuck_tongue_in: float | None = None,
+    dust_flap_in: float | None = None,
+) -> dict[str, Any]:
+    """
+    Computes a complete Reverse Tuck End (RTE) folding carton net including glue flap,
+    four body panels [W, D, W, D], top/bottom dust flaps on D panels, and opposite
+    main closure panels + friction tuck tongues on W panels.
+    """
+    if width_in <= 0 or depth_in <= 0 or height_in <= 0 or glue_flap_in <= 0:
+        raise ValueError("Carton width, depth, height, and glue flap dimensions must be positive")
+    tongue = float(tuck_tongue_in) if tuck_tongue_in is not None else round(min(0.625, max(0.375, depth_in * 0.45)), 4)
+    dust = float(dust_flap_in) if dust_flap_in is not None else round(min(0.75 * depth_in, width_in * 0.48), 4)
+    if tongue <= 0 or dust <= 0:
+        raise ValueError("Carton tuck tongue and dust flap lengths must be positive")
+    ext = depth_in + tongue
+    total_w = glue_flap_in + 2.0 * width_in + 2.0 * depth_in
+    total_h = height_in + 2.0 * ext
+
+    x0 = 0.0
+    x1 = glue_flap_in
+    x2 = x1 + width_in
+    x3 = x2 + depth_in
+    x4 = x3 + width_in
+    x5 = x4 + depth_in
+
+    y_body_bot = ext
+    y_body_top = ext + height_in
+
+    columns = [
+        {"name": "glue_flap", "x0_in": round(x0, 6), "x1_in": round(x1, 6), "y0_in": round(y_body_bot, 6), "y1_in": round(y_body_top, 6)},
+        {"name": "front_panel", "x0_in": round(x1, 6), "x1_in": round(x2, 6), "y0_in": round(y_body_bot, 6), "y1_in": round(total_h, 6)},
+        {"name": "right_panel", "x0_in": round(x2, 6), "x1_in": round(x3, 6), "y0_in": round(y_body_bot - dust, 6), "y1_in": round(y_body_top + dust, 6)},
+        {"name": "back_panel", "x0_in": round(x3, 6), "x1_in": round(x4, 6), "y0_in": 0.0, "y1_in": round(y_body_top, 6)},
+        {"name": "left_panel", "x0_in": round(x4, 6), "x1_in": round(x5, 6), "y0_in": round(y_body_bot - dust, 6), "y1_in": round(y_body_top + dust, 6)},
+    ]
+    fold_lines_in = [
+        [round(x1, 6), round(y_body_bot, 6), round(x1, 6), round(y_body_top, 6)],
+        [round(x2, 6), round(y_body_bot, 6), round(x2, 6), round(y_body_top, 6)],
+        [round(x3, 6), round(y_body_bot, 6), round(x3, 6), round(y_body_top, 6)],
+        [round(x4, 6), round(y_body_bot, 6), round(x4, 6), round(y_body_top, 6)],
+        [round(x1, 6), round(y_body_top, 6), round(x2, 6), round(y_body_top, 6)],
+        [round(x1, 6), round(y_body_top + depth_in, 6), round(x2, 6), round(y_body_top + depth_in, 6)],
+        [round(x2, 6), round(y_body_top, 6), round(x3, 6), round(y_body_top, 6)],
+        [round(x2, 6), round(y_body_bot, 6), round(x3, 6), round(y_body_bot, 6)],
+        [round(x3, 6), round(y_body_bot, 6), round(x4, 6), round(y_body_bot, 6)],
+        [round(x3, 6), round(tongue, 6), round(x4, 6), round(tongue, 6)],
+        [round(x4, 6), round(y_body_top, 6), round(x5, 6), round(y_body_top, 6)],
+        [round(x4, 6), round(y_body_bot, 6), round(x5, 6), round(y_body_bot, 6)],
+    ]
+    flap_slits_in = [
+        [round(x2, 6), round(y_body_top, 6), round(x2, 6), round(y_body_top + dust, 6)],
+        [round(x3, 6), round(y_body_bot - dust, 6), round(x3, 6), round(y_body_bot, 6)],
+        [round(x4, 6), round(y_body_bot - dust, 6), round(x4, 6), round(y_body_bot, 6)],
+    ]
+    return {
+        "style": "reverse_tuck_end",
+        "face_width_in": round(width_in, 4),
+        "depth_in": round(depth_in, 4),
+        "body_height_in": round(height_in, 4),
+        "glue_flap_in": round(glue_flap_in, 4),
+        "tuck_tongue_in": round(tongue, 4),
+        "dust_flap_in": round(dust, 4),
+        "body_y0_in": round(y_body_bot, 4),
+        "body_y1_in": round(y_body_top, 4),
+        "total_width_in": round(total_w, 4),
+        "total_height_in": round(total_h, 4),
+        "columns": columns,
+        "fold_lines_in": fold_lines_in,
+        "flap_slits_in": flap_slits_in,
+    }
+
+
 def calculate_container_dieline(container: dict[str, Any]) -> dict[str, Any]:
     """
     Computes recommended finished diecut, bleed, and safety dimensions (in inches and PDF points)
-    from physical container measurements (cylinder jar/bottle, tapered cone/tube, pouch, or carton).
+    from physical container measurements (cylinder jar/bottle, tapered cone/tube, pouch, carton, or sleeve).
     """
     kind = str(container.get("type", container.get("container_type", "cylinder"))).lower()
     bleed_in = float(container.get("bleed_in", 0.125))
@@ -309,27 +432,63 @@ def calculate_container_dieline(container: dict[str, Any]) -> dict[str, Any]:
             "height_pt": round(inch(wrap_h), 2),
             "label_desc": f'{wrap_w:.2f}"(W) x {wrap_h:.2f}"(H) WRAP',
         })
-    elif kind in ("tapered", "cone", "tapered_wrap"):
+    elif kind in ("tapered", "cone", "tapered_wrap", "conical_wrap"):
         d_bot = float(container["bottom_diameter_in"])
         d_top = float(container["top_diameter_in"])
         v_h = float(container["vertical_height_in"])
         gap_in = float(container.get("gap_in", 0.125))
-        slant_h = math.hypot(v_h, (d_top - d_bot) / 2.0) - float(container.get("vertical_clearance_in", 0.125))
-        w_bot = math.pi * d_bot - gap_in
-        w_top = math.pi * d_top - gap_in
-        if w_bot <= 0 or w_top <= 0 or slant_h <= 0:
-            raise ValueError("Computed tapered wrap dimensions must be positive")
+        v_clear = float(container.get("vertical_clearance_in", 0.125))
+        if d_bot <= 0 or d_top <= 0 or v_h <= 0:
+            raise ValueError("Tapered container diameters and vertical height must be positive")
+        if abs(d_top - d_bot) < 1e-6:
+            return calculate_container_dieline({
+                "type": "cylinder",
+                "diameter_in": d_bot,
+                "straight_height_in": v_h,
+                "gap_in": gap_in,
+                "vertical_clearance_in": v_clear,
+                "bleed_in": bleed_in,
+                "safety_in": safety_in,
+            })
+        s_wall = math.hypot(v_h, (d_top - d_bot) / 2.0)
+        band_h = s_wall - v_clear
+        if band_h <= 0:
+            raise ValueError("Computed tapered wrap slant height must be positive")
+        r_bot, r_top = d_bot / 2.0, d_top / 2.0
+        inset = v_clear / 2.0
+        r1 = r_bot + (r_top - r_bot) * (inset / s_wall)
+        r2 = r_top - (r_top - r_bot) * (inset / s_wall)
+        r_small, r_large = min(r1, r2), max(r1, r2)
+        r_inner_cone = (r_small * band_h) / (r_large - r_small)
+        theta_full = (2.0 * math.pi * r_small) / r_inner_cone
+        theta_net = theta_full - (gap_in / r_inner_cone)
+        if theta_net <= 0:
+            raise ValueError("Seam gap exceeds narrow-end circumference of tapered container")
+        arc_small = r_inner_cone * theta_net
+        arc_large = (r_inner_cone + band_h) * theta_net
+        sector = develop_conical_wrap(
+            arc_inner_in=arc_small,
+            arc_outer_in=arc_large,
+            band_height_in=band_h,
+            apex_down=(d_top > d_bot),
+        )
         panels.append({
-            "panel_id": "tapered_wrap",
-            "shape": "tapered_wrap",
-            "width_in": round(w_bot, 4),
-            "top_width_in": round(w_top, 4),
-            "height_in": round(slant_h, 4),
+            "panel_id": "conical_wrap",
+            "shape": "conical_wrap",
+            "width_in": sector["bbox_width_in"],
+            "height_in": sector["bbox_height_in"],
+            "inner_radius_in": sector["inner_radius_in"],
+            "outer_radius_in": sector["outer_radius_in"],
+            "sector_angle_deg": sector["sector_angle_deg"],
+            "arc_inner_in": sector["arc_inner_in"],
+            "arc_outer_in": sector["arc_outer_in"],
+            "band_height_in": sector["band_height_in"],
+            "apex_down": sector["apex_down"],
             "bleed_in": bleed_in,
             "safety_in": safety_in,
-            "width_pt": round(inch(w_bot), 2),
-            "top_width_pt": round(inch(w_top), 2),
-            "height_pt": round(inch(slant_h), 2),
+            "width_pt": round(inch(sector["bbox_width_in"]), 2),
+            "height_pt": round(inch(sector["bbox_height_in"]), 2),
+            "label_desc": f'{sector["bbox_width_in"]:.2f}"(W) x {sector["bbox_height_in"]:.2f}"(H) CONICAL SECTOR ({sector["sector_angle_deg"]:.1f} DEG)',
         })
     elif kind in ("pouch", "bag"):
         pw = float(container["pouch_width_in"]) - float(container.get("seam_clearance_in", 0.50))
@@ -353,11 +512,39 @@ def calculate_container_dieline(container: dict[str, Any]) -> dict[str, Any]:
         d = float(container["depth_in"])
         h = float(container["height_in"])
         glue = float(container.get("glue_flap_in", 0.50))
-        total_w = 2 * w + 2 * d + glue
-        folds = [round(w, 4), round(w + d, 4), round(2 * w + d, 4), round(2 * w + 2 * d, 4)]
+        net = build_reverse_tuck_carton(
+            width_in=w,
+            depth_in=d,
+            height_in=h,
+            glue_flap_in=glue,
+            tuck_tongue_in=container.get("tuck_tongue_in"),
+            dust_flap_in=container.get("dust_flap_in"),
+        )
         panels.append({
-            "panel_id": "carton_flat",
+            "panel_id": "carton_rte_net",
             "shape": "tuck_box",
+            "width_in": net["total_width_in"],
+            "height_in": net["total_height_in"],
+            "carton_net": net,
+            "corner_radius_in": 0.0,
+            "bleed_in": bleed_in,
+            "safety_in": safety_in,
+            "width_pt": round(inch(net["total_width_in"]), 2),
+            "height_pt": round(inch(net["total_height_in"]), 2),
+            "label_desc": f'{net["total_width_in"]:.2f}"(W) x {net["total_height_in"]:.2f}"(H) RTE FOLDING CARTON',
+        })
+    elif kind in ("sleeve", "carton_sleeve"):
+        w = float(container["width_in"])
+        d = float(container["depth_in"])
+        h = float(container["height_in"])
+        glue = float(container.get("glue_flap_in", 0.50))
+        if w <= 0 or d <= 0 or h <= 0 or glue <= 0:
+            raise ValueError("Sleeve dimensions must be positive")
+        total_w = 2 * w + 2 * d + glue
+        folds = [round(glue, 4), round(glue + w, 4), round(glue + w + d, 4), round(glue + 2 * w + d, 4)]
+        panels.append({
+            "panel_id": "open_sleeve",
+            "shape": "carton_sleeve",
             "width_in": round(total_w, 4),
             "height_in": round(h, 4),
             "fold_offsets_in": folds,
@@ -366,9 +553,10 @@ def calculate_container_dieline(container: dict[str, Any]) -> dict[str, Any]:
             "safety_in": safety_in,
             "width_pt": round(inch(total_w), 2),
             "height_pt": round(inch(h), 2),
+            "label_desc": f'{total_w:.2f}"(W) x {h:.2f}"(H) OPEN SLEEVE',
         })
     else:
-        raise ValueError(f"Unsupported container type {kind!r}; expected cylinder, tapered, pouch, or carton")
+        raise ValueError(f"Unsupported container type {kind!r}; expected cylinder, tapered, pouch, carton, or sleeve")
 
     return {"container_type": kind, "panels": panels}
 
@@ -442,6 +630,67 @@ def draw_normalized_vector(
 # ---------------------------------------------------------------------------
 # Pure Vector UPC-A Barcode & Vector QR Code
 # ---------------------------------------------------------------------------
+def validate_upca_box(
+    w_pt: float,
+    h_pt: float,
+    bg_pad: float = 2.0,
+    allow_non_retail_truncation: bool = False,
+) -> dict[str, float]:
+    """
+    Computes UPC-A module width, 9X quiet zones, and bar heights in points.
+    Enforces GS1 80% retail minimums (X >= 0.0104 in, bar height >= 0.72 in)
+    unless allow_non_retail_truncation=True is explicitly requested.
+    """
+    mod_w = w_pt / float(GS1_UPCA_MODULES_TOTAL)
+    quiet_w = 9.0 * mod_w
+    text_h = min(5.2, max(4.2, h_pt * 0.09))
+    bar_bottom_short_off = bg_pad + text_h
+    guard_drop = min(text_h - 0.8, 5.0 * mod_w)
+    bar_bottom_guard_off = max(bg_pad + 0.8, bar_bottom_short_off - guard_drop)
+    bar_top_off = h_pt - bg_pad
+    short_bar_h = bar_top_off - bar_bottom_short_off
+    if not allow_non_retail_truncation:
+        min_mod_pt = inch(GS1_UPCA_MIN_X_IN)
+        min_bar_pt = inch(GS1_UPCA_MIN_BAR_HEIGHT_IN)
+        if mod_w + 1e-6 < min_mod_pt or short_bar_h + 1e-6 < min_bar_pt:
+            raise ValueError(
+                f"Retail UPC-A box ({w_pt / PT_PER_INCH:.3f}\" x {h_pt / PT_PER_INCH:.3f}\") violates GS1 80% minimums: "
+                f"got X={mod_w / PT_PER_INCH:.4f}\" (min {GS1_UPCA_MIN_X_IN:.4f}\", total width >= {GS1_UPCA_MIN_WIDTH_IN:.4f}\") "
+                f"and bar_height={short_bar_h / PT_PER_INCH:.3f}\" (min {GS1_UPCA_MIN_BAR_HEIGHT_IN:.2f}\"). "
+                "Enlarge the barcode/panel, omit 'upc', or explicitly set allow_non_retail_truncation=True."
+            )
+    if mod_w <= 0 or short_bar_h <= 2.0:
+        raise ValueError("UPC-A box dimensions are non-positive or degenerate")
+    return {
+        "mod_w_pt": mod_w,
+        "quiet_w_pt": quiet_w,
+        "text_h_pt": text_h,
+        "bar_bottom_short_off_pt": bar_bottom_short_off,
+        "bar_bottom_guard_off_pt": bar_bottom_guard_off,
+        "bar_top_off_pt": bar_top_off,
+        "short_bar_h_pt": short_bar_h,
+    }
+
+
+def compute_qr_layout(size_pt: float, matrix_n: int, quiet_modules: float = QR_MIN_QUIET_MODULES) -> dict[str, float]:
+    """
+    Sizes a QR code's quiet zone strictly in matrix modules (>= 4 clear modules per side per ISO/IEC 18004).
+    """
+    if size_pt <= 0 or matrix_n <= 0:
+        raise ValueError("QR size and matrix dimension must be positive")
+    if quiet_modules + 1e-9 < QR_MIN_QUIET_MODULES:
+        raise ValueError(f"QR quiet zone must be >= {QR_MIN_QUIET_MODULES:.1f} modules per ISO/IEC 18004; got {quiet_modules}")
+    total_modules = float(matrix_n) + 2.0 * float(quiet_modules)
+    cell_pt = size_pt / total_modules
+    quiet_pad_pt = float(quiet_modules) * cell_pt
+    return {
+        "cell_pt": cell_pt,
+        "quiet_pad_pt": quiet_pad_pt,
+        "quiet_modules": float(quiet_modules),
+        "total_modules": total_modules,
+    }
+
+
 def draw_vector_upca(
     c: canvas.Canvas,
     code: str,
@@ -449,22 +698,23 @@ def draw_vector_upca(
     y: float,
     w: float,
     h: float,
-    bg_pad: float = 2.5,
+    bg_pad: float = 2.0,
+    allow_non_retail_truncation: bool = False,
 ) -> None:
-    """Draws a Modulo-10 verified 100% K pure-vector UPC-A barcode inside a white quiet-zone box."""
+    """Draws a Modulo-10 verified, GS1-sized 100% K pure-vector UPC-A barcode inside a 9X quiet-zone box."""
     digits, bits = normalize_and_encode_upca(code)
+    metrics = validate_upca_box(w, h, bg_pad=bg_pad, allow_non_retail_truncation=allow_non_retail_truncation)
 
     c.saveState()
     c.setFillColor(CMYK_WHITE)
-    c.roundRect(x, y, w, h, 1.5, fill=1, stroke=0)
+    c.rect(x, y, w, h, fill=1, stroke=0)
 
-    quiet_w = w * 0.09
-    bar_area_w = w - 2 * quiet_w
-    mod_w = bar_area_w / 95.0
-    text_h = min(5.2, h * 0.22)
-    bar_bottom_short = y + bg_pad + text_h
-    bar_bottom_guard = y + bg_pad + 1.6
-    bar_top = y + h - bg_pad
+    mod_w = metrics["mod_w_pt"]
+    quiet_w = metrics["quiet_w_pt"]
+    text_h = metrics["text_h_pt"]
+    bar_bottom_short = y + metrics["bar_bottom_short_off_pt"]
+    bar_bottom_guard = y + metrics["bar_bottom_guard_off_pt"]
+    bar_top = y + metrics["bar_top_off_pt"]
 
     c.setFillColor(CMYK_100K)
     i = 0
@@ -482,11 +732,11 @@ def draw_vector_upca(
         else:
             i += 1
 
-    c.setFont(resolve_font("AvenirCond-Demi"), min(4.7, text_h * 0.92))
-    c.drawCentredString(x + quiet_w * 0.48, y + bg_pad + 0.5, digits[0])
-    c.drawCentredString(x + quiet_w + 27.5 * mod_w, y + bg_pad + 0.5, digits[1:6])
-    c.drawCentredString(x + quiet_w + 67.5 * mod_w, y + bg_pad + 0.5, digits[6:11])
-    c.drawCentredString(x + w - quiet_w * 0.48, y + bg_pad + 0.5, digits[11])
+    c.setFont(resolve_font("AvenirCond-Demi"), min(4.8, text_h * 0.90))
+    c.drawCentredString(x + quiet_w * 0.50, y + bg_pad + 0.4, digits[0])
+    c.drawCentredString(x + quiet_w + 27.5 * mod_w, y + bg_pad + 0.4, digits[1:6])
+    c.drawCentredString(x + quiet_w + 67.5 * mod_w, y + bg_pad + 0.4, digits[6:11])
+    c.drawCentredString(x + w - quiet_w * 0.50, y + bg_pad + 0.4, digits[11])
     c.restoreState()
 
 
@@ -496,9 +746,9 @@ def draw_vector_qr(
     x: float,
     y: float,
     size: float,
-    quiet_pad: float = 2.6,
+    quiet_modules: float = QR_MIN_QUIET_MODULES,
 ) -> None:
-    """Draws a crisp 100% K pure-vector QR code inside a white quiet-zone box."""
+    """Draws a crisp 100% K pure-vector QR code with an ISO/IEC 18004 >= 4-module white quiet zone."""
     import qrcode
 
     qr_obj = qrcode.QRCode(
@@ -511,12 +761,13 @@ def draw_vector_qr(
     qr_obj.make(fit=True)
     matrix = qr_obj.get_matrix()
     n = len(matrix)
+    layout = compute_qr_layout(size, n, quiet_modules=quiet_modules)
+    cell = layout["cell_pt"]
+    quiet_pad = layout["quiet_pad_pt"]
 
     c.saveState()
     c.setFillColor(CMYK_WHITE)
-    c.roundRect(x, y, size, size, 1.5, fill=1, stroke=0)
-    inner = size - 2 * quiet_pad
-    cell = inner / float(n)
+    c.rect(x, y, size, size, fill=1, stroke=0)
     c.setFillColor(CMYK_100K)
     for r_idx, row in enumerate(matrix):
         c_idx = 0
@@ -527,7 +778,10 @@ def draw_vector_qr(
                     end += 1
                 rx = x + quiet_pad + c_idx * cell
                 ry = y + size - quiet_pad - (r_idx + 1) * cell
-                c.rect(rx, ry, (end - c_idx) * cell + 0.04, cell + 0.04, fill=1, stroke=0)
+                has_below = (r_idx + 1 < n) and any(matrix[r_idx + 1][k] for k in range(c_idx, end))
+                h_rect = cell + (0.03 if has_below else 0.0)
+                y_rect = ry - (0.03 if has_below else 0.0)
+                c.rect(rx, y_rect, (end - c_idx) * cell, h_rect, fill=1, stroke=0)
                 c_idx = end
             else:
                 c_idx += 1
@@ -633,7 +887,7 @@ def draw_tracked_text(
 # Dieline Panel Geometry Primitives (Any Packaging Shape)
 # ---------------------------------------------------------------------------
 class DielinePanel:
-    """Represents one packaging piece on a press sheet (circle, rect/rounded_rect, oval, tapered_wrap, tuck_box)."""
+    """Represents one packaging piece on a press sheet (circle, rect/rounded_rect, oval, conical_wrap, tuck_box, carton_sleeve)."""
 
     def __init__(
         self,
@@ -648,6 +902,11 @@ class DielinePanel:
         corner_radius_in: float = 0.1092,
         top_width_in: float | None = None,
         fold_offsets_in: list[float] | None = None,
+        inner_radius_in: float | None = None,
+        outer_radius_in: float | None = None,
+        sector_angle_deg: float | None = None,
+        apex_down: bool = True,
+        carton_net: dict[str, Any] | None = None,
         label_desc: str | None = None,
     ):
         if width_in <= 0 or height_in <= 0:
@@ -658,15 +917,69 @@ class DielinePanel:
         self.cy = cy
         self.width_in = float(width_in)
         self.height_in = float(height_in)
-        self.w = inch(width_in)
-        self.h = inch(height_in)
         self.bleed = inch(bleed_in)
         self.safety = inch(safety_in)
         self.bleed_in = float(bleed_in)
         self.safety_in = float(safety_in)
         self.corner_r = inch(corner_radius_in)
-        self.top_w = inch(top_width_in) if top_width_in is not None else self.w
         self.fold_offsets = [inch(f) for f in (fold_offsets_in or [])]
+        self.inner_radius_in: float | None = None
+        self.outer_radius_in: float | None = None
+        self.sector_angle_deg: float | None = None
+        self.apex_down: bool = bool(apex_down)
+        self.carton_net: dict[str, Any] | None = carton_net
+
+        if self.shape in ("conical_wrap", "tapered_wrap"):
+            if inner_radius_in is not None and outer_radius_in is not None and sector_angle_deg is not None:
+                r_in = float(inner_radius_in)
+                r_out = float(outer_radius_in)
+                ang_deg = float(sector_angle_deg)
+                if r_in <= 0 or r_out <= r_in or ang_deg <= 0 or ang_deg > 170.0:
+                    raise ValueError(f"Invalid conical sector parameters: r_in={r_in}, r_out={r_out}, angle={ang_deg}")
+                self.inner_radius_in = r_in
+                self.outer_radius_in = r_out
+                self.sector_angle_deg = ang_deg
+                theta = math.radians(ang_deg)
+                self.width_in = 2.0 * r_out * math.sin(theta / 2.0)
+                self.height_in = r_out - r_in * math.cos(theta / 2.0)
+            else:
+                tw_in = float(top_width_in) if top_width_in is not None else float(width_in)
+                sec = develop_conical_wrap(
+                    arc_inner_in=min(float(width_in), tw_in),
+                    arc_outer_in=max(float(width_in), tw_in),
+                    band_height_in=float(height_in),
+                    apex_down=(tw_in >= float(width_in)),
+                )
+                self.inner_radius_in = sec["inner_radius_in"]
+                self.outer_radius_in = sec["outer_radius_in"]
+                self.sector_angle_deg = sec["sector_angle_deg"]
+                self.apex_down = sec["apex_down"]
+                self.width_in = sec["bbox_width_in"]
+                self.height_in = sec["bbox_height_in"]
+            self.top_w = inch(self.width_in)
+        elif self.shape in ("tuck_box", "carton_flat"):
+            if self.carton_net is None:
+                glue_in = 0.50
+                avail_w = max(1.0, float(width_in) - glue_in)
+                face_w = avail_w * 0.30
+                depth_d = avail_w * 0.20
+                tongue_t = round(min(0.625, max(0.375, depth_d * 0.45)), 4)
+                body_h = max(1.0, float(height_in) - 2.0 * (depth_d + tongue_t))
+                self.carton_net = build_reverse_tuck_carton(
+                    width_in=face_w,
+                    depth_in=depth_d,
+                    height_in=body_h,
+                    glue_flap_in=glue_in,
+                    tuck_tongue_in=tongue_t,
+                )
+            self.width_in = float(self.carton_net["total_width_in"])
+            self.height_in = float(self.carton_net["total_height_in"])
+            self.top_w = inch(self.width_in)
+        else:
+            self.top_w = inch(top_width_in) if top_width_in is not None else inch(self.width_in)
+
+        self.w = inch(self.width_in)
+        self.h = inch(self.height_in)
         self.label_desc = label_desc or self._default_desc()
 
     def _default_desc(self) -> str:
@@ -674,10 +987,12 @@ class DielinePanel:
             return f'{self.width_in:.2f}" CIRCLE'
         if self.shape == "oval":
             return f'{self.width_in:.2f}"(W) x {self.height_in:.2f}"(H) OVAL'
-        if self.shape == "tapered_wrap":
-            return f'{self.width_in:.2f}"(W) x {self.height_in:.2f}"(H) TAPERED WRAP'
+        if self.shape in ("conical_wrap", "tapered_wrap"):
+            return f'{self.width_in:.2f}"(W) x {self.height_in:.2f}"(H) CONICAL SECTOR'
         if self.shape in ("tuck_box", "carton_flat"):
-            return f'{self.width_in:.2f}"(W) x {self.height_in:.2f}"(H) CARTON FLAT'
+            return f'{self.width_in:.2f}"(W) x {self.height_in:.2f}"(H) RTE FOLDING CARTON'
+        if self.shape == "carton_sleeve":
+            return f'{self.width_in:.2f}"(W) x {self.height_in:.2f}"(H) OPEN SLEEVE'
         return f'{self.width_in:.2f}"(W) x {self.height_in:.2f}"(H) RECTANGLE'
 
     @property
@@ -688,8 +1003,112 @@ class DielinePanel:
     def y0(self) -> float:
         return self.cy - self.h / 2.0
 
+    def annular_sector_points(self, offset: float = 0.0, arc_steps: int = 96) -> list[tuple[float, float]]:
+        """Computes exact perpendicular normal-offset points along concentric inner/outer arcs and radial rays."""
+        assert self.inner_radius_in is not None and self.outer_radius_in is not None and self.sector_angle_deg is not None
+        r1_0 = inch(self.inner_radius_in)
+        r2_0 = inch(self.outer_radius_in)
+        half_theta = math.radians(self.sector_angle_deg) / 2.0
+        r1 = max(2.0, r1_0 - offset)
+        r2 = max(r1 + 2.0, r2_0 + offset)
+        a1 = max(0.002, half_theta + math.asin(max(-0.95, min(0.95, offset / r1))))
+        a2 = max(0.002, half_theta + math.asin(max(-0.95, min(0.95, offset / r2))))
+
+        pts: list[tuple[float, float]] = []
+        if self.apex_down:
+            y_apex = self.cy - 0.5 * (r2_0 + r1_0 * math.cos(half_theta))
+            for i in range(arc_steps + 1):
+                ang = -a2 + (2.0 * a2 * i) / arc_steps
+                pts.append((self.cx + r2 * math.sin(ang), y_apex + r2 * math.cos(ang)))
+            for i in range(arc_steps + 1):
+                ang = a1 - (2.0 * a1 * i) / arc_steps
+                pts.append((self.cx + r1 * math.sin(ang), y_apex + r1 * math.cos(ang)))
+        else:
+            y_apex = self.cy + 0.5 * (r2_0 + r1_0 * math.cos(half_theta))
+            for i in range(arc_steps + 1):
+                ang = -a2 + (2.0 * a2 * i) / arc_steps
+                pts.append((self.cx + r2 * math.sin(ang), y_apex - r2 * math.cos(ang)))
+            for i in range(arc_steps + 1):
+                ang = a1 - (2.0 * a1 * i) / arc_steps
+                pts.append((self.cx + r1 * math.sin(ang), y_apex - r1 * math.cos(ang)))
+        return pts
+
+    def carton_outline_points(self, offset: float = 0.0) -> list[tuple[float, float]]:
+        """Computes exact rectilinear normal-offset silhouette vertices around a Reverse Tuck End carton net."""
+        assert self.carton_net is not None
+        cols = self.carton_net["columns"]
+        n = len(cols)
+        x_orig = self.x0
+        y_orig = self.y0
+        x0s = [x_orig + inch(col["x0_in"]) for col in cols]
+        x1s = [x_orig + inch(col["x1_in"]) for col in cols]
+        bs = [y_orig + inch(col["y0_in"]) for col in cols]
+        ts = [y_orig + inch(col["y1_in"]) for col in cols]
+
+        pts: list[tuple[float, float]] = []
+        for i in range(n):
+            if i == 0:
+                xl = x0s[0] - offset
+            elif ts[i] > ts[i - 1] + 1e-6:
+                xl = x0s[i] - offset
+            elif ts[i] < ts[i - 1] - 1e-6:
+                xl = x0s[i] + offset
+            else:
+                xl = x0s[i]
+
+            if i == n - 1:
+                xr = x1s[n - 1] + offset
+            elif ts[i + 1] > ts[i] + 1e-6:
+                xr = x1s[i] - offset
+            elif ts[i + 1] < ts[i] - 1e-6:
+                xr = x1s[i] + offset
+            else:
+                xr = x1s[i]
+            pts.append((xl, ts[i] + offset))
+            pts.append((xr, ts[i] + offset))
+
+        for i in range(n - 1, -1, -1):
+            if i == n - 1:
+                xr = x1s[n - 1] + offset
+            elif bs[i + 1] < bs[i] - 1e-6:
+                xr = x1s[i] - offset
+            elif bs[i + 1] > bs[i] + 1e-6:
+                xr = x1s[i] + offset
+            else:
+                xr = x1s[i]
+
+            if i == 0:
+                xl = x0s[0] - offset
+            elif bs[i - 1] < bs[i] - 1e-6:
+                xl = x0s[i] + offset
+            elif bs[i - 1] > bs[i] + 1e-6:
+                xl = x0s[i] - offset
+            else:
+                xl = x0s[i]
+            pts.append((xr, bs[i] - offset))
+            pts.append((xl, bs[i] - offset))
+        return pts
+
+    def fold_segments(self) -> list[tuple[float, float, float, float]]:
+        """Returns score/fold segments `(x1, y1, x2, y2)` in PDF points for cartons and sleeves."""
+        if self.carton_net:
+            return [
+                (self.x0 + inch(seg[0]), self.y0 + inch(seg[1]), self.x0 + inch(seg[2]), self.y0 + inch(seg[3]))
+                for seg in self.carton_net.get("fold_lines_in", [])
+            ]
+        return [(self.x0 + fx, self.y0, self.x0 + fx, self.y0 + self.h) for fx in self.fold_offsets]
+
+    def extra_cut_segments(self) -> list[tuple[float, float, float, float]]:
+        """Returns interior die-knife flap-separation slits `(x1, y1, x2, y2)` in PDF points."""
+        if self.carton_net:
+            return [
+                (self.x0 + inch(seg[0]), self.y0 + inch(seg[1]), self.x0 + inch(seg[2]), self.y0 + inch(seg[3]))
+                for seg in self.carton_net.get("flap_slits_in", [])
+            ]
+        return []
+
     def trapezoid_vertices(self, offset: float = 0.0) -> list[tuple[float, float]]:
-        """Computes exact parallel normal-offset vertices `(bl, br, tr, tl)` for `tapered_wrap`."""
+        """Computes exact parallel normal-offset vertices `(bl, br, tr, tl)` for `flat_trapezoid` prism faces."""
         delta = (self.top_w - self.w) / 2.0
         slant = math.hypot(self.h, delta)
         half_bot = max(1.0, self.w / 2.0 + offset * (slant - delta) / self.h)
@@ -713,7 +1132,19 @@ class DielinePanel:
             rx = max(1.0, self.w / 2.0 + offset)
             ry = max(1.0, self.h / 2.0 + offset)
             p.ellipse(self.cx - rx, self.cy - ry, 2 * rx, 2 * ry)
-        elif self.shape == "tapered_wrap":
+        elif self.shape in ("conical_wrap", "tapered_wrap"):
+            pts = self.annular_sector_points(offset)
+            p.moveTo(*pts[0])
+            for pt in pts[1:]:
+                p.lineTo(*pt)
+            p.close()
+        elif self.shape in ("tuck_box", "carton_flat"):
+            pts = self.carton_outline_points(offset)
+            p.moveTo(*pts[0])
+            for pt in pts[1:]:
+                p.lineTo(*pt)
+            p.close()
+        elif self.shape == "flat_trapezoid":
             bl, br, tr, tl = self.trapezoid_vertices(offset)
             p.moveTo(*bl)
             p.lineTo(*br)
@@ -840,7 +1271,7 @@ class SmokyDielineSheet:
             c.drawPath(p.make_path(c, -p.safety), stroke=1, fill=0)
         self.end_layer()
 
-        # 3. Diecut Layer (Spot Cyan "Die Line" Solid 1pt, Overprint + Fold lines if carton)
+        # 3. Diecut Layer (Spot Cyan "Die Line" Solid 1pt, Overprint + Flap Slits + Fold lines)
         self.begin_layer("LayerDiecut")
         c._code.append("/GSOverprint gs")
         c.setStrokeColor(SPOT_DIELINE)
@@ -848,11 +1279,14 @@ class SmokyDielineSheet:
         c.setDash([], 0)
         for p in self.panels:
             c.drawPath(p.make_path(c, 0.0), stroke=1, fill=0)
-            if p.fold_offsets:
+            for x1, y1, x2, y2 in p.extra_cut_segments():
+                c.line(x1, y1, x2, y2)
+            folds = p.fold_segments()
+            if folds:
                 c.setStrokeColor(SPOT_FOLD)
                 c.setDash([4.0, 2.5], 0)
-                for fx in p.fold_offsets:
-                    c.line(p.x0 + fx, p.y0, p.x0 + fx, p.y0 + p.h)
+                for x1, y1, x2, y2 in folds:
+                    c.line(x1, y1, x2, y2)
                 c.setStrokeColor(SPOT_DIELINE)
                 c.setDash([], 0)
         self.end_layer()
@@ -1117,7 +1551,7 @@ class SmokyDielineSheet:
             ("Safety Zone", SPOT_SAFETY, [3.0, 3.0], "Spot: Safety Line"),
             ("Full Bleed", SPOT_BLEED, [3.5, 2.5], "Spot: Bleed Line"),
         ]
-        if any(p.fold_offsets for p in self.panels):
+        if any(p.fold_segments() for p in self.panels):
             legend_items.append(("Fold / Score", SPOT_FOLD, [4.0, 2.5], "Spot: Fold Line"))
 
         ly = y0 + bar_h - 40.0
@@ -1143,7 +1577,7 @@ class SmokyDielineSheet:
             c.line(div_x, y0, div_x, y0 + bar_h)
 
     def save_and_postprocess(self) -> dict[str, Any]:
-        """Saves PDF and injects OCG layer dictionary + Overprint ExtGState + PDF boxes via pikepdf."""
+        """Saves PDF and injects OCG layer dictionary (with non-printing PrintState OFF on technical layers) + Overprint ExtGState + PDF boxes via pikepdf."""
         import pikepdf
 
         self.c.save()
@@ -1169,11 +1603,16 @@ class SmokyDielineSheet:
 
         ocg_list = []
         for prop_key, human_name in self.OCG_ORDER:
+            is_artwork = human_name == "Artwork"
             usage_dict = pikepdf.Dictionary(
                 CreatorInfo=pikepdf.Dictionary(
                     Creator="Smoky Co. Dieline Engine",
-                    Subtype=pikepdf.Name.Artwork,
-                )
+                    Subtype=pikepdf.Name.Artwork if is_artwork else pikepdf.Name.Technical,
+                ),
+                View=pikepdf.Dictionary(ViewState=pikepdf.Name.ON),
+                Print=pikepdf.Dictionary(
+                    PrintState=pikepdf.Name.ON if is_artwork else pikepdf.Name.OFF,
+                ),
             )
             ocg = pdf.make_indirect(
                 pikepdf.Dictionary(
@@ -1193,6 +1632,18 @@ class SmokyDielineSheet:
                 BaseState=pikepdf.Name.ON,
                 ON=ocg_list,
                 Order=ocg_list,
+                AS=[
+                    pikepdf.Dictionary(
+                        Event=pikepdf.Name.View,
+                        OCGs=ocg_list,
+                        Category=[pikepdf.Name.View],
+                    ),
+                    pikepdf.Dictionary(
+                        Event=pikepdf.Name.Print,
+                        OCGs=ocg_list,
+                        Category=[pikepdf.Name.Print],
+                    ),
+                ],
             ),
         )
 
@@ -1222,7 +1673,6 @@ def _extract_pdf_text_and_content_streams(raw: bytes) -> bytes:
         if end == -1:
             break
         pos = end + len(b"endstream")
-        # Skip binary embedded TrueType font programs (/Length1) and raster XObjects (/Subtype /Image)
         hdr_tail = hdr[-320:]
         if b"/Length1" in hdr_tail or b"/Subtype /Image" in hdr_tail or b"/Subtype/Image" in hdr_tail:
             continue
@@ -1247,7 +1697,7 @@ _CMYK_OP_RE = re.compile(
 
 
 def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | None = None) -> dict[str, Any]:
-    """Verifies OCG layers, spot color separations, overprint dictionary, zero RGB leaks, and exact trim dimensions."""
+    """Verifies OCG layers, non-printing technical PrintState, spot separations, overprint, zero RGB leaks, and exact trim dimensions."""
     raw = Path(pdf_path).read_bytes()
     corpus = _extract_pdf_text_and_content_streams(raw)
 
@@ -1257,6 +1707,32 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
     has_overprint = (b"/GSOverprint" in corpus) and (b"/OP true" in corpus or b"/OPM 1" in corpus)
     has_rgb = (b"/DeviceRGB" in corpus) or bool(_RGB_OP_RE.search(corpus))
     has_cmyk = (b"/DeviceCMYK" in corpus) or bool(_CMYK_OP_RE.search(corpus))
+    has_nonprinting_tech = (
+        ((b"/PrintState /OFF" in corpus) or (b"/PrintState/OFF" in corpus))
+        and ((b"/PrintState /ON" in corpus) or (b"/PrintState/ON" in corpus))
+        and ((b"/Event /Print" in corpus) or (b"/Event/Print" in corpus))
+    )
+
+    try:
+        import pikepdf
+
+        with pikepdf.open(pdf_path) as pk:
+            oc_props = pk.Root.get("/OCProperties")
+            if oc_props is not None:
+                ocg_objs = list(oc_props.get("/OCGs", []))
+                as_list = list(oc_props.get("/D", {}).get("/AS", []))
+                has_print_event = any(
+                    str(item.get("/Event", "")) == "/Print" and "/Print" in [str(cat) for cat in item.get("/Category", [])]
+                    for item in as_list
+                )
+                states_ok = bool(ocg_objs) and all(
+                    str(ocg.get("/Usage", {}).get("/Print", {}).get("/PrintState", ""))
+                    == ("/ON" if str(ocg.get("/Name", "")) == "Artwork" else "/OFF")
+                    for ocg in ocg_objs
+                )
+                has_nonprinting_tech = bool(has_print_event and states_ok)
+    except ImportError:
+        pass
 
     panel_checks: list[dict[str, Any]] = []
     ocgs: list[str] = []
@@ -1292,6 +1768,7 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
         and has_safety_spot
         and has_bleed_spot
         and has_overprint
+        and has_nonprinting_tech
         and has_cmyk
         and not has_rgb
         and len(ocgs) >= 5
@@ -1303,6 +1780,7 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
         "preflight_pass": ok,
         "cmyk_only_no_rgb": (has_cmyk and not has_rgb),
         "overprint_enabled": has_overprint,
+        "non_printing_tech_layers": has_nonprinting_tech,
         "spot_separations": {
             "Die Line": has_dieline_spot,
             "Safety Line": has_safety_spot,
@@ -1351,13 +1829,17 @@ def build_generic_spec_artwork(spec: dict[str, Any]) -> Callable[[canvas.Canvas,
     cannabinoids = spec.get("cannabinoids", [{"mg": "500MG", "name": "CBD"}])
     ingredients = spec.get("ingredients", "Octyldodecanol, Squalane, Hemp Extract.")
     directions = spec.get("directions", "Apply to affected area and massage thoroughly as needed.")
-    upc = spec.get("upc", "850043413028")
+    upc = spec.get("upc", "850043413028") if "upc" not in spec else spec.get("upc")
+    allow_upc_trunc = bool(spec.get("allow_non_retail_upc_truncation", False))
     coa_url = spec.get("coa_url", "https://smokymountaincbd.com/lab-results/")
 
     def _render(c: canvas.Canvas, panels: list[DielinePanel], brand_vecs: dict[str, Any]) -> None:
         smcbd_vec = brand_vecs.get("smcbd")
         fn_reg = resolve_font("AvenirCond-Reg")
         fn_bold = resolve_font("AvenirCond-Bold")
+        min_gs1_w = inch(GS1_UPCA_MIN_WIDTH_IN) + 1.4  # ~86.0 pt (1.195 in)
+        min_gs1_h = inch(GS1_UPCA_MIN_BAR_HEIGHT_IN) + 10.2  # ~62.04 pt (0.862 in -> >=0.72 in short bar height)
+
         for p in panels:
             c.saveState()
             c.clipPath(p.make_path(c, +p.bleed), stroke=0, fill=0)
@@ -1384,59 +1866,137 @@ def build_generic_spec_artwork(spec: dict[str, Any]) -> Callable[[canvas.Canvas,
                     badge_line = " • ".join(f"{cb['mg']} {cb['name']}" for cb in cannabinoids)
                     draw_tracked_text(c, badge_line, p.cx, p.cy - r_safe * 0.42, "AvenirCond-Bold", 6.0 * sc, accent_col, 0.4 * sc)
                     draw_tracked_text(c, net_wt, p.cx, p.cy - r_safe * 0.62, "AvenirCond-Med", 5.4 * sc, CMYK_WHITE, 0.6 * sc)
+            elif p.shape in ("conical_wrap", "tapered_wrap"):
+                assert p.inner_radius_in is not None and p.outer_radius_in is not None and p.sector_angle_deg is not None
+                r1 = inch(p.inner_radius_in)
+                r2 = inch(p.outer_radius_in)
+                half_theta = math.radians(p.sector_angle_deg) / 2.0
+                r_mid = 0.5 * (r1 + r2)
+                band_safe = (r2 - r1) - 2.0 * p.safety
+                arc_safe = 2.0 * r1 * half_theta - 2.0 * p.safety
+                y_apex = (
+                    p.cy - 0.5 * (r2 + r1 * math.cos(half_theta))
+                    if p.apex_down
+                    else p.cy + 0.5 * (r2 + r1 * math.cos(half_theta))
+                )
+                sc = max(0.55, min(1.25, band_safe / 108.0))
+                top_mode = bool(p.apex_down)
+                sgn = 1.0 if top_mode else -1.0
+                draw_arched_text(c, brand.upper(), p.cx, y_apex, r_mid + sgn * band_safe * 0.30, "AvenirCond-Bold", 7.0 * sc, accent_col, 0.8 * sc, top_arc=top_mode, center_angle_deg=90.0 if top_mode else 270.0)
+                draw_arched_text(c, product_name.upper(), p.cx, y_apex, r_mid + sgn * band_safe * 0.08, "DINCond-Bold", 15.0 * sc, CMYK_WHITE, 1.0 * sc, top_arc=top_mode, center_angle_deg=90.0 if top_mode else 270.0)
+                badge_line = " • ".join(f"{cb['mg']} {cb['name']}" for cb in cannabinoids)
+                draw_arched_text(c, f"{subtitle.upper()}  |  {badge_line}", p.cx, y_apex, r_mid - sgn * band_safe * 0.14, "AvenirCond-Demi", 6.0 * sc, accent_col, 0.6 * sc, top_arc=top_mode, center_angle_deg=90.0 if top_mode else 270.0)
+                draw_arched_text(c, net_wt, p.cx, y_apex, r_mid - sgn * band_safe * 0.32, "AvenirCond-Med", 5.6 * sc, CMYK_WHITE, 0.6 * sc, top_arc=top_mode, center_angle_deg=90.0 if top_mode else 270.0)
+
+                qr_sz = min(42.0 * sc, band_safe * 0.52)
+                if qr_sz >= 18.0 and half_theta > 0.18:
+                    ang_qr = -half_theta * 0.62
+                    qx = p.cx + r_mid * math.sin(ang_qr)
+                    qy = y_apex + (r_mid * math.cos(ang_qr) if top_mode else -r_mid * math.cos(ang_qr))
+                    c.saveState()
+                    c.translate(qx, qy)
+                    c.rotate(-math.degrees(ang_qr) if top_mode else math.degrees(ang_qr))
+                    draw_vector_qr(c, coa_url, -qr_sz / 2.0, -qr_sz / 2.0, qr_sz, quiet_modules=QR_MIN_QUIET_MODULES)
+                    c.restoreState()
+
+                if upc:
+                    upc_w = min_gs1_w if not allow_upc_trunc else min(min_gs1_w, arc_safe * 0.36)
+                    upc_h = min_gs1_h if not allow_upc_trunc else min(min_gs1_h, band_safe * 0.75)
+                    if not allow_upc_trunc and (band_safe < upc_h or arc_safe * 0.42 < upc_w):
+                        raise ValueError(
+                            f"Conical panel {p.panel_id!r} safe band ({arc_safe / PT_PER_INCH:.2f}\" arc x {band_safe / PT_PER_INCH:.2f}\" slant) "
+                            "cannot fit a GS1 80% retail UPC-A symbol; omit 'upc', enlarge container, or set allow_non_retail_upc_truncation=True."
+                        )
+                    ang_u = half_theta * 0.60
+                    ux = p.cx + r_mid * math.sin(ang_u)
+                    uy = y_apex + (r_mid * math.cos(ang_u) if top_mode else -r_mid * math.cos(ang_u))
+                    c.saveState()
+                    c.translate(ux, uy)
+                    c.rotate(-math.degrees(ang_u) if top_mode else math.degrees(ang_u))
+                    draw_vector_upca(c, str(upc), -upc_w / 2.0, -upc_h / 2.0, upc_w, upc_h, bg_pad=2.0, allow_non_retail_truncation=allow_upc_trunc)
+                    c.restoreState()
             else:
-                sc_w = max(0.52, min(1.25, p.w / 462.0))
-                sc_h = max(0.65, min(1.25, p.h / 121.0))
+                if p.carton_net is not None:
+                    act_x0 = p.x0 + inch(float(p.carton_net["glue_flap_in"]))
+                    act_w = p.w - inch(float(p.carton_net["glue_flap_in"]))
+                    act_y0 = p.y0 + inch(float(p.carton_net["body_y0_in"]))
+                    act_h = inch(float(p.carton_net["body_y1_in"]) - float(p.carton_net["body_y0_in"]))
+                else:
+                    act_x0, act_y0, act_w, act_h = p.x0, p.y0, p.w, p.h
+
+                act_cy = act_y0 + act_h / 2.0
+                sc_w = max(0.52, min(1.25, act_w / 462.0))
+                sc_h = max(0.65, min(1.25, act_h / 121.0))
                 sc = min(sc_w, sc_h)
-                left_w = p.w * 0.26
-                right_w = p.w * 0.29
-                center_x0 = p.x0 + left_w
-                center_w = p.w - left_w - right_w
+
+                avail_safe_h = act_h - 2.0 * p.safety - 5.0
+                if upc:
+                    if not allow_upc_trunc:
+                        upc_w = max(min_gs1_w, min(104.0 * sc_w, act_w * 0.34))
+                        upc_h = max(min_gs1_h, min(70.0 * sc_h, avail_safe_h * 0.64))
+                        req_right_w = upc_w + p.safety + 9.0 * sc
+                        if avail_safe_h < min_gs1_h or act_w * 0.48 < req_right_w:
+                            raise ValueError(
+                                f"Panel {p.panel_id!r} safe area ({(act_w - 2 * p.safety) / PT_PER_INCH:.2f}\" x {avail_safe_h / PT_PER_INCH:.2f}\") "
+                                f"cannot fit a GS1 80% retail UPC-A symbol (>={GS1_UPCA_MIN_WIDTH_IN:.3f}\" W, >={GS1_UPCA_MIN_BAR_HEIGHT_IN:.2f}\" bar H). "
+                                "Enlarge panel, omit 'upc', or set allow_non_retail_upc_truncation=True."
+                            )
+                    else:
+                        upc_w = min(min_gs1_w, act_w * 0.34)
+                        upc_h = min(min_gs1_h, max(24.0, avail_safe_h * 0.50))
+                        req_right_w = upc_w + p.safety + 9.0 * sc
+                else:
+                    upc_w, upc_h, req_right_w = 0.0, 0.0, 0.0
+
+                right_w = max(act_w * 0.29, req_right_w)
+                left_w = min(act_w * 0.26, max(act_w * 0.20, (act_w - right_w) * 0.42))
+                center_x0 = act_x0 + left_w
+                center_w = act_w - left_w - right_w
                 center_cx = center_x0 + center_w / 2.0
 
                 c.setFillColor(panel_col)
                 c.rect(bx0, by0, (center_x0 - bx0), bh, stroke=0, fill=1)
-                c.rect(p.x0 + p.w - right_w, by0, (bx0 + bw) - (p.x0 + p.w - right_w), bh, stroke=0, fill=1)
+                c.rect(act_x0 + act_w - right_w, by0, (bx0 + bw) - (act_x0 + act_w - right_w), bh, stroke=0, fill=1)
                 c.setStrokeColor(accent_col)
                 c.setLineWidth(0.8)
                 c.line(center_x0, by0, center_x0, by0 + bh)
-                c.line(p.x0 + p.w - right_w, by0, p.x0 + p.w - right_w, by0 + bh)
+                c.line(act_x0 + act_w - right_w, by0, act_x0 + act_w - right_w, by0 + bh)
 
-                sx0 = p.x0 + p.safety + 4.0 * sc
-                qr_sz = min(40.0 * sc, left_w - p.safety - 12.0, p.h * 0.42)
-                draw_vector_qr(c, coa_url, sx0, p.cy - qr_sz * 0.25, qr_sz, quiet_pad=2.0)
+                sx0 = act_x0 + p.safety + 4.0 * sc
+                qr_sz = max(18.0, min(42.0 * sc, left_w - p.safety - 10.0, act_h * 0.44))
+                draw_vector_qr(c, coa_url, sx0, act_cy - qr_sz * 0.25, qr_sz, quiet_modules=QR_MIN_QUIET_MODULES)
                 rem_x0 = sx0 + qr_sz + 4.0 * sc
-                rem_w = (p.x0 + left_w - 4.0 * sc) - rem_x0
+                rem_w = (act_x0 + left_w - 4.0 * sc) - rem_x0
                 if smcbd_vec and rem_w >= 24.0:
-                    draw_normalized_vector(c, smcbd_vec, rem_x0 + rem_w / 2.0, p.cy + qr_sz * 0.15, min(46.0 * sc, rem_w * 0.92), CMYK_WHITE)
+                    draw_normalized_vector(c, smcbd_vec, rem_x0 + rem_w / 2.0, act_cy + qr_sz * 0.15, min(46.0 * sc, rem_w * 0.92), CMYK_WHITE)
                 c.setFillColor(CMYK_WHITE)
                 f_fda = max(3.6, 4.4 * sc)
                 c.setFont(fn_reg, f_fda)
                 fda_words = "FDA DISCLAIMER: NOT EVALUATED BY THE FDA. NOT INTENDED TO DIAGNOSE, TREAT, CURE, OR PREVENT ANY DISEASE.".split()
-                line, ly = "", p.y0 + p.safety + 12.0 * sc
+                line, ly = "", act_y0 + p.safety + 12.0 * sc
                 max_lw = left_w - p.safety - 8.0 * sc
                 for wd in fda_words:
                     test = (line + " " + wd).strip()
                     if pdfmetrics.stringWidth(test, fn_reg, f_fda) <= max_lw:
                         line = test
                     else:
-                        if ly >= p.y0 + p.safety + 2.0:
+                        if ly >= act_y0 + p.safety + 2.0:
                             c.drawString(sx0, ly, line)
                         ly -= f_fda * 1.15
                         line = wd
-                if line and ly >= p.y0 + p.safety + 2.0:
+                if line and ly >= act_y0 + p.safety + 2.0:
                     c.drawString(sx0, ly, line)
 
                 hero_fs = min(22.0 * sc_h, (center_w * 0.86) / max(1, len(product_name) * 0.46))
                 sub_fs = min(6.8 * sc_h, (center_w * 0.86) / max(1, len(subtitle) * 0.52))
-                draw_tracked_text(c, product_name.upper(), center_cx, p.cy + 14.0 * sc_h, "DINCond-Bold", hero_fs, CMYK_WHITE, 1.0 * sc)
-                draw_tracked_text(c, subtitle.upper(), center_cx, p.cy + 3.0 * sc_h, "AvenirCond-Demi", sub_fs, accent_col, 0.7 * sc)
+                draw_tracked_text(c, product_name.upper(), center_cx, act_cy + 14.0 * sc_h, "DINCond-Bold", hero_fs, CMYK_WHITE, 1.0 * sc)
+                draw_tracked_text(c, subtitle.upper(), center_cx, act_cy + 3.0 * sc_h, "AvenirCond-Demi", sub_fs, accent_col, 0.7 * sc)
 
                 n_cb = max(1, len(cannabinoids))
                 grid_w = center_w * 0.88
                 cell_w = grid_w / n_cb
                 gx0 = center_cx - grid_w / 2.0
-                gy0 = p.y0 + p.safety + 13.5 * sc_h
+                gy0 = act_y0 + p.safety + 13.5 * sc_h
                 gh = 21.0 * sc_h
                 c.setFillColor(panel_col)
                 c.setStrokeColor(accent_col)
@@ -1449,21 +2009,19 @@ def build_generic_spec_artwork(spec: dict[str, Any]) -> Callable[[canvas.Canvas,
                         c.line(cx_i, gy0 + 3.0, cx_i, gy0 + gh - 3.0)
                     draw_tracked_text(c, cb["mg"], cx_i + cell_w / 2.0, gy0 + gh * 0.52, "DINCond-Bold", 8.0 * sc, CMYK_WHITE, 0.25)
                     draw_tracked_text(c, cb["name"], cx_i + cell_w / 2.0, gy0 + gh * 0.16, "AvenirCond-Bold", 5.2 * sc, accent_col, 0.35)
-                draw_tracked_text(c, net_wt, center_cx, p.y0 + p.safety + 4.0 * sc_h, "AvenirCond-Demi", 5.8 * sc, CMYK_WHITE, 0.6 * sc)
+                draw_tracked_text(c, net_wt, center_cx, act_y0 + p.safety + 4.0 * sc_h, "AvenirCond-Demi", 5.8 * sc, CMYK_WHITE, 0.6 * sc)
 
-                rx0 = p.x0 + p.w - right_w + 5.5 * sc
-                rw_inner = right_w - p.safety - 9.0 * sc
+                rx0 = act_x0 + act_w - right_w + 5.0 * sc
+                rw_inner = right_w - p.safety - 7.5 * sc
                 c.setFillColor(accent_col)
                 c.setFont(fn_bold, 5.2 * sc)
-                c.drawString(rx0, p.y0 + p.h - p.safety - 9.0 * sc_h, "DIRECTIONS & INGREDIENTS")
+                c.drawString(rx0, act_y0 + act_h - p.safety - 8.5 * sc_h, "DIRECTIONS & INGREDIENTS")
                 c.setFillColor(CMYK_WHITE)
-                f_ing = max(3.8, 4.6 * sc)
+                f_ing = max(3.6, 4.4 * sc)
                 c.setFont(fn_reg, f_ing)
                 words = f"{directions} Ingredients: {ingredients}".split()
-                line, ly = "", p.y0 + p.h - p.safety - 16.0 * sc_h
-                upc_w = min(56.0 * sc_w, rw_inner * 0.92)
-                upc_h = min(29.0 * sc_h, p.h * 0.28)
-                min_ly = p.y0 + p.safety + upc_h + 8.0
+                line, ly = "", act_y0 + act_h - p.safety - 15.0 * sc_h
+                min_ly = act_y0 + p.safety + (upc_h + 6.5 if upc else 4.0)
                 for wd in words:
                     test = (line + " " + wd).strip()
                     if pdfmetrics.stringWidth(test, fn_reg, f_ing) <= rw_inner:
@@ -1471,11 +2029,21 @@ def build_generic_spec_artwork(spec: dict[str, Any]) -> Callable[[canvas.Canvas,
                     else:
                         if ly >= min_ly:
                             c.drawString(rx0, ly, line)
-                        ly -= f_ing * 1.15
+                        ly -= f_ing * 1.12
                         line = wd
                 if line and ly >= min_ly:
                     c.drawString(rx0, ly, line)
-                draw_vector_upca(c, upc, p.x0 + p.w - p.safety - upc_w - 2.0, p.y0 + p.safety + 3.5, upc_w, upc_h, bg_pad=1.8)
+                if upc:
+                    draw_vector_upca(
+                        c,
+                        str(upc),
+                        act_x0 + act_w - p.safety - upc_w - 2.0,
+                        act_y0 + p.safety + 2.5,
+                        upc_w,
+                        upc_h,
+                        bg_pad=2.0,
+                        allow_non_retail_truncation=allow_upc_trunc,
+                    )
             c.restoreState()
 
     return _render
@@ -1487,7 +2055,7 @@ def main() -> None:
     parser.add_argument("--out", default=None, help="Output press-ready PDF path (required with --spec)")
     parser.add_argument("--preview-dir", default=None, help="Optional directory to render PNG proof & clean artwork previews")
     parser.add_argument("--brand-vectors", default=None, help="Optional custom normalized vector logo JSON path")
-    parser.add_argument("--calc-container", default=None, help="Stdlib JSON container spec (cylinder/tapered/pouch/carton) to compute label dimensions")
+    parser.add_argument("--calc-container", default=None, help="Stdlib JSON container spec (cylinder/tapered/pouch/carton/sleeve) to compute label dimensions")
     parser.add_argument("--encode-upca", default=None, help="Stdlib 11- or 12-digit UPC-A to validate/compute check digit and 95-module bitstring")
     parser.add_argument("--preflight", default=None, help="Run CMYK, spot-separation, overprint, and OCG preflight on an existing PDF")
     args = parser.parse_args()
@@ -1514,32 +2082,30 @@ def main() -> None:
         parser.error("Provide --spec <spec.json> --out <out.pdf>, or one of --calc-container / --encode-upca / --preflight")
 
     spec = json.loads(Path(args.spec).read_text(encoding="utf-8"))
-    raw_panels = spec.get("panels") or []
+    raw_panels = spec.get("panels")
+    if not raw_panels and "container" in spec:
+        raw_panels = calculate_container_dieline(spec["container"])["panels"]
     if not raw_panels:
-        raise ValueError("Specification JSON must include a non-empty 'panels' list")
+        raise ValueError("Specification JSON must include a non-empty 'panels' list or 'container' dictionary")
 
-    gap_in = 1.45
-    total_span_in = sum(max(float(p["width_in"]), float(p.get("top_width_in") or 0.0)) for p in raw_panels) + gap_in * max(0, len(raw_panels) - 1)
-    sheet_w_in = float(spec.get("page_w_in") or max(18.5685, total_span_in + 5.0))
-    sheet_h_in = float(spec.get("page_h_in") or max(9.6715, max(float(p["height_in"]) for p in raw_panels) + 5.8))
-    cur_left_in = (sheet_w_in - total_span_in) / 2.0
-    default_cy_in = (sheet_h_in - 1.925) * 0.54 + 1.925
-
-    panels = []
+    panels: list[DielinePanel] = []
+    explicit_positions: list[tuple[float | None, float | None]] = []
     for idx, p_cfg in enumerate(raw_panels):
         w_in = float(p_cfg["width_in"])
         tw_in = float(p_cfg["top_width_in"]) if p_cfg.get("top_width_in") is not None else None
-        span_in = max(w_in, tw_in or 0.0)
         h_in = float(p_cfg["height_in"])
-        cx_in = float(p_cfg.get("cx_in", cur_left_in + span_in / 2.0))
-        cy_in = float(p_cfg.get("cy_in", default_cy_in))
-        cur_left_in += span_in + gap_in
+        explicit_positions.append(
+            (
+                float(p_cfg["cx_in"]) if "cx_in" in p_cfg and p_cfg["cx_in"] is not None else None,
+                float(p_cfg["cy_in"]) if "cy_in" in p_cfg and p_cfg["cy_in"] is not None else None,
+            )
+        )
         panels.append(
             DielinePanel(
                 panel_id=p_cfg.get("panel_id") or p_cfg.get("id") or f"panel_{idx+1}",
                 shape=p_cfg.get("shape", "rect"),
-                cx=inch(cx_in),
-                cy=inch(cy_in),
+                cx=0.0,
+                cy=0.0,
                 width_in=w_in,
                 height_in=h_in,
                 bleed_in=p_cfg.get("bleed_in", 0.125),
@@ -1547,9 +2113,29 @@ def main() -> None:
                 corner_radius_in=p_cfg.get("corner_radius_in", 0.1092),
                 top_width_in=tw_in,
                 fold_offsets_in=p_cfg.get("fold_offsets_in"),
+                inner_radius_in=p_cfg.get("inner_radius_in"),
+                outer_radius_in=p_cfg.get("outer_radius_in"),
+                sector_angle_deg=p_cfg.get("sector_angle_deg"),
+                apex_down=p_cfg.get("apex_down", True),
+                carton_net=p_cfg.get("carton_net"),
                 label_desc=p_cfg.get("label_desc"),
             )
         )
+
+    gap_in = 1.45
+    total_span_in = sum(max(p.width_in, p.top_w / PT_PER_INCH) for p in panels) + gap_in * max(0, len(panels) - 1)
+    sheet_w_in = float(spec.get("page_w_in") or max(18.5685, total_span_in + 5.0))
+    sheet_h_in = float(spec.get("page_h_in") or max(9.6715, max(p.height_in for p in panels) + 5.8))
+    cur_left_in = (sheet_w_in - total_span_in) / 2.0
+    default_cy_in = (sheet_h_in - 1.925) * 0.54 + 1.925
+
+    for p, (cx_exp, cy_exp) in zip(panels, explicit_positions):
+        span_in = max(p.width_in, p.top_w / PT_PER_INCH)
+        cx_in = cx_exp if cx_exp is not None else (cur_left_in + span_in / 2.0)
+        cy_in = cy_exp if cy_exp is not None else default_cy_in
+        p.cx = inch(cx_in)
+        p.cy = inch(cy_in)
+        cur_left_in += span_in + gap_in
 
     meta = dict(spec.get("meta", {}))
     for k in ("sku", "product_line", "imprint", "stock", "finish", "unwind", "company_header", "origin_line"):

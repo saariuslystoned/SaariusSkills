@@ -1360,7 +1360,34 @@ exit "$1"
         self.assertEqual(carton_run.returncode, 0, carton_run.stderr)
         carton_panel = json.loads(carton_run.stdout)["panels"][0]
         self.assertEqual(carton_panel["width_in"], 7.5)
-        self.assertEqual(carton_panel["fold_offsets_in"], [2.0, 3.5, 5.5, 7.0])
+        self.assertEqual(carton_panel["height_in"], 8.25)
+        self.assertEqual(len(carton_panel["carton_net"]["fold_lines_in"]), 12)
+        self.assertEqual(len(carton_panel["carton_net"]["flap_slits_in"]), 3)
+
+        cone_run = subprocess.run(
+            [
+                sys.executable,
+                str(helper),
+                "--calc-container",
+                json.dumps(
+                    {
+                        "type": "tapered",
+                        "bottom_diameter_in": 2.0,
+                        "top_diameter_in": 3.0,
+                        "vertical_height_in": 4.0,
+                    }
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(cone_run.returncode, 0, cone_run.stderr)
+        cone_panel = json.loads(cone_run.stdout)["panels"][0]
+        self.assertEqual(cone_panel["shape"], "conical_wrap")
+        self.assertAlmostEqual(cone_panel["inner_radius_in"], 8.125, places=3)
+        self.assertAlmostEqual(cone_panel["outer_radius_in"], 12.0311, places=3)
+        self.assertGreater(cone_panel["sector_angle_deg"], 43.0)
 
         # 3. UPC-A Modulo-10 encoder & bad check-digit rejection
         upc_ok = subprocess.run(
@@ -1382,16 +1409,50 @@ exit "$1"
         )
         self.assertNotEqual(upc_bad.returncode, 0)
 
-        # 4. Perpendicular normal-offset verification on tapered_wrap trapezoid
+        # 4. GS1 retail UPC-A sizing, 4-module QR quiet zone, and conical annular sector normal-offset verification
         import importlib.util
 
         spec_mod = importlib.util.spec_from_file_location("dieline_engine", helper)
         assert spec_mod and spec_mod.loader
         mod = importlib.util.module_from_spec(spec_mod)
         spec_mod.loader.exec_module(mod)
-        tp = mod.DielinePanel(
+
+        # GS1 80% retail UPC-A minimum enforcement
+        valid_upc = mod.validate_upca_box(86.0, 62.0, bg_pad=2.0)
+        self.assertGreaterEqual(valid_upc["mod_w_pt"] / 72.0, 0.0104)
+        self.assertGreaterEqual(valid_upc["short_bar_h_pt"] / 72.0, 0.72)
+        with self.assertRaises(ValueError):
+            mod.validate_upca_box(70.0, 36.25, bg_pad=2.0)
+
+        # ISO/IEC 18004 4-module QR quiet zone
+        qr_layout = mod.compute_qr_layout(40.0, 25, quiet_modules=4.0)
+        self.assertAlmostEqual(qr_layout["quiet_pad_pt"] / qr_layout["cell_pt"], 4.0, places=6)
+        with self.assertRaises(ValueError):
+            mod.compute_qr_layout(40.0, 25, quiet_modules=2.0)
+
+        # Conical annular sector perpendicular normal offset (+0.125" = 9.0 pt)
+        cp = mod.DielinePanel(
             "cone",
-            "tapered_wrap",
+            "conical_wrap",
+            cx=300.0,
+            cy=300.0,
+            width_in=cone_panel["width_in"],
+            height_in=cone_panel["height_in"],
+            inner_radius_in=cone_panel["inner_radius_in"],
+            outer_radius_in=cone_panel["outer_radius_in"],
+            sector_angle_deg=cone_panel["sector_angle_deg"],
+            apex_down=True,
+        )
+        pts_0 = cp.annular_sector_points(0.0, arc_steps=64)
+        pts_b = cp.annular_sector_points(9.0, arc_steps=64)
+        # Midpoint of outer arc is at index 32; midpoint of inner arc is at index 65 + 32 = 97
+        self.assertAlmostEqual(pts_b[32][1] - pts_0[32][1], 9.0, places=5)
+        self.assertAlmostEqual(pts_0[97][1] - pts_b[97][1], 9.0, places=5)
+
+        # Flat prism trapezoid normal offset
+        tp = mod.DielinePanel(
+            "prism",
+            "flat_trapezoid",
             cx=200.0,
             cy=200.0,
             width_in=2.0,
@@ -1399,15 +1460,14 @@ exit "$1"
             height_in=4.0,
         )
         v0 = tp.trapezoid_vertices(0.0)
-        vb = tp.trapezoid_vertices(9.0)  # +0.125" = 9.0 pt perpendicular offset
-        # Right sloped edge vector on diecut vs bleed must be parallel and separated by exactly 9.0 pt
+        vb = tp.trapezoid_vertices(9.0)
         dx, dy = v0[2][0] - v0[1][0], v0[2][1] - v0[1][1]
         edge_len = math.hypot(dx, dy)
-        nx, ny = dy / edge_len, -dx / edge_len  # outward unit normal of right edge
+        nx, ny = dy / edge_len, -dx / edge_len
         perp_dist = (vb[1][0] - v0[1][0]) * nx + (vb[1][1] - v0[1][1]) * ny
         self.assertAlmostEqual(perp_dist, 9.0, places=5)
 
-        # 5. Stdlib PDF preflight check (passes CMYK + Spot + OCG + Overprint; fails on /DeviceRGB)
+        # 5. Stdlib PDF preflight check (passes CMYK + Spot + non-printing tech OCG + Overprint; fails on RGB or missing PrintState OFF)
         with tempfile.TemporaryDirectory() as tmp:
             tmp_root = Path(tmp)
             stream_body = zlib.compress(
@@ -1416,13 +1476,14 @@ exit "$1"
             good_pdf = tmp_root / "good.pdf"
             good_pdf.write_bytes(
                 b"%PDF-1.7\n"
-                b"1 0 obj << /Type /Catalog /OCProperties << /OCGs [2 0 R] >> >> endobj\n"
-                b"2 0 obj << /Type /OCG /Name (Artwork) >> endobj\n"
-                b"3 0 obj << /Type /OCG /Name (Diecut) >> endobj\n"
-                b"4 0 obj << /Type /OCG /Name (Safety) >> endobj\n"
-                b"5 0 obj << /Type /OCG /Name (Bleed) >> endobj\n"
-                b"6 0 obj << /Type /OCG /Name (Dimensions) >> endobj\n"
-                b"7 0 obj << /Type /OCG /Name (Die Template) >> endobj\n"
+                b"1 0 obj << /Type /Catalog /OCProperties << /OCGs [2 0 R 3 0 R 4 0 R 5 0 R 6 0 R 7 0 R] "
+                b"/D << /AS [ << /Event /Print /Category [/Print] /OCGs [2 0 R 3 0 R 4 0 R 5 0 R 6 0 R 7 0 R] >> ] >> >> >> endobj\n"
+                b"2 0 obj << /Type /OCG /Name (Artwork) /Usage << /Print << /PrintState /ON >> >> >> endobj\n"
+                b"3 0 obj << /Type /OCG /Name (Diecut) /Usage << /Print << /PrintState /OFF >> >> >> endobj\n"
+                b"4 0 obj << /Type /OCG /Name (Safety) /Usage << /Print << /PrintState /OFF >> >> >> endobj\n"
+                b"5 0 obj << /Type /OCG /Name (Bleed) /Usage << /Print << /PrintState /OFF >> >> >> endobj\n"
+                b"6 0 obj << /Type /OCG /Name (Dimensions) /Usage << /Print << /PrintState /OFF >> >> >> endobj\n"
+                b"7 0 obj << /Type /OCG /Name (Die Template) /Usage << /Print << /PrintState /OFF >> >> >> endobj\n"
                 b"8 0 obj [ /Separation /Die#20Line /DeviceCMYK << >> ] endobj\n"
                 b"9 0 obj [ /Separation /Safety#20Line /DeviceCMYK << >> ] endobj\n"
                 b"10 0 obj [ /Separation /Bleed#20Line /DeviceCMYK << >> ] endobj\n"
@@ -1433,11 +1494,10 @@ exit "$1"
             )
             rep_ok = mod._extract_pdf_text_and_content_streams(good_pdf.read_bytes())
             self.assertIn(b"/GSOverprint gs", rep_ok)
-            # Directly verify stdlib-compatible preflight report on synthetic CMYK PDF when pymupdf is absent or mocked
             orig_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
 
-            def _no_pymupdf(name, *a, **kw):
-                if name == "pymupdf":
+            def _stdlib_only_imports(name, *a, **kw):
+                if name in ("pymupdf", "pikepdf"):
                     raise ImportError("mocked stdlib-only mode")
                 return orig_import(name, *a, **kw)
 
@@ -1445,10 +1505,15 @@ exit "$1"
 
             old_imp = builtins.__import__
             try:
-                builtins.__import__ = _no_pymupdf
+                builtins.__import__ = _stdlib_only_imports
                 good_rep = mod.verify_dieline_pdf(good_pdf)
                 self.assertTrue(good_rep["preflight_pass"])
                 self.assertTrue(good_rep["cmyk_only_no_rgb"])
+                self.assertTrue(good_rep["non_printing_tech_layers"])
+
+                no_printstate_pdf = tmp_root / "missing_printstate.pdf"
+                no_printstate_pdf.write_bytes(good_pdf.read_bytes().replace(b"/PrintState /OFF", b"/PrintState /ON"))
+                self.assertFalse(mod.verify_dieline_pdf(no_printstate_pdf)["preflight_pass"])
 
                 rgb_pdf = tmp_root / "bad_rgb.pdf"
                 rgb_pdf.write_bytes(good_pdf.read_bytes() + b"\n13 0 obj /DeviceRGB endobj\n")

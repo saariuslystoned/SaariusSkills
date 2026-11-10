@@ -16,20 +16,17 @@ Read [references/prepress-and-container-specs.md](references/prepress-and-contai
 Every PDF produced by [`scripts/dieline_engine.py`](scripts/dieline_engine.py) enforces flexographic and digital label press invariants:
 
 1. **Exact `1:1` Point Geometry (`72.0 pt = 1.0000 in`)**:
-   - Trim (`Diecut`), Safety (`-0.0625"` default), and Bleed (`+0.125"` default) lock mathematically to target specs, including true perpendicular normal offsets on sloped `tapered_wrap` edges.
+   - Trim (`Diecut`), Safety (`-0.0625"` default), and Bleed (`+0.125"` default) lock mathematically to target specs, including concentric radial/arc normal offsets on `conical_wrap` sectors and rectilinear offsets on `tuck_box` carton nets.
    - Artwork clips cleanly to the outer `+bleed` boundary so full-bleed backgrounds extend past the rotary die knife with zero white slivers.
-2. **True Illustrator / RIP Optional Content Groups (`OCG` Layers)**:
-   - `Artwork` — printing CMYK vector artwork plus outer `100% K` trim registration ticks.
-   - `Diecut` — non-printing cut path (`Spot: Die Line`) plus optional carton score lines (`Spot: Fold Line`).
-   - `Safety` — non-printing inner safe margin (`Spot: Safety Line`).
-   - `Bleed` — non-printing outer bleed boundary (`Spot: Bleed Line`).
-   - `Dimensions` — width and height callout bars in inches.
-   - `Die Template` — branded production proof footer (`assets/brand_vectors.json` or custom `--brand-vectors`), Roll Unwind Chart (`#1`–`#4` Label Side Out), stock/finish table, CMYK + White swatches, and non-printing legend.
+2. **True Illustrator / RIP Optional Content Groups (`OCG` Layers) with Non-Printing Technical Usage**:
+   - `Artwork` — printing CMYK vector artwork plus outer `100% K` trim registration ticks (`/Usage/Print/PrintState /ON`).
+   - `Diecut` (`Spot: Die Line` + `Spot: Fold Line`), `Safety` (`Spot: Safety Line`), `Bleed` (`Spot: Bleed Line`), `Dimensions`, and `Die Template` — visible in on-screen proofs (`/ViewState /ON`) and explicitly suppressed during printing (`/PrintState /OFF` + `/OCProperties/D/AS` `/Print` usage application).
 3. **Spot Color Separations + Stroke Overprint (`OP=true, op=true, OPM=1`)**:
    - Technical lines use `/Separation` spot plates with `/GSOverprint` so they never knock out underlying CMYK ink or contaminate process plates.
-4. **Pure CMYK Process Space (`0` RGB Leaks) & Validated `100% K` Vector Codes**:
+4. **Pure CMYK Process Space (`0` RGB Leaks) & Standards-Compliant `100% K` Vector Codes**:
    - Zero `/DeviceRGB` objects (`TAC <= 300%` on rich dark fills).
-   - Retail `12`-digit UPC-A barcodes (Modulo-10 check-digit verified, `95` modules with guard bar drop heights) and COA QR codes render as pure `CMYK(0, 0, 0, 100)` vector paths inside white quiet zones.
+   - Retail `12`-digit UPC-A barcodes (Modulo-10 verified, `95` bar modules + `9X` left/right quiet zones = `113X`) enforce GS1 80% minimum retail dimensions (`X >= 0.0104"`, total width `>= 1.1752"`, short bar height `>= 0.72"`) and reject undersized layouts unless `"upc": null` or `allow_non_retail_upc_truncation: true`.
+   - COA QR codes render as pure `CMYK(0, 0, 0, 100)` vector modules with an ISO/IEC 18004 `>= 4`-module clear quiet zone on every side.
 
 ---
 
@@ -40,8 +37,8 @@ Every PDF produced by [`scripts/dieline_engine.py`](scripts/dieline_engine.py) e
 - `circle` — Jar lids, tamper cap seals, bottom warning stickers (`width_in == height_in == diameter`).
 - `rect` / `rounded_rect` — Cylindrical jar wraps, Boston round tincture bottles (`1 oz` / `2 oz`), mylar pouch front/back panels (`width_in`, `height_in`, `corner_radius_in`).
 - `oval` — Oval squeeze bottles, cosmetic tubes, apothecary medallions.
-- `tapered_wrap` — Conical pre-roll tubes and tapered containers (`width_in` bottom width, `top_width_in` top width, `height_in`).
-- `tuck_box` — Folding cartons and boxes (`fold_offsets_in` emits `Spot: Fold Line` score lines inside the cut perimeter).
+- `conical_wrap` / `tapered_wrap` — Non-stretch conical tubes, cups, and tapered containers unfolded into exact concentric **annular sectors** (`inner_radius_in`, `outer_radius_in`, `sector_angle_deg`). Use `flat_trapezoid` only for flat-walled prism faces.
+- `tuck_box` — Complete **Reverse Tuck End (`RTE`)** folding carton nets with glue flap, four body panels (`[W, D, W, D]`), four dust flaps, opposite top/bottom closure panels + tuck tongues, interior flap-separation slits (`Spot: Die Line`), and vertical + horizontal score lines (`Spot: Fold Line`). Use `carton_sleeve` when an open 4-panel wraparound sleeve without end closures is intended.
 
 ---
 
