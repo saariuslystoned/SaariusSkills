@@ -44,6 +44,12 @@ repo-owned bindings and the local-only Python helpers.
   with dual-theme `<picture>` hero banners, `1280x640` OpenGraph social previews,
   `512x512` character-marks/logos and seamless badges, top-starred README
   above-the-fold layout, and stdlib asset/visibility verification.
+- [smoky-label-dieline](skills/smoky-label-dieline/SKILL.md): generate press-ready
+  CMYK packaging and label dielines (PDF + PNG proofs) with Illustrator/RIP OCG
+  layers, non-printing spot separations (`Die Line`, `Safety Line`, `Bleed Line`,
+  `Fold Line`), stroke overprint, Modulo-10 `100% K` vector UPC-A/QR codes, and
+  container-to-dieline geometry across circles, wraps, ovals, tapered cones,
+  pouches, and folding cartons.
 - [agy-sidebar-session](skills/agy-sidebar-session/SKILL.md): start, message,
   inspect, fork, wait on, stop, and export top-level Antigravity 2.0 sidebar
   sessions across any project via `agentapi` and the 365 local

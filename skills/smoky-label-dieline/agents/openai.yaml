@@ -1,0 +1,6 @@
+interface:
+  display_name: "Smoky Label Dieline"
+  short_description: "Generate press-ready CMYK packaging and label dielines with OCG layers, spot separations, overprint, 100% K vector barcodes, and proof sheets."
+  default_prompt: "Use $smoky-label-dieline to compute container dimensions, design CMYK packaging artwork, and render a press-ready PDF dieline with preflight proof."
+policy:
+  allow_implicit_invocation: true

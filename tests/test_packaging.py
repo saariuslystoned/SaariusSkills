@@ -23,6 +23,7 @@ HARNESS2_SKILL = ROOT / "skills" / "harness2"
 PERFORMANCE_SKILL = ROOT / "skills" / "smoky-performance"
 CHARACTER_STUDIO_SKILL = ROOT / "skills" / "smoky-character-studio"
 GITHUB_DESIGN_SKILL = ROOT / "skills" / "smoky-github-design"
+LABEL_DIELINE_SKILL = ROOT / "skills" / "smoky-label-dieline"
 AGY_SIDEBAR_SESSION_SKILL = ROOT / "skills" / "agy-sidebar-session"
 
 
@@ -1253,6 +1254,209 @@ exit "$1"
                 check=False,
             )
             self.assertEqual(good_social_run.returncode, 0, good_social_run.stderr)
+
+    def test_smoky_label_dieline_skill_is_packaged_and_verifies_prepress_contracts(self) -> None:
+        import math
+        import re
+        import zlib
+
+        skill = (LABEL_DIELINE_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (
+            LABEL_DIELINE_SKILL / "agents" / "openai.yaml"
+        ).read_text(encoding="utf-8")
+        prepress_ref = (
+            LABEL_DIELINE_SKILL / "references" / "prepress-and-container-specs.md"
+        ).read_text(encoding="utf-8")
+        brand_vecs = json.loads(
+            (LABEL_DIELINE_SKILL / "assets" / "brand_vectors.json").read_text(encoding="utf-8")
+        )
+        helper = LABEL_DIELINE_SKILL / "scripts" / "dieline_engine.py"
+        cursor = json.loads(
+            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+
+        self.assertLessEqual(len(skill.splitlines()), 500)
+        self.assertIn("name: smoky-label-dieline\n", skill)
+        self.assertIn("$smoky-label-dieline", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("./skills/smoky-label-dieline/", cursor["skills"])
+        self.assertEqual(
+            (LABEL_DIELINE_SKILL / "LICENSE").read_bytes(),
+            (ROOT / "LICENSE").read_bytes(),
+        )
+        for catalog in ("README.md", "docs/portable-skills.md"):
+            self.assertIn(
+                "skills/smoky-label-dieline/SKILL.md",
+                (ROOT / catalog).read_text(encoding="utf-8"),
+            )
+        for doc in LABEL_DIELINE_SKILL.rglob("*.md"):
+            text = doc.read_text(encoding="utf-8")
+            self.assertNotIn("/Users/", text, str(doc))
+            self.assertNotIn("/home/", text, str(doc))
+            for target in re.findall(r"\]\(([^)]+)\)", text):
+                if "://" not in target and not target.startswith("#"):
+                    self.assertTrue(
+                        (doc.parent / target.split("#")[0]).is_file(),
+                        f"{doc}: {target}",
+                    )
+        self.assertNotIn("/Users/", helper.read_text(encoding="utf-8"))
+        self.assertNotIn("/home/", helper.read_text(encoding="utf-8"))
+        self.assertIn("Die Line", skill)
+        self.assertIn("TAC", prepress_ref)
+        self.assertIn("smoky_co", brand_vecs)
+        self.assertIn("smcbd", brand_vecs)
+        self.assertTrue(helper.is_file())
+        self.assertTrue(helper.stat().st_mode & 0o111)
+
+        # 1. Hermetic --help smoke
+        help_run = subprocess.run(
+            [sys.executable, str(helper), "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(help_run.returncode, 0, help_run.stderr)
+        self.assertIn("--calc-container", help_run.stdout)
+
+        # 2. Container-to-dieline dimensional math across cylinder, tapered cone, pouch, and carton
+        cyl_run = subprocess.run(
+            [
+                sys.executable,
+                str(helper),
+                "--calc-container",
+                json.dumps(
+                    {
+                        "type": "cylinder",
+                        "diameter_in": 2.0865,
+                        "straight_height_in": 1.815,
+                        "lid_recess_in": 2.5625,
+                    }
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(cyl_run.returncode, 0, cyl_run.stderr)
+        cyl_payload = json.loads(cyl_run.stdout)
+        self.assertEqual(len(cyl_payload["panels"]), 2)
+        self.assertAlmostEqual(cyl_payload["panels"][0]["width_in"], 2.5, places=3)
+        self.assertAlmostEqual(cyl_payload["panels"][1]["width_in"], 6.4299, places=3)
+        self.assertAlmostEqual(cyl_payload["panels"][1]["height_in"], 1.69, places=3)
+
+        carton_run = subprocess.run(
+            [
+                sys.executable,
+                str(helper),
+                "--calc-container",
+                json.dumps(
+                    {"type": "carton", "width_in": 2.0, "depth_in": 1.5, "height_in": 4.0}
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(carton_run.returncode, 0, carton_run.stderr)
+        carton_panel = json.loads(carton_run.stdout)["panels"][0]
+        self.assertEqual(carton_panel["width_in"], 7.5)
+        self.assertEqual(carton_panel["fold_offsets_in"], [2.0, 3.5, 5.5, 7.0])
+
+        # 3. UPC-A Modulo-10 encoder & bad check-digit rejection
+        upc_ok = subprocess.run(
+            [sys.executable, str(helper), "--encode-upca", "85004341302"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(upc_ok.returncode, 0, upc_ok.stderr)
+        upc_data = json.loads(upc_ok.stdout)
+        self.assertEqual(upc_data["upc12"], "850043413028")
+        self.assertEqual(upc_data["modules"], 95)
+
+        upc_bad = subprocess.run(
+            [sys.executable, str(helper), "--encode-upca", "850043413029"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(upc_bad.returncode, 0)
+
+        # 4. Perpendicular normal-offset verification on tapered_wrap trapezoid
+        import importlib.util
+
+        spec_mod = importlib.util.spec_from_file_location("dieline_engine", helper)
+        assert spec_mod and spec_mod.loader
+        mod = importlib.util.module_from_spec(spec_mod)
+        spec_mod.loader.exec_module(mod)
+        tp = mod.DielinePanel(
+            "cone",
+            "tapered_wrap",
+            cx=200.0,
+            cy=200.0,
+            width_in=2.0,
+            top_width_in=3.0,
+            height_in=4.0,
+        )
+        v0 = tp.trapezoid_vertices(0.0)
+        vb = tp.trapezoid_vertices(9.0)  # +0.125" = 9.0 pt perpendicular offset
+        # Right sloped edge vector on diecut vs bleed must be parallel and separated by exactly 9.0 pt
+        dx, dy = v0[2][0] - v0[1][0], v0[2][1] - v0[1][1]
+        edge_len = math.hypot(dx, dy)
+        nx, ny = dy / edge_len, -dx / edge_len  # outward unit normal of right edge
+        perp_dist = (vb[1][0] - v0[1][0]) * nx + (vb[1][1] - v0[1][1]) * ny
+        self.assertAlmostEqual(perp_dist, 9.0, places=5)
+
+        # 5. Stdlib PDF preflight check (passes CMYK + Spot + OCG + Overprint; fails on /DeviceRGB)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            stream_body = zlib.compress(
+                b"q /OC /LayerArtwork BDC 0.5 0.4 0.4 0.9 k /GSOverprint gs EMC Q\n"
+            )
+            good_pdf = tmp_root / "good.pdf"
+            good_pdf.write_bytes(
+                b"%PDF-1.7\n"
+                b"1 0 obj << /Type /Catalog /OCProperties << /OCGs [2 0 R] >> >> endobj\n"
+                b"2 0 obj << /Type /OCG /Name (Artwork) >> endobj\n"
+                b"3 0 obj << /Type /OCG /Name (Diecut) >> endobj\n"
+                b"4 0 obj << /Type /OCG /Name (Safety) >> endobj\n"
+                b"5 0 obj << /Type /OCG /Name (Bleed) >> endobj\n"
+                b"6 0 obj << /Type /OCG /Name (Dimensions) >> endobj\n"
+                b"7 0 obj << /Type /OCG /Name (Die Template) >> endobj\n"
+                b"8 0 obj [ /Separation /Die#20Line /DeviceCMYK << >> ] endobj\n"
+                b"9 0 obj [ /Separation /Safety#20Line /DeviceCMYK << >> ] endobj\n"
+                b"10 0 obj [ /Separation /Bleed#20Line /DeviceCMYK << >> ] endobj\n"
+                b"11 0 obj << /GSOverprint << /Type /ExtGState /OP true /op true /OPM 1 >> >> endobj\n"
+                b"12 0 obj << /Filter /FlateDecode >>\nstream\n"
+                + stream_body
+                + b"\nendstream\nendobj\n%%EOF\n"
+            )
+            rep_ok = mod._extract_pdf_text_and_content_streams(good_pdf.read_bytes())
+            self.assertIn(b"/GSOverprint gs", rep_ok)
+            # Directly verify stdlib-compatible preflight report on synthetic CMYK PDF when pymupdf is absent or mocked
+            orig_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+
+            def _no_pymupdf(name, *a, **kw):
+                if name == "pymupdf":
+                    raise ImportError("mocked stdlib-only mode")
+                return orig_import(name, *a, **kw)
+
+            import builtins
+
+            old_imp = builtins.__import__
+            try:
+                builtins.__import__ = _no_pymupdf
+                good_rep = mod.verify_dieline_pdf(good_pdf)
+                self.assertTrue(good_rep["preflight_pass"])
+                self.assertTrue(good_rep["cmyk_only_no_rgb"])
+
+                rgb_pdf = tmp_root / "bad_rgb.pdf"
+                rgb_pdf.write_bytes(good_pdf.read_bytes() + b"\n13 0 obj /DeviceRGB endobj\n")
+                bad_rep = mod.verify_dieline_pdf(rgb_pdf)
+                self.assertFalse(bad_rep["preflight_pass"])
+                self.assertFalse(bad_rep["cmyk_only_no_rgb"])
+            finally:
+                builtins.__import__ = old_imp
 
 
 if __name__ == "__main__":
