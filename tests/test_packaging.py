@@ -27,6 +27,18 @@ AGY_SIDEBAR_SESSION_SKILL = ROOT / "skills" / "agy-sidebar-session"
 
 
 class PackagingTests(unittest.TestCase):
+    def test_shared_research_guidance_discovery(self) -> None:
+        name = "shared-research"
+        for manifest in (".codex-plugin/plugin.json", ".claude-plugin/plugin.json"):
+            roots = json.loads((ROOT / manifest).read_text())["skills"]
+            found = [p.name for root in roots for p in (ROOT / root).iterdir()
+                     if p.is_dir() and (p / "SKILL.md").is_file()]
+            self.assertEqual(found.count(name), 1)
+        cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
+        self.assertEqual(cursor["skills"].count("./skills/shared-research/"), 1)
+        self.assertEqual([p.name for p in (ROOT / "skills/shared-research").iterdir()], ["SKILL.md"])
+        self.assertIn("startOffset", (ROOT / "skills/shared-research/SKILL.md").read_text())
+
     def test_simplification_and_performance_cores_are_discoverable_and_attributed(self) -> None:
         import re
 

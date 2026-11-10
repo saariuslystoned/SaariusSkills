@@ -522,3 +522,5 @@ python3 skills/phone-proof/scripts/phone_proof.py --help
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes.
+
+Native X and YouTube lookup guidance: [shared-research](skills/shared-research/SKILL.md). The runtime ships separately in ai-shed and is prepared, not live-proven.
