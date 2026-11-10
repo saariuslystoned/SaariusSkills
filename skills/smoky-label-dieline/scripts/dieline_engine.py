@@ -2312,16 +2312,22 @@ def _plan_hero_zone(
         )
 
     brand_header: dict[str, Any] | None = None
-    if show_brand_header and rem_h >= 54.0 and (has_smcbd_vec or brand.strip()):
-        bh_alloc = min(32.0, rem_h * 0.26)
-        if has_smcbd_vec:
+    if show_brand_header and (has_smcbd_vec or brand.strip()):
+        if has_smcbd_vec and rem_h >= 42.0:
+            bh_alloc = min(32.0, rem_h * 0.28)
             brand_header = {"kind": "vector", "cx": cx, "cy": y0 + h - bh_alloc / 2.0, "w": min(w * 0.56, bh_alloc * 1.65)}
-        else:
+            rem_h -= bh_alloc + 2.5
+        elif rem_h >= 22.0:
+            bh_alloc = min(28.0, max(6.0, rem_h * 0.24))
             b_fit = fit_tracked_line(
-                brand.upper(), "AvenirCond-Heavy", max_fs=min(8.5 * sc, bh_alloc * 0.65), min_fs=3.8, max_w=w * 0.92, base_tracking=0.7 * sc, panel_id=panel_id, field_name="brand"
+                brand.upper(), "AvenirCond-Heavy", max_fs=min(8.5 * sc, bh_alloc * 0.72), min_fs=3.6, max_w=w * 0.94, base_tracking=0.7 * sc, panel_id=panel_id, field_name="brand"
             )
             brand_header = {"kind": "text", "cx": cx, "y": y0 + h - 0.85 * b_fit["font_size"], "line": b_fit}
-        rem_h -= bh_alloc + 3.0
+            rem_h -= max(b_fit["font_size"] + 2.0, bh_alloc * 0.75)
+        elif brand.strip():
+            raise ValueError(
+                f"Panel {panel_id!r}: hero zone height ({h / PT_PER_INCH:.2f}\") cannot stack brand, product_name, and optional fields without overlap."
+            )
 
     sub_layout = layout_wrapped_lines(
         subtitle.upper(),
@@ -2562,15 +2568,14 @@ def plan_panel_artwork_layout(
     fda_text = _resolve_spec_disclaimer(spec)
     min_gs1_w = inch(GS1_UPCA_MIN_WIDTH_IN) + 1.4
 
+    has_left_content = bool(has_qr or fda_text.strip())
+    has_right_content = bool(upc or directions.strip() or ingredients.strip())
+
     # 1. Circular cap / standalone circular sticker
     standalone_circle_needs_full_zones = (
         p.shape == "circle"
         and not is_auxiliary_cap
-        and (
-            bool(upc)
-            or bool(directions.strip())
-            or bool(ingredients.strip())
-        )
+        and (has_left_content or has_right_content)
     )
     if p.shape == "circle" and not standalone_circle_needs_full_zones:
         r_safe = p.w / 2.0 - p.safety
@@ -2580,6 +2585,15 @@ def plan_panel_artwork_layout(
         ring_r = r_safe - 3.0 * sc
         arch_sub = None
         hero_lines = None
+        if r_safe < 42.0 and not is_auxiliary_cap:
+            if product_name.strip():
+                raise ValueError(
+                    f"Circular panel {p.panel_id!r} safe radius ({r_safe / PT_PER_INCH:.2f}\") is too small to fit brand and product_name; enlarge circle or set product_name=''."
+                )
+            if subtitle.strip() or cannabinoids or net_wt.strip():
+                raise ValueError(
+                    f"Circular panel {p.panel_id!r} safe radius ({r_safe / PT_PER_INCH:.2f}\") cannot fit subtitle/metrics/net_wt."
+                )
         if r_safe >= 42.0:
             if subtitle.strip():
                 r_arch = r_safe - 10.0 * sc
@@ -2658,6 +2672,20 @@ def plan_panel_artwork_layout(
                 (r_mid - sgn * band_safe * 0.32, fit_tracked_line(net_wt, "AvenirCond-Med", 5.6 * sc, 3.6, max_hero_arc, 0.6 * sc, p.panel_id, "conical net_wt"), "white")
             )
         theta_hero_half = max((item[1]["width_pt"] / 2.0) / max(r1_safe, 1.0) for item in arched_specs) + 0.014
+        if not has_left_content and not has_right_content:
+            return {
+                "mode": "conical",
+                "use_smcbd_vec": use_smcbd_vec,
+                "y_apex": y_apex,
+                "r_mid": r_mid,
+                "top_mode": top_mode,
+                "arched_specs": arched_specs,
+                "ang_wing_mag": 0.0,
+                "wing_size": None,
+                "left_wing": None,
+                "right_wing": None,
+                "upc_rect": None,
+            }
         if theta_hero_half >= half_theta_safe - 0.04:
             raise ValueError(f"Conical panel {p.panel_id!r} center hero copy leaves insufficient arc for QR/FDA and barcode wings.")
 
@@ -2674,22 +2702,30 @@ def plan_panel_artwork_layout(
             max_hw_ang = r_in_edge * math.tan(ang_half_avail)
             max_hw_rad = math.sqrt(max(0.0, r2_safe**2 - r_out_edge**2))
             ww = 2.0 * min(max_hw_ang, max_hw_rad) - 2.0
-            if ww < 44.0 or wh < 24.0:
+            if ww < 24.0 or wh < 22.0:
                 continue
             try:
-                left_plan = _plan_qr_fda_zone(
-                    p.panel_id,
-                    -ww / 2.0,
-                    -wh / 2.0,
-                    ww,
-                    wh,
-                    fda_text,
-                    use_smcbd_vec,
-                    has_qr=has_qr,
-                    brand="",
+                left_plan = (
+                    _plan_qr_fda_zone(
+                        p.panel_id,
+                        -ww / 2.0,
+                        -wh / 2.0,
+                        ww,
+                        wh,
+                        fda_text,
+                        use_smcbd_vec,
+                        has_qr=has_qr,
+                        brand="",
+                    )
+                    if has_left_content
+                    else None
                 )
-                right_plan = _plan_directions_upc_zone(
-                    p.panel_id, -ww / 2.0, -wh / 2.0, ww, wh, directions, ingredients, str(upc) if upc else None, allow_upc_trunc
+                right_plan = (
+                    _plan_directions_upc_zone(
+                        p.panel_id, -ww / 2.0, -wh / 2.0, ww, wh, directions, ingredients, str(upc) if upc else None, allow_upc_trunc
+                    )
+                    if has_right_content
+                    else None
                 )
                 best_wing = (ww, wh)
                 return {
@@ -2703,7 +2739,7 @@ def plan_panel_artwork_layout(
                     "wing_size": best_wing,
                     "left_wing": left_plan,
                     "right_wing": right_plan,
-                    "upc_rect": right_plan["upc_rect"],
+                    "upc_rect": right_plan["upc_rect"] if right_plan else None,
                 }
             except ValueError as exc:
                 last_wing_err = exc
@@ -2819,17 +2855,32 @@ def plan_panel_artwork_layout(
         f_left, f_right = faces[0], faces[1]
         lx, ly, lw, lh = _safe_box(f_left)
         rx, ry, rw, rh = _safe_box(f_right)
-        sub_qr_w = max(46.0, lw * 0.36)
-        sub_hero_w = lw - sub_qr_w - 6.0
-        if sub_hero_w < 46.0:
-            raise ValueError(f"Folded 2-face panel {p.panel_id!r} face is too narrow for QR/FDA and hero content.")
-        qrfda_plan = _plan_qr_fda_zone(p.panel_id, lx, ly, sub_qr_w, lh, fda_text, use_smcbd_vec, has_qr=has_qr, brand=brand)
-        hero_plan = _plan_hero_zone(
-            p.panel_id, lx + sub_qr_w + 6.0, ly, sub_hero_w, lh, brand, product_name, subtitle, cannabinoids, net_wt, use_smcbd_vec
-        )
-        upc_plan = _plan_directions_upc_zone(
-            p.panel_id, rx, ry, rw, rh, directions, ingredients, str(upc) if upc else None, allow_upc_trunc
-        )
+        if has_left_content and has_right_content:
+            sub_qr_w = max(24.0 if (has_qr and not fda_text.strip()) else 42.0, lw * 0.36)
+            sub_hero_w = lw - sub_qr_w - 6.0
+            if sub_hero_w < 44.0:
+                raise ValueError(f"Folded 2-face panel {p.panel_id!r} face is too narrow for QR/FDA and hero content.")
+            qrfda_plan = _plan_qr_fda_zone(p.panel_id, lx, ly, sub_qr_w, lh, fda_text, use_smcbd_vec, has_qr=has_qr, brand="")
+            hero_plan = _plan_hero_zone(
+                p.panel_id, lx + sub_qr_w + 6.0, ly, sub_hero_w, lh, brand, product_name, subtitle, cannabinoids, net_wt, use_smcbd_vec, show_brand_header=True
+            )
+            upc_plan = _plan_directions_upc_zone(
+                p.panel_id, rx, ry, rw, rh, directions, ingredients, str(upc) if upc else None, allow_upc_trunc
+            )
+        elif has_left_content:
+            hero_plan = _plan_hero_zone(
+                p.panel_id, lx, ly, lw, lh, brand, product_name, subtitle, cannabinoids, net_wt, use_smcbd_vec, show_brand_header=True
+            )
+            qrfda_plan = _plan_qr_fda_zone(p.panel_id, rx, ry, rw, rh, fda_text, use_smcbd_vec, has_qr=has_qr, brand="")
+            upc_plan = _plan_directions_upc_zone(p.panel_id, rx, ry, rw, rh, "", "", None, allow_upc_trunc)
+        else:
+            hero_plan = _plan_hero_zone(
+                p.panel_id, lx, ly, lw, lh, brand, product_name, subtitle, cannabinoids, net_wt, use_smcbd_vec, show_brand_header=True
+            )
+            qrfda_plan = _plan_qr_fda_zone(p.panel_id, rx, ry, rw, rh, "", use_smcbd_vec, has_qr=False, brand="")
+            upc_plan = _plan_directions_upc_zone(
+                p.panel_id, rx, ry, rw, rh, directions, ingredients, str(upc) if upc else None, allow_upc_trunc
+            )
         return {
             "mode": "folded_3face",
             "use_smcbd_vec": use_smcbd_vec,
@@ -2877,32 +2928,84 @@ def plan_panel_artwork_layout(
 
     col_gap = max(6.0, min(11.0, safe_w * 0.022))
     req_upc_w = (min_gs1_w if not allow_upc_trunc else 36.0) if upc else 0.0
-    split_candidates: list[tuple[float, float]] = [
-        (
-            max(46.0, min(safe_w * 0.25, (safe_w - max(safe_w * 0.30, req_upc_w)) * 0.40)),
-            max(safe_w * 0.30, req_upc_w),
+    show_bh = not (has_qr and use_smcbd_vec)
+
+    if not has_left_content and not has_right_content:
+        hero_plan = _plan_hero_zone(
+            p.panel_id,
+            safe_x0,
+            safe_y0,
+            safe_w,
+            safe_h,
+            brand,
+            product_name,
+            subtitle,
+            cannabinoids,
+            net_wt,
+            use_smcbd_vec,
+            show_brand_header=True,
         )
-    ]
-    if upc and safe_w >= 260.0:
-        wide_rw = max(safe_w * 0.43, req_upc_w + 58.0)
-        wide_lw = max(48.0, (safe_w - wide_rw) * 0.38)
-        split_candidates.append((wide_lw, wide_rw))
+        return {
+            "mode": "flat_3zone",
+            "use_smcbd_vec": use_smcbd_vec,
+            "draw_dividers": False,
+            "div_left": None,
+            "div_right": None,
+            "qr_zone": None,
+            "hero": hero_plan,
+            "upc_zone": None,
+            "upc_rect": None,
+        }
+
+    min_left = (22.0 if (has_qr and not fda_text.strip()) else 36.0) if has_left_content else 0.0
+    min_right = max(36.0, req_upc_w) if has_right_content else 0.0
+
+    if has_left_content and not has_right_content:
+        split_candidates: list[tuple[float, float]] = [
+            (max(min_left, min(safe_w * 0.34, safe_w - col_gap - 44.0)), 0.0),
+            (min_left, 0.0),
+        ]
+    elif has_right_content and not has_left_content:
+        split_candidates = [
+            (0.0, max(min_right, min(safe_w * 0.42, safe_w - col_gap - 44.0))),
+            (0.0, min_right),
+        ]
+        if upc and safe_w >= 200.0:
+            split_candidates.append((0.0, max(safe_w * 0.48, req_upc_w + 48.0)))
+    else:
+        split_candidates = [
+            (
+                max(min_left, min(safe_w * 0.25, (safe_w - max(safe_w * 0.30, req_upc_w)) * 0.40)),
+                max(safe_w * 0.30, min_right),
+            ),
+            (min_left, min_right),
+        ]
+        if upc and safe_w >= 260.0:
+            wide_rw = max(safe_w * 0.43, req_upc_w + 58.0)
+            wide_lw = max(min_left, (safe_w - wide_rw) * 0.38)
+            split_candidates.append((wide_lw, wide_rw))
 
     last_err: Exception | None = None
     for left_w, right_w in split_candidates:
-        center_w = safe_w - left_w - right_w - 2.0 * col_gap
-        if left_w < 44.0 or center_w < 54.0 or right_w < 44.0:
+        n_gaps = (1 if left_w > 0 else 0) + (1 if right_w > 0 else 0)
+        center_w = safe_w - left_w - right_w - n_gaps * col_gap
+        if (left_w > 0 and left_w + 1e-6 < min_left) or center_w < 44.0 or (right_w > 0 and right_w + 1e-6 < min_right):
             last_err = ValueError(
-                f"Panel {p.panel_id!r}: safe width ({safe_w / PT_PER_INCH:.2f}\") cannot accommodate QR/FDA, hero, and directions/barcode columns."
+                f"Panel {p.panel_id!r}: safe width ({safe_w / PT_PER_INCH:.2f}\") cannot accommodate requested columns without overlap."
             )
             continue
         try:
-            qr_plan = _plan_qr_fda_zone(
-                p.panel_id, safe_x0, safe_y0, left_w, safe_h, fda_text, use_smcbd_vec, has_qr=has_qr, brand=""
+            qr_plan = (
+                _plan_qr_fda_zone(
+                    p.panel_id, safe_x0, safe_y0, left_w, safe_h, fda_text, use_smcbd_vec, has_qr=has_qr, brand=""
+                )
+                if left_w > 0
+                else None
             )
+            hero_x0 = safe_x0 + (left_w + col_gap if left_w > 0 else 0.0)
             hero_plan = _plan_hero_zone(
                 p.panel_id,
-                safe_x0 + left_w + col_gap,
+                hero_x0,
                 safe_y0,
                 center_w,
                 safe_h,
@@ -2912,31 +3015,35 @@ def plan_panel_artwork_layout(
                 cannabinoids,
                 net_wt,
                 use_smcbd_vec,
-                show_brand_header=not (has_qr and use_smcbd_vec),
+                show_brand_header=show_bh,
             )
-            upc_plan = _plan_directions_upc_zone(
-                p.panel_id,
-                safe_x0 + safe_w - right_w,
-                safe_y0,
-                right_w,
-                safe_h,
-                directions,
-                ingredients,
-                str(upc) if upc else None,
-                allow_upc_trunc,
+            upc_plan = (
+                _plan_directions_upc_zone(
+                    p.panel_id,
+                    safe_x0 + safe_w - right_w,
+                    safe_y0,
+                    right_w,
+                    safe_h,
+                    directions,
+                    ingredients,
+                    str(upc) if upc else None,
+                    allow_upc_trunc,
+                )
+                if right_w > 0
+                else None
             )
-            div_left = safe_x0 + left_w + col_gap * 0.5
-            div_right = safe_x0 + safe_w - right_w - col_gap * 0.5
+            div_left = (safe_x0 + left_w + col_gap * 0.5) if left_w > 0 else None
+            div_right = (safe_x0 + safe_w - right_w - col_gap * 0.5) if right_w > 0 else None
             return {
                 "mode": "flat_3zone",
                 "use_smcbd_vec": use_smcbd_vec,
-                "draw_dividers": draw_dividers,
+                "draw_dividers": draw_dividers and (div_left is not None or div_right is not None),
                 "div_left": div_left,
                 "div_right": div_right,
                 "qr_zone": qr_plan,
                 "hero": hero_plan,
                 "upc_zone": upc_plan,
-                "upc_rect": upc_plan["upc_rect"],
+                "upc_rect": upc_plan["upc_rect"] if upc_plan else None,
             }
         except ValueError as exc:
             last_err = exc
@@ -3126,6 +3233,8 @@ def build_generic_spec_artwork(spec: dict[str, Any]) -> Callable[[canvas.Canvas,
                         center_angle_deg=90.0 if top_mode else 270.0,
                     )
                 for sign_ang, wing_plan, is_left in ((-1.0, plan["left_wing"], True), (+1.0, plan["right_wing"], False)):
+                    if wing_plan is None:
+                        continue
                     ang = sign_ang * plan["ang_wing_mag"]
                     wx = p.cx + r_mid * math.sin(ang)
                     wy = y_apex + (r_mid * math.cos(ang) if top_mode else -r_mid * math.cos(ang))
@@ -3151,15 +3260,21 @@ def build_generic_spec_artwork(spec: dict[str, Any]) -> Callable[[canvas.Canvas,
             else:
                 if plan["draw_dividers"]:
                     c.setFillColor(panel_col)
-                    c.rect(bx0, by0, plan["div_left"] - bx0, bh, stroke=0, fill=1)
-                    c.rect(plan["div_right"], by0, (bx0 + bw) - plan["div_right"], bh, stroke=0, fill=1)
+                    if plan["div_left"] is not None:
+                        c.rect(bx0, by0, plan["div_left"] - bx0, bh, stroke=0, fill=1)
+                    if plan["div_right"] is not None:
+                        c.rect(plan["div_right"], by0, (bx0 + bw) - plan["div_right"], bh, stroke=0, fill=1)
                     c.setStrokeColor(accent_col)
                     c.setLineWidth(0.8)
-                    c.line(plan["div_left"], by0, plan["div_left"], by0 + bh)
-                    c.line(plan["div_right"], by0, plan["div_right"], by0 + bh)
-                _draw_planned_qr_fda(c, plan["qr_zone"], coa_url, smcbd_vec, accent_col)
+                    if plan["div_left"] is not None:
+                        c.line(plan["div_left"], by0, plan["div_left"], by0 + bh)
+                    if plan["div_right"] is not None:
+                        c.line(plan["div_right"], by0, plan["div_right"], by0 + bh)
+                if plan["qr_zone"] is not None:
+                    _draw_planned_qr_fda(c, plan["qr_zone"], coa_url, smcbd_vec, accent_col)
                 _draw_planned_hero(c, plan["hero"], smcbd_vec, panel_col, accent_col)
-                _draw_planned_directions_upc(c, plan["upc_zone"], str(upc) if upc else None, allow_upc_trunc, accent_col)
+                if plan["upc_zone"] is not None:
+                    _draw_planned_directions_upc(c, plan["upc_zone"], str(upc) if upc else None, allow_upc_trunc, accent_col)
 
             c.restoreState()
 

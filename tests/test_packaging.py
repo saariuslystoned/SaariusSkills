@@ -1504,6 +1504,23 @@ exit "$1"
             if abs(fx1 - fx2) < 1e-6:  # vertical fold score
                 self.assertFalse(ux < fx1 < ux + uw, f"Barcode {ux}..{ux+uw} crossed vertical fold at {fx1}")
 
+        # Standalone circular labels preserve requested qr_url/disclaimer, and small 2"x2" flat labels
+        # omit unused optional columns instead of failing on empty side-column reservations.
+        standalone_circle = mod.DielinePanel("seal", "circle", cx=200.0, cy=200.0, width_in=3.0, height_in=3.0)
+        circle_qr_plan = mod.plan_panel_artwork_layout(
+            standalone_circle,
+            {"product_name": "BATCH SEAL", "qr_url": "https://example.com/batch", "disclaimer": "KEEP REFRIGERATED."},
+        )
+        self.assertEqual(circle_qr_plan["mode"], "flat_3zone")
+        self.assertIsNotNone(circle_qr_plan["qr_zone"]["qr_rect"])
+        self.assertGreater(len(circle_qr_plan["qr_zone"]["fda_layout"]["lines"]), 0)
+
+        small_flat = mod.DielinePanel("small_2x2", "rect", cx=200.0, cy=200.0, width_in=2.0, height_in=2.0)
+        small_plan = mod.plan_panel_artwork_layout(small_flat, {"product_name": "COFFEE"})
+        self.assertIsNone(small_plan["qr_zone"])
+        self.assertIsNone(small_plan["upc_zone"])
+        self.assertFalse(small_plan["draw_dividers"])
+
         # Custom palette CMYK channel bounds and <= 300% TAC enforcement
         valid_pal = mod.validate_palette_cmyk({"bg": [70, 40, 50, 30]})
         self.assertEqual(sum(valid_pal["bg"]), 190.0)
