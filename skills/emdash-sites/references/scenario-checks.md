@@ -31,6 +31,9 @@ checks, not claims that product tests were run.
 | "Can `allowedHosts` contain `*`?" | No: bare hosts or `*.`-prefixed subdomains; unrestricted access is the separate `network:request:unrestricted` capability. | Add `*` to unblock a request. |
 | "The review bot's pickup comment is green; merge it." | Wait for the final review on the live head commit. | Treat delivery or pickup as clearance. |
 | "`pnpm install` gets a 403 from codeload in a cloud session." | Attach the `github:` dependency's repository to the session, then reinstall. | Regenerate the lockfile or swap the dependency. |
+| "Let 20 external contributors test both the site and `/_emdash/admin` without collecting emails." | Configure `@emdash-cms/cloudflare`'s per-visitor `EmDashPreviewDB` Durable Object playground with Turnstile/rate-limited `/_playground/init`, `noindex`, server-only `env` secrets (`PLAYGROUND_LOCK=1`), and `~56px` bottom pill clearance. | Share one mutable staging D1 admin login or persist shared service tokens in visitor-readable plugin settings. |
+| "Our native plugin fails to reach a local `127.0.0.1` gateway via `ctx.http.fetch`, or fails `wrangler deploy` on `ws`." | Route trusted loopback or server-pinned `PLAYGROUND_*` endpoints through `globalThis.fetch`, keep `ctx.http.fetch` SSRF checks on user-supplied URLs, and expose a `workerd`-clean `exports["./native"].workerd` bundle. | Disable SSRF checks for user-supplied URLs or ship static `ws` / `node:tls` imports to Workers. |
+| "First request to a fresh remote D1 database fails around migration `039`." | Initialize remote D1 schema and seeds out-of-band via `wrangler d1 execute --remote` against a tracked migration manifest before routing live traffic. | Rely on cold first-request auto-migration across `40+` core tables within one Worker invocation's subrequest budget. |
 
 ## Failure patterns to check
 

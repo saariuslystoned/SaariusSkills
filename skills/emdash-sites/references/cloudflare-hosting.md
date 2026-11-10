@@ -16,6 +16,15 @@ Then separately prove the initialized CMS and publish flow. Prove price and
 other data-backed UI on the Workers runtime with local D1 bindings (for
 example `wrangler dev`), not a plain Node preview without those bindings.
 
+Do not rely on cold first-request runtime auto-migration for remote D1
+databases. Although upstream `building-emdash-site` (`references/configuration.md`)
+states that migrations run automatically on the first request, EmDash's `40+`
+core migrations exceed a single Cloudflare Worker invocation's D1 subrequest
+budget (typically stalling around migration `039` and leaving
+`_emdash_migrations` half-applied). Initialize remote D1 schema and seeds
+out-of-band (`wrangler d1 execute --remote` against a tracked Git migration
+manifest) before routing live traffic.
+
 For a starter landing page, an explicit seed fallback may be appropriate before
 setup. Make that a product choice with a defined end condition, not the default
 response to every missing CMS entry. Once initialized, deleted, unpublished,
@@ -48,6 +57,15 @@ those exact-path exceptions, each with its own validation/signature rules, not
 a broad API bypass. Access is one auth mode, not mandatory. Prove anonymous
 admin denial, authorized editor access and the intended public/callback
 behavior.
+
+When Cloudflare Access is not yet claimed or is propagating, ship a fail-closed
+outer Worker/middleware guard that returns `401` on `/_emdash*` by default,
+allowlisting only verified exact-path public exceptions (for example a moderated
+draft-only public plugin `POST` route carrying its own rate limit and payload
+validation). For secondary or legacy brand domains that forward to the canonical
+host, deploy a minimal stateless `301` redirect Worker (`workers_dev: false`,
+preserving pathname and query string) instead of mounting a duplicate CMS
+Worker.
 
 ## Match the deployed runtime
 
@@ -93,3 +111,36 @@ resolver from a deployment defect; neither alone proves every user's DNS works.
 Treat port hopping, daemon behavior and missing dev logs as version-specific
 observations. Read the actual listening address and confirm the intended process
 serves it before capturing proof.
+
+## Host zero-login Durable Object playgrounds
+
+When external contributors, reviewers, or prospects need hands-on access to both
+public pages and `/_emdash/admin` without maintaining a per-email Access
+allowlist or sharing one mutable staging database, prefer
+`@emdash-cms/cloudflare`'s per-visitor SQLite Durable Object playground:
+
+- **Adapter and Durable Object exports:** Configure
+  `playgroundDatabase({ binding: "PLAYGROUND_DB" })` with
+  `storage: { entrypoint: "@emdash-cms/cloudflare/db/playground", config: {} }`,
+  `playground: { middlewareEntrypoint: "./src/playground-middleware.ts" }`, and
+  `session: { driver: "memory" }`. Re-export `EmDashPreviewDB` (and
+  `PluginBridge` when plugins run) from the custom Worker entrypoint alongside
+  the Astro fetch handler.
+- **Preview user hydration (`createdAt`):** Wrap
+  `@emdash-cms/cloudflare/db/playground-middleware` so `context.locals.user`
+  sets a valid `createdAt` `Date` when omitted by upstream's preview user stub,
+  preventing `/_emdash/admin` account/profile views from throwing on undefined
+  timestamps.
+- **Abuse gates, stale-cookie recovery, and indexing:** Gate
+  `POST /_playground/init` with Cloudflare Turnstile verification and a Worker
+  Rate Limiter binding (`limit({ key })`) before allocating new Durable Object
+  instances. If an incoming `emdash_playground` session cookie fails validation
+  or points at an expired/corrupt preview instance, clear the cookie and recover
+  cleanly instead of trapping the visitor in repeated `500` responses. Send
+  `X-Robots-Tag: noindex, nofollow` on every playground response.
+- **Floating Playground pill safe-area (`~56px`):** EmDash's Playground runtime
+  injects a floating status/reset pill anchored to the bottom of the viewport.
+  Reserve at least `56px` of bottom safe-area clearance (`padding-bottom` or
+  bottom offset) on fixed-bottom admin drawers, toolbars, and chat composers so
+  the pill never overlaps text inputs or submit buttons on desktop or `390×844`
+  mobile viewports.

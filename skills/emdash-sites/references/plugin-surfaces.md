@@ -112,6 +112,32 @@ unavailable until that composition exists. Named adapter exports alone do not
 mean their routes are mounted. Test the default installation as well as the
 fully configured host, and keep domain rules behind both UI adapters identical.
 
+## Loopback transport, Workers bundling, and Playground secret isolation
+
+- **`ctx.http.fetch` blocks loopback and private IPs:** EmDash's `ctx.http.fetch`
+  enforces SSRF checks that reject `127.0.0.1`, `localhost`, `[::1]`, and
+  private network ranges even when listed in `allowedHosts`. Native plugins that
+  connect to an operator-configured local loopback service, SSH tunnel, or
+  server-pinned `PLAYGROUND_*` upstream must dispatch those trusted server-owned
+  endpoints via `globalThis.fetch`, while retaining `ctx.http.fetch` SSRF
+  validation for user- or admin-supplied external URLs.
+- **Ship a `workerd`-clean native entrypoint:** When a native plugin mounts
+  inside Cloudflare Workers or an EmDash Playground Worker, expose a conditional
+  `exports["./native"].workerd` bundle with zero static Node-only imports (`ws`,
+  `node:tls`, `node:net`, `node:child_process`) so `wrangler deploy` and
+  `workerd` module evaluation succeed cleanly alongside the Node entrypoint.
+- **Isolate shared service secrets in zero-login Playgrounds:** In a
+  `playgroundDatabase` (`EmDashPreviewDB`) deployment, every visitor has admin
+  access to their own Durable Object SQLite database. Never seed, persist, or
+  return shared upstream API keys, gateway tokens, or webhook secrets in
+  visitor-readable plugin `settings` or `kv` storage. Read shared upstream
+  credentials strictly from Worker `env` on the server, enforce
+  `PLAYGROUND_LOCK=1` to reject settings writes, device pairing, or privileged
+  exec/approval routes with `403`, and namespace upstream session keys with a
+  one-way hash of the visitor's `emdash_playground` cookie
+  (`SHA-256(emdash_playground)`) so visitors cannot read or steer each other's
+  sessions.
+
 ## Pinned upstream corrections (`creating-plugins`)
 
 The verbatim vendor mirror contains these known mechanical defects. Packaged

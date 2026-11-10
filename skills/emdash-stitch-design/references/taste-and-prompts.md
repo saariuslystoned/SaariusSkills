@@ -28,11 +28,12 @@ Encode these rules in `.stitch/DESIGN.md` before generating screens, and hold th
 - **Banned AI Tells:**
   - No emojis in UI chrome.
   - No fabricated metrics (`99.98% SLA`, `10k+ customers`) or `LABEL // 2026` filler tags.
+  - No decorative telemetry strips or faux-CAD blueprint cosplay: never repeat `.preflight-strip` SHA/tarball/status bars across pages, stamp `+00,00` or `[DATUM_A]` corner coordinate reticles, add `FIG. 01` / `SCALE 1:1` / `ROUTE 03` blueprint headers, invent `#FF00FF` QA pass-rate readouts, or pad catalog cards with `scan: clean` / SemVer clutter. Technical identifiers appear only where a user acts on them (for example one copyable CLI install bar or an actual package detail field).
   - No invented cart/checkout/buy buttons when the slice contract forbids them.
   - No horizontal overflow on narrow mobile viewports (`320px–767px`), and no clipped control text: each control's placeholder and label fit its own container at desktop and narrow widths. A page-level overflow check misses both.
   - No shopper-facing copy the content owners did not supply. Facts come from their owner: EmDash for copy, menus and media; Commerce for price, availability, identifiers and checkout readiness. Generated text (CSS `content:`, prefixes, badges, counts) is copy too. Record a missing label as a gap instead of inventing one.
   - No developer, ownership or run notes on the page, such as which system owns which data. They belong in `design.md`.
-  - No label that looks like a control and does nothing. Every header and footer item either works or reads as plain text, with no pill, chip, button or link styling. An unavailable action follows the same rule: it shows its reason and never looks enabled.
+  - No label that looks like a control and does nothing, and no unverified social/community links. Every header and footer item either works (with external Discord, GitHub, and social links verified against their canonical project URLs rather than `#`, bare domain roots, or guessed handles) or reads as plain text, with no pill, chip, button or link styling. An unavailable action follows the same rule: it shows its reason and never looks enabled.
   - No dead-end empty states: an empty cart, collection or search result offers the shopper's next step.
 
 ## 2. Prompt Enhancement Pipeline (`generate-design`)

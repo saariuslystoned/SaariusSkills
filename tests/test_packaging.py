@@ -199,6 +199,71 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("allow_implicit_invocation: true", metadata)
         self.assertIn("$emdash-commerce", metadata)
 
+    def test_emdash_stitch_sites_and_deploy_hardenings_are_packaged(self) -> None:
+        import re
+
+        stitch_skill = ROOT / "skills" / "emdash-stitch-design"
+        sites_skill = ROOT / "skills" / "emdash-sites"
+        deploy_skill = ROOT / "skills" / "emdash-ci-deploy"
+        surface_skill = ROOT / "skills" / "emdash-surface-fx"
+
+        for folder in (stitch_skill, sites_skill, deploy_skill, surface_skill):
+            skill_doc = (folder / "SKILL.md").read_text(encoding="utf-8")
+            self.assertLessEqual(len(skill_doc.splitlines()), 500, folder.name)
+            for doc in folder.rglob("*.md"):
+                text = doc.read_text(encoding="utf-8")
+                self.assertNotIn("/Users/", text, str(doc))
+                self.assertNotIn("/home/", text, str(doc))
+                for target in re.findall(r"\]\(([^)]+)\)", text):
+                    if "://" not in target and not target.startswith("#"):
+                        self.assertTrue(
+                            (doc.parent / target.split("#")[0]).is_file(),
+                            f"{doc}: {target}",
+                        )
+
+        visual_cycle = (
+            stitch_skill / "references" / "grilltrack-visual-cycle.md"
+        ).read_text(encoding="utf-8")
+        taste = (stitch_skill / "references" / "taste-and-prompts.md").read_text(
+            encoding="utf-8"
+        )
+        stitch_main = (stitch_skill / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("NSWindow", visual_cycle)
+        self.assertIn("Emulation.setDeviceMetricsOverride", visual_cycle)
+        self.assertIn("window.innerWidth === 390", visual_cycle)
+        self.assertIn("faux-CAD blueprint cosplay", taste)
+        self.assertIn("DATUM_A", taste)
+        self.assertIn("Discord, GitHub, and social", stitch_main)
+
+        cf_hosting = (
+            sites_skill / "references" / "cloudflare-hosting.md"
+        ).read_text(encoding="utf-8")
+        plugin_surfaces = (
+            sites_skill / "references" / "plugin-surfaces.md"
+        ).read_text(encoding="utf-8")
+        scenarios = (
+            sites_skill / "references" / "scenario-checks.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("playgroundDatabase", cf_hosting)
+        self.assertIn("EmDashPreviewDB", cf_hosting)
+        self.assertIn("56px", cf_hosting)
+        self.assertIn("039", cf_hosting)
+        self.assertIn("globalThis.fetch", plugin_surfaces)
+        self.assertIn('exports["./native"].workerd', plugin_surfaces)
+        self.assertIn("PLAYGROUND_LOCK=1", plugin_surfaces)
+        self.assertIn("EmDashPreviewDB", scenarios)
+
+        deploy_main = (deploy_skill / "SKILL.md").read_text(encoding="utf-8")
+        deploy_trouble = (
+            deploy_skill / "references" / "onboard-and-troubleshoot.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("wrangler d1 execute --remote", deploy_main)
+        self.assertIn("Cold D1 first request fails mid-migration", deploy_trouble)
+
+        surface_main = (surface_skill / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("Surface Restraint: Craft Replaces Telemetry Clutter", surface_main)
+        self.assertIn("chrome: 'stage-only'", surface_main)
+
     def test_harness2_skill_contract_and_metadata_are_packaged(self) -> None:
         skill_path = HARNESS2_SKILL / "SKILL.md"
         contract_path = HARNESS2_SKILL / "references" / "experiment-contract.md"
