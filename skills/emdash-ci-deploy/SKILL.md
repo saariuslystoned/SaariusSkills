@@ -50,6 +50,12 @@ Before a first or changed deployment:
   a named database restore point, and deploy only from a commit that already
   contains any newly created resource IDs. When the first person through a setup
   screen becomes the site's administrator, the owner does that step, not an agent.
+- Initialize fresh remote D1 databases out-of-band (`wrangler d1 execute --remote`
+  against a committed migration manifest, followed by seed initialization) before
+  routing traffic. Never rely on cold first-request runtime auto-migration:
+  EmDash's `40+` core migrations exceed a single Cloudflare Worker invocation's
+  D1 subrequest budget (stalling around migration `039` and leaving
+  `_emdash_migrations` partially applied).
 - When a change adds a value one service issues and another requires, deploy the
   issuing service first and check it before deploying the one that requires it.
 - Prove the built artifact with a production crawl, page-content checks and one

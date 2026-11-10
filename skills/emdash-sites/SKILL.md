@@ -19,6 +19,20 @@ Read these corrections before copying examples from that pin:
   stays with the authorized human.
   Updates without revisions write live; require revision capability plus `_rev`
   (`references/content-ownership.md`).
+- Cold D1 auto-migration budget (`building-emdash-site`): upstream's
+  `configuration.md` states migrations run automatically on first request, but
+  EmDash's `40+` core migrations exhaust Cloudflare Workers' per-request D1
+  subrequest budget (typically stalling around migration `039`) on a fresh
+  remote database. Initialize remote D1 schema and seeds out-of-band via
+  `wrangler d1 execute --remote` before live traffic
+  (`references/cloudflare-hosting.md`).
+- Plugin loopback fetch and Workers bundling (`creating-plugins`):
+  `ctx.http.fetch` blocks loopback and private IPs (`127.0.0.1`, `localhost`,
+  `[::1]`). Native plugins reaching trusted local loopback gateways/tunnels or
+  server-pinned `PLAYGROUND_*` upstreams must use `globalThis.fetch` while
+  keeping `ctx.http.fetch` SSRF checks on user-supplied URLs, and must expose a
+  `workerd`-clean `./native` export without static `ws` or `node:tls` imports
+  (`references/plugin-surfaces.md`).
 - Route handlers: sandboxed handlers require `async (routeCtx, ctx)` with input
   from `routeCtx.input` and storage from `ctx.kv`/`ctx.storage`. Native handlers
   receive one combined context `async (ctx)` reading `ctx.input` and `ctx.storage`
@@ -50,6 +64,7 @@ Read these corrections before copying examples from that pin:
 | Need | Implementation direction | Evidence required |
 | --- | --- | --- |
 | Registry-installed admin feature | Sandboxed plugin with Block Kit UI | Actual packaged install, configured runner, user action and durable result |
+| Zero-login multi-visitor Playground | `@emdash-cms/cloudflare` `playgroundDatabase` (`EmDashPreviewDB` SQLite Durable Object per visitor), `session: { driver: "memory" }`, Turnstile + Rate Limiter admission before upstream middleware on every request (including `POST /_playground/init` and ordinary `GET` routes), `noindex`, and `~56px` bottom pill clearance | Isolated visitor writes across public routes and `/_emdash/admin`, stale-cookie auto-recovery, server-side `env` secret isolation (`PLAYGROUND_LOCK=1`), and unoccluded bottom composers |
 | Native admin integration | Supported React or Block Kit extension; Kumo and Lingui for native React | Real host navigation, authorization, form/error behavior and locale/layout proof |
 | Editable public pages | Upstream content/page blocks plus site rendering; declare content ownership; normally the CMS owns content and the repository owns structure | Editor save/publish and the public page; the live content-source marker; the mirrored record when configured |
 | Connected service | Server-owned identity, scoped authorization and transport | Actual installed-plugin request and service result; fixtures labeled separately |

@@ -44,3 +44,16 @@ Ensure production verification is a dependency of the final success result and
 is not allowed to fail softly. Confirm both the expected revision and crawl
 result. Preview success and the deployment command's exit code alone do not
 establish production success.
+
+## Cold D1 first request fails mid-migration
+
+When a newly provisioned remote D1 database receives its first live request
+without prior schema initialization, EmDash's runtime migration runner attempts
+all `40+` core migrations inside one Worker invocation and hits Cloudflare's
+per-request D1 subrequest ceiling (commonly around migration `039`), leaving
+`_emdash_migrations` partially applied and subsequent requests failing with `500`
+errors. Initialize disposable preview and first-launch databases out-of-band via
+`wrangler d1 execute --remote` against the repository's tracked migration
+manifest before running seed initialization and smoke checks. On a populated
+database, never hand-edit `_emdash_migrations` or drop tables without a verified
+restore point and explicit owner approval.
