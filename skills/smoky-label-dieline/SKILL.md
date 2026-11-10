@@ -35,10 +35,10 @@ Every PDF produced by [`scripts/dieline_engine.py`](scripts/dieline_engine.py) e
 `DielinePanel` supports arbitrary packaging formats:
 
 - `circle` — Jar lids, tamper cap seals, bottom warning stickers (`width_in == height_in == diameter`).
-- `rect` / `rounded_rect` — Cylindrical jar wraps, Boston round tincture bottles (`1 oz` / `2 oz`), mylar pouch front/back panels (`width_in`, `height_in`, `corner_radius_in`).
+- `rect` / `rounded_rect` — Sharp-cornered rectangular labels (`rect`, `corner_radius_in = 0` default) and rotary die-cut rounded rectangles (`rounded_rect`, `0.0625"`–`0.1092"` corner radius default) for cylindrical jar wraps, Boston round tincture bottles (`1 oz` / `2 oz`), and mylar pouch front/back panels.
 - `oval` — Oval squeeze bottles, cosmetic tubes, apothecary medallions.
 - `conical_wrap` / `tapered_wrap` — Non-stretch conical tubes, cups, and tapered containers unfolded into exact concentric **annular sectors** (`inner_radius_in`, `outer_radius_in`, `sector_angle_deg`). Use `flat_trapezoid` only for flat-walled prism faces.
-- `tuck_box` — Complete **Reverse Tuck End (`RTE`)** folding carton nets with glue flap, four body panels (`[W, D, W, D]`), four dust flaps, opposite top/bottom closure panels + tuck tongues, interior flap-separation slits (`Spot: Die Line`), and vertical + horizontal score lines (`Spot: Fold Line`). Use `carton_sleeve` when an open 4-panel wraparound sleeve without end closures is intended.
+- `tuck_box` — Complete **Reverse Tuck End (`RTE`)** folding carton nets with glue flap, four body panels (`[W, D, W, D]`), four dust flaps, opposite top/bottom closure panels + tuck tongues, interior flap-separation slits (`Spot: Die Line`), and vertical + horizontal score lines (`Spot: Fold Line`), keeping every barcode, QR code, and copy block strictly within a single flat panel between fold creases. Use `carton_sleeve` when an open 4-panel wraparound sleeve without end closures is intended.
 
 ---
 

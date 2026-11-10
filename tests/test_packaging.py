@@ -1467,6 +1467,53 @@ exit "$1"
         perp_dist = (vb[1][0] - v0[1][0]) * nx + (vb[1][1] - v0[1][1]) * ny
         self.assertAlmostEqual(perp_dist, 9.0, places=5)
 
+        # Square `rect` vs `rounded_rect` corner defaults
+        sq_rect = mod.DielinePanel("sq", "rect", cx=200.0, cy=200.0, width_in=4.0, height_in=2.0)
+        rd_rect = mod.DielinePanel("rd", "rounded_rect", cx=200.0, cy=200.0, width_in=4.0, height_in=2.0)
+        self.assertEqual(sq_rect.corner_r, 0.0)
+        self.assertGreater(rd_rect.corner_r, 0.0)
+
+        # Folded carton & sleeve barcode stays strictly inside one flat body panel (never crosses fold scores)
+        carton_dp = mod.DielinePanel(
+            "carton_rte",
+            "tuck_box",
+            cx=400.0,
+            cy=400.0,
+            width_in=carton_panel["width_in"],
+            height_in=carton_panel["height_in"],
+            carton_net=carton_panel["carton_net"],
+        )
+        carton_plan = mod.plan_panel_artwork_layout(carton_dp, {"product_name": "RELIEF TINCTURE"})
+        ux, uy, uw, uh = carton_plan["upc_rect"]
+        upc_face = carton_plan["upc_face"]
+        self.assertGreaterEqual(ux, upc_face["x0"] + carton_dp.safety)
+        self.assertLessEqual(ux + uw, upc_face["x1"] - carton_dp.safety)
+        for fx1, fy1, fx2, fy2 in carton_dp.fold_segments():
+            if abs(fx1 - fx2) < 1e-6:  # vertical fold score
+                self.assertFalse(ux < fx1 < ux + uw, f"Barcode {ux}..{ux+uw} crossed vertical fold at {fx1}")
+
+        # Overflowing directions/ingredients copy is rejected rather than silently dropped
+        short_rect = mod.DielinePanel("short", "rect", cx=200.0, cy=200.0, width_in=3.0, height_in=1.1)
+        with self.assertRaises(ValueError):
+            mod.plan_panel_artwork_layout(
+                short_rect,
+                {
+                    "product_name": "MINI BALM",
+                    "directions": "Apply liberally to clean dry skin up to four times daily.",
+                    "ingredients": "Octyldodecanol, Squalane, Menthol, Camphor, Hemp Extract.",
+                    "upc": "850043413028",
+                },
+            )
+        tall_rect = mod.DielinePanel("tall", "rounded_rect", cx=300.0, cy=200.0, width_in=6.43, height_in=1.69)
+        with self.assertRaises(ValueError):
+            mod.plan_panel_artwork_layout(
+                tall_rect,
+                {
+                    "product_name": "BALANCE BALM",
+                    "ingredients": " ".join(["Organic Botanical Extract,"] * 180),
+                },
+            )
+
         # 5. Stdlib PDF preflight check (passes CMYK + Spot + non-printing tech OCG + Overprint; fails on RGB or missing PrintState OFF)
         with tempfile.TemporaryDirectory() as tmp:
             tmp_root = Path(tmp)
