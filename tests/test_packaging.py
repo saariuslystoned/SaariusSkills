@@ -1535,6 +1535,16 @@ exit "$1"
         self.assertIsNone(small_plan["upc_zone"])
         self.assertFalse(small_plan["draw_dividers"])
 
+        # 3"x3" rectangular panel with brand + qr_url where narrow QR column cannot fit a side vector logo
+        # must preserve brand identification in the hero header instead of hiding both!
+        rect_3x3 = mod.DielinePanel("rect_3x3", "rect", cx=200.0, cy=200.0, width_in=3.0, height_in=3.0)
+        rect_3x3_plan = mod.plan_panel_artwork_layout(
+            rect_3x3,
+            {"brand": "SMOKY MOUNTAIN CBD", "product_name": "BALM", "qr_url": "https://example.com/coa"},
+        )
+        self.assertIsNone(rect_3x3_plan["qr_zone"]["vec_box"])
+        self.assertIsNotNone(rect_3x3_plan["hero"]["brand_header"])
+
         # Custom palette CMYK channel bounds and <= 300% TAC enforcement
         valid_pal = mod.validate_palette_cmyk({"bg": [70, 40, 50, 30]})
         self.assertEqual(sum(valid_pal["bg"]), 190.0)

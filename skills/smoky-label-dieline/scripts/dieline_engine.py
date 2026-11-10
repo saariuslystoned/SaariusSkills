@@ -3070,16 +3070,38 @@ def plan_panel_artwork_layout(
                 raise ValueError(f"Folded 2-face panel {p.panel_id!r} face is too narrow for QR/FDA and hero content.")
             qrfda_plan = _plan_qr_fda_zone(p.panel_id, lx, ly, sub_qr_w, lh, fda_text, use_smcbd_vec, has_qr=has_qr, brand="")
             hero_plan = _plan_hero_zone(
-                p.panel_id, lx + sub_qr_w + 6.0, ly, sub_hero_w, lh, brand, product_name, subtitle, cannabinoids, net_wt, use_smcbd_vec, show_brand_header=True
+                p.panel_id,
+                lx + sub_qr_w + 6.0,
+                ly,
+                sub_hero_w,
+                lh,
+                brand,
+                product_name,
+                subtitle,
+                cannabinoids,
+                net_wt,
+                use_smcbd_vec,
+                show_brand_header=not bool(qrfda_plan.get("vec_box")),
             )
             upc_plan = _plan_directions_upc_zone(
                 p.panel_id, rx, ry, rw, rh, directions, ingredients, str(upc) if upc else None, allow_upc_trunc
             )
         elif has_left_content:
-            hero_plan = _plan_hero_zone(
-                p.panel_id, lx, ly, lw, lh, brand, product_name, subtitle, cannabinoids, net_wt, use_smcbd_vec, show_brand_header=True
-            )
             qrfda_plan = _plan_qr_fda_zone(p.panel_id, rx, ry, rw, rh, fda_text, use_smcbd_vec, has_qr=has_qr, brand="")
+            hero_plan = _plan_hero_zone(
+                p.panel_id,
+                lx,
+                ly,
+                lw,
+                lh,
+                brand,
+                product_name,
+                subtitle,
+                cannabinoids,
+                net_wt,
+                use_smcbd_vec,
+                show_brand_header=not bool(qrfda_plan.get("vec_box")),
+            )
             upc_plan = _plan_directions_upc_zone(p.panel_id, rx, ry, rw, rh, "", "", None, allow_upc_trunc)
         else:
             hero_plan = _plan_hero_zone(
@@ -3136,7 +3158,6 @@ def plan_panel_artwork_layout(
 
     col_gap = max(6.0, min(11.0, safe_w * 0.022))
     req_upc_w = (min_gs1_w if not allow_upc_trunc else 36.0) if upc else 0.0
-    show_bh = not (has_qr and use_smcbd_vec)
 
     if not has_left_content and not has_right_content:
         hero_plan = _plan_hero_zone(
@@ -3210,6 +3231,7 @@ def plan_panel_artwork_layout(
                 if left_w > 0
                 else None
             )
+            placed_side_logo = bool(qr_plan and qr_plan.get("vec_box"))
             hero_x0 = safe_x0 + (left_w + col_gap if left_w > 0 else 0.0)
             hero_plan = _plan_hero_zone(
                 p.panel_id,
@@ -3223,7 +3245,7 @@ def plan_panel_artwork_layout(
                 cannabinoids,
                 net_wt,
                 use_smcbd_vec,
-                show_brand_header=show_bh,
+                show_brand_header=not placed_side_logo,
             )
             upc_plan = (
                 _plan_directions_upc_zone(
