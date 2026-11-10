@@ -15,11 +15,73 @@ must not also bundle those servers.
 
 ## Portable maintenance and proof
 
-Eight stable skill IDs now cover skill audits, observable behavior proof, CLI
-design, worktree setup, private transcript viewing, Codex coordination, portfolio
+The stable portable skill IDs cover skill audits, observable behavior proof, CLI
+design, worktree setup, private transcript viewing, coordinator operation, portfolio
 maintenance and bounded issue/PR sweeps. They work without a private repository
 or service. [Portable skill boundaries](docs/portable-skills.md) explain optional
 repo-owned bindings and the local-only Python helpers.
+
+- [smoky-deslop](skills/smoky-deslop/SKILL.md): behavior-preserving cleanup of
+  staged, branch or user-scoped code diffs before final exact-head review.
+- [smoky-technical-documentation](skills/smoky-technical-documentation/SKILL.md):
+  build, review, audit or rewrite human/agent docs against current source truth,
+  preserving literal commands, policy gates and release status.
+- [smoky-pr-simplify](skills/smoky-pr-simplify/SKILL.md): reconsider a selected
+  implementation's responsibilities, state and tests before review, then verify
+  its smallest complete form.
+- [smoky-performance](skills/smoky-performance/SKILL.md): measure application,
+  service, test-suite and CI workloads, remove unnecessary work and compare
+  results against a stated acceptance rule. This consolidates the former
+  `smoky-ci-performance` skill and preserves its capture helper and receipt
+  compatibility.
+- [smoky-character-studio](skills/smoky-character-studio/SKILL.md): bring a
+  character, robot mascot, or agent persona to life through a 5-candidate
+  GrillTrack funnel, a 3-sheet Master Identity Pack, `2x2` `#FF00FF` chroma-key
+  pose sheets, and deterministic `sprite_version: 2` extended pet rig
+  compilation (`1536x2288` RGBA PNG, `73` frames).
+- [smoky-github-design](skills/smoky-github-design/SKILL.md): style any GitHub
+  repository, GitHub App, or `.github/profile/README.md` organization front door
+  with dual-theme `<picture>` hero banners, `1280x640` OpenGraph social previews,
+  `512x512` character-marks/logos and seamless badges, top-starred README
+  above-the-fold layout, and stdlib asset/visibility verification.
+- [agy-sidebar-session](skills/agy-sidebar-session/SKILL.md): start, message,
+  inspect, fork, wait on, stop, and export top-level Antigravity 2.0 sidebar
+  sessions across any project via `agentapi` and the 365 local
+  `LanguageServerService` ConnectRPC endpoints.
+
+For the performance migration, update prompts and configured skill references
+from `smoky-ci-performance` to `smoky-performance`. Update scripts from
+`skills/smoky-ci-performance/scripts/capture.py` to
+`skills/smoky-performance/scripts/capture.py`. Use `smoky-performance` as the
+canonical entrypoint. Existing capture receipts retain the
+`smoky-ci-performance.capture.v1` schema.
+
+The cleanup and documentation cores adapt pinned MIT-licensed dotskills guidance; see the
+[third-party notices](THIRD_PARTY_NOTICES.md#dotskills-portable-adaptations).
+The simplification and application-performance cores adapt OpenClaw guidance
+with source and license notices in their skill directories.
+They do not replace packaging audits (`smoky-skill-cleaner`) or writing-style
+cleanup (`vendor/pstack/skills/unslop`). Existing plugin/path discovery applies;
+this source update does not install, activate or roll out skills.
+
+## PStack engineering skills
+
+The ten selected upstream PStack skills live only in
+[`vendor/pstack/skills/`](vendor/pstack/skills/). Codex, Claude Code and Cursor
+manifests discover them there directly; no generated copies or root skill
+symlinks are needed. The authored `ryan-mode` and `pstack-playbooks` skills
+live in root `skills/` and remain part of Saarius Skills.
+
+The optional Codex `pstack-saarius` marketplace entry now points to
+`vendor/pstack/` and contains only the ten upstream skills. The main plugin
+already includes them, so install the standalone entry only when you want
+PStack without the rest of Saarius Skills. Existing installs need a plugin
+refresh to pick up the new layout; this change does not modify installed caches.
+For an AGY path install, add `/path/to/SaariusSkills/vendor/pstack` separately
+for the upstream skills. Any other integration configured with the old root
+`pstack/` path must switch to `vendor/pstack/`.
+
+See [PStack source ownership and refresh](vendor/pstack/README.md).
 
 ## EmDash sites and plugins
 
@@ -51,6 +113,11 @@ installation and version-specific corrections.
 [dinkuskit/live-journeys](https://github.com/dinkuskit/live-journeys), which holds
 the saved Playwright journeys that prove the DinkusKit plugins on a live test
 store, their runner and the Live journeys workflow.
+
+[Dinkus Sweep](skills/dinkus-sweep/SKILL.md) is the DinkusKit profile of
+`smoky-portfolio-sweep`: it qualifies every open issue and pull request across
+the DinkusKit repositories, compares each feature with Shopify, WooCommerce and
+BigCommerce, and brings the owner one numbered batch card to answer once.
 
 ## Archived: Puppet and Herdr-Puppet
 

@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shlex
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -14,10 +18,113 @@ GROK_SKILL = ROOT / "skills" / "grok-acp-delegation"
 MUSE_SKILL = ROOT / "skills" / "muse-acp-delegation"
 JEVSWEEPER_SKILL = ROOT / "skills" / "jevsweeper"
 DINKUSKIT_LIVE_TEST_SKILL = ROOT / "skills" / "dinkuskit-live-test"
+DINKUS_SWEEP_SKILL = ROOT / "skills" / "dinkus-sweep"
 HARNESS2_SKILL = ROOT / "skills" / "harness2"
+PERFORMANCE_SKILL = ROOT / "skills" / "smoky-performance"
+CHARACTER_STUDIO_SKILL = ROOT / "skills" / "smoky-character-studio"
+GITHUB_DESIGN_SKILL = ROOT / "skills" / "smoky-github-design"
+AGY_SIDEBAR_SESSION_SKILL = ROOT / "skills" / "agy-sidebar-session"
 
 
 class PackagingTests(unittest.TestCase):
+    def test_simplification_and_performance_cores_are_discoverable_and_attributed(self) -> None:
+        import re
+
+        names = ("smoky-pr-simplify", "smoky-performance")
+        cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
+        self.assertFalse((ROOT / "skills/smoky-ci-performance").exists())
+        self.assertNotIn("./skills/smoky-ci-performance/", cursor["skills"])
+        for name in names:
+            directory = ROOT / "skills" / name
+            for manifest in (".codex-plugin/plugin.json", ".claude-plugin/plugin.json"):
+                roots = json.loads((ROOT / manifest).read_text())["skills"]
+                discovered = [p.name for root in roots for p in (ROOT / root).iterdir()
+                              if p.is_dir() and (p / "SKILL.md").is_file()]
+                self.assertEqual(discovered.count(name), 1, manifest)
+            self.assertEqual(cursor["skills"].count(f"./skills/{name}/"), 1)
+            self.assertIn(f"name: {name}\n", (directory / "SKILL.md").read_text())
+            metadata = (directory / "agents/openai.yaml").read_text()
+            self.assertIn(f"${name}", metadata)
+            self.assertIn("allow_implicit_invocation: true", metadata)
+            self.assertEqual((directory / "LICENSE").read_bytes(), (ROOT / "LICENSE").read_bytes())
+            notice = (directory / "THIRD_PARTY_NOTICES.md").read_text()
+            upstream_license = (ROOT / "LICENSE").read_text().replace("Bobby Bones", "OpenClaw Foundation")
+            self.assertIn(upstream_license.strip(), notice)
+            self.assertIn("85c39026a90f58164595249f69c311ed71b44df8", notice)
+            for document in directory.rglob("*.md"):
+                for target in re.findall(r"\]\(([^)]+)\)", document.read_text()):
+                    if "://" not in target and not target.startswith("#"):
+                        self.assertTrue((document.parent / target.split("#")[0]).is_file(), target)
+            for catalog in ("README.md", "docs/portable-skills.md"):
+                self.assertIn(f"skills/{name}/SKILL.md", (ROOT / catalog).read_text())
+
+    def test_cleanup_and_documentation_cores_are_discoverable_and_attributed(self) -> None:
+        import re
+
+        names = ("smoky-deslop", "smoky-technical-documentation")
+        cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
+        for name in names:
+            directory = ROOT / "skills" / name
+            for manifest in (".codex-plugin/plugin.json", ".claude-plugin/plugin.json"):
+                roots = json.loads((ROOT / manifest).read_text())["skills"]
+                discovered = [p.name for root in roots for p in (ROOT / root).iterdir()
+                              if p.is_dir() and (p / "SKILL.md").is_file()]
+                self.assertEqual(discovered.count(name), 1, manifest)
+            self.assertEqual(cursor["skills"].count(f"./skills/{name}/"), 1)
+            # AGY/path installs use root skills; root plugin has no path list.
+            self.assertTrue((directory / "SKILL.md").is_file())
+            self.assertEqual((directory / "LICENSE").read_bytes(), (ROOT / "LICENSE").read_bytes())
+            notice = (directory / "THIRD_PARTY_NOTICES.md").read_text()
+            self.assertIn("Copyright (c) 2026 Vincent Koc", notice)
+            upstream_license = (ROOT / "LICENSE").read_text().replace("Bobby Bones", "Vincent Koc")
+            self.assertIn(upstream_license.strip(), notice)
+            self.assertIn("c9ca51e3a4e93fe10266d78e430c6575a5b19d30", notice)
+            self.assertIn(f"${name}", (directory / "agents/openai.yaml").read_text())
+            for document in directory.rglob("*.md"):
+                for target in re.findall(r"\]\(([^)]+)\)", document.read_text()):
+                    if "://" not in target and not target.startswith("#"):
+                        self.assertTrue((document.parent / target.split("#")[0]).is_file(), target)
+            for catalog in ("README.md", "docs/portable-skills.md"):
+                self.assertIn(f"skills/{name}/SKILL.md", (ROOT / catalog).read_text())
+
+    def test_ryan_mode_is_discoverable_without_an_obsolete_alias(self) -> None:
+        skill = ROOT / "skills" / "ryan-mode"
+        for filename in ("SKILL.md", "SOURCE.md", "LICENSE"):
+            self.assertTrue((skill / filename).is_file(), filename)
+        self.assertFalse((ROOT / "skills" / "bobby-mode").exists())
+        self.assertFalse((ROOT / "skills" / "bobby-mode").is_symlink())
+        cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
+        self.assertEqual(cursor["skills"].count("./skills/ryan-mode/"), 1)
+        self.assertNotIn("./skills/bobby-mode/", cursor["skills"])
+        for relative in (".codex-plugin/plugin.json", ".claude-plugin/plugin.json"):
+            manifest = json.loads((ROOT / relative).read_text())
+            discovered = [
+                child.name
+                for path in manifest["skills"]
+                for child in (ROOT / path).iterdir()
+                if child.is_dir() and (child / "SKILL.md").is_file()
+            ]
+            self.assertEqual(discovered.count("ryan-mode"), 1, relative)
+            self.assertNotIn("bobby-mode", discovered, relative)
+
+    def test_smoky_coordinator_is_canonical_and_legacy_package_is_absent(self) -> None:
+        cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
+        codex = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())
+        claude = json.loads((ROOT / ".claude-plugin/plugin.json").read_text())
+        skill = ROOT / "skills" / "smoky-coordinator"
+        self.assertTrue((skill / "SKILL.md").is_file())
+        self.assertTrue((skill / "agents/openai.yaml").is_file())
+        self.assertTrue((skill / "LICENSE").is_file())
+        self.assertIn("$smoky-coordinator", (skill / "agents/openai.yaml").read_text())
+        self.assertFalse((ROOT / "skills" / "smoky-codex-coordinator").exists())
+        canonical = (ROOT / "skills/smoky-coordinator/SKILL.md").read_text()
+        self.assertIn("name: smoky-coordinator\n", canonical)
+        self.assertIn("./skills/smoky-coordinator/", cursor["skills"])
+        self.assertNotIn("./skills/smoky-codex-coordinator/", cursor["skills"])
+        self.assertEqual(codex["skills"], ["./skills/", "./vendor/pstack/skills/"])
+        self.assertEqual(claude["skills"], ["./skills/", "./vendor/pstack/skills/"])
+        self.assertIn("./skills/acp-delegation/", cursor["skills"])
+
     def test_emdash_skills_discoverable_with_licenses(self) -> None:
         upstream = ("building-emdash-site", "creating-plugins", "emdash-cli", "upgrading-emdash")
         names = (
@@ -25,12 +132,13 @@ class PackagingTests(unittest.TestCase):
             "emdash-commerce",
             "emdash-ci-deploy",
             "emdash-motion-studio",
+            "emdash-stitch-design",
             "emdash-surface-fx",
             *upstream,
         )
         cursor = json.loads((ROOT / ".cursor-plugin/plugin.json").read_text())
         codex = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())
-        self.assertEqual(codex["skills"], "./skills/")
+        self.assertEqual(codex["skills"], ["./skills/", "./vendor/pstack/skills/"])
         for name in names:
             self.assertTrue((ROOT / "skills" / name / "SKILL.md").is_file())
             self.assertIn(f"./skills/{name}/", cursor["skills"])
@@ -304,6 +412,7 @@ class PackagingTests(unittest.TestCase):
     def test_emdash_commerce_resources_are_packaged(self) -> None:
         skill = ROOT / "skills" / "emdash-commerce"
         self.assertTrue((skill / "references" / "source-map.md").is_file())
+        self.assertTrue((skill / "references" / "rea-strategy.md").is_file())
         metadata = (skill / "agents" / "openai.yaml").read_text()
         self.assertIn("allow_implicit_invocation: true", metadata)
         self.assertIn("$emdash-commerce", metadata)
@@ -326,6 +435,154 @@ class PackagingTests(unittest.TestCase):
             (HARNESS2_SKILL / "LICENSE").read_bytes(),
             (ROOT / "LICENSE").read_bytes(),
         )
+
+    def test_performance_skill_retains_ci_contract_and_resources(self) -> None:
+        skill = (PERFORMANCE_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (PERFORMANCE_SKILL / "agents" / "openai.yaml").read_text(
+            encoding="utf-8"
+        )
+        cursor = json.loads((ROOT / ".cursor-plugin" / "plugin.json").read_text())
+        self.assertIn("name: smoky-performance\n", skill)
+        self.assertIn("./skills/smoky-performance/", cursor["skills"])
+        self.assertIn("$smoky-performance", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertTrue(
+            (PERFORMANCE_SKILL / "references" / "benchmark-protocol.md").is_file()
+        )
+        self.assertTrue(
+            (PERFORMANCE_SKILL / "references" / "ci-efficiency.md").is_file()
+        )
+        protocol = (
+            PERFORMANCE_SKILL / "references" / "benchmark-protocol.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("macOS:", protocol)
+        self.assertIn("Linux:", protocol)
+        self.assertIn("/usr/bin/time -l", protocol)
+        self.assertIn("/usr/bin/time -v", protocol)
+        self.assertIn("exit-code.txt", protocol)
+        self.assertIn("Never delete shared caches", protocol)
+        self.assertIn("Missing REQUIRED execution evidence", protocol)
+        self.assertIn("OpenClaw", protocol)
+        self.assertEqual(
+            (PERFORMANCE_SKILL / "LICENSE").read_bytes(),
+            (ROOT / "LICENSE").read_bytes(),
+        )
+        helper = PERFORMANCE_SKILL / "scripts" / "capture.py"
+        self.assertTrue(helper.is_file())
+        self.assertTrue(helper.stat().st_mode & 0o111)
+        self.assertTrue(
+            (PERFORMANCE_SKILL / "references" / "capture-contract.md").is_file()
+        )
+        self.assertTrue(
+            (PERFORMANCE_SKILL / "references" / "test-and-ci.md").is_file()
+        )
+
+    def test_ci_performance_capture_recipe_preserves_status_and_streams(self) -> None:
+        protocol_path = PERFORMANCE_SKILL / "references" / "benchmark-protocol.md"
+        protocol = protocol_path.read_text(encoding="utf-8")
+        recipes = {}
+        for heading in ("macOS:", "Linux:"):
+            recipe_section = protocol.split(heading, 1)[1]
+            recipe = recipe_section.split("```", 2)[1].removeprefix("sh\n")
+            recipes[heading] = recipe
+            syntax = subprocess.run(
+                ["sh", "-n"],
+                input=recipe,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(syntax.returncode, 0, syntax.stderr)
+
+        if sys.platform == "darwin":
+            heading = "macOS:"
+            time_command = "/usr/bin/time -l"
+        elif sys.platform.startswith("linux"):
+            heading = "Linux:"
+            time_command = "/usr/bin/time -v"
+        else:
+            self.skipTest("capture recipe is specified only for macOS and Linux")
+
+        recipe = recipes[heading]
+        self.assertIn(time_command, recipe)
+        self.assertIn('exit "$exit_code"', recipe)
+        self.assertEqual(recipe.count("<repo-command> [args...]"), 1)
+        self.assertIn('printf \'%s\\000\' "$@" >argv.nul', recipe)
+        self.assertNotIn("<<'EOF'", recipe)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = root / "fixture.sh"
+            fixture.write_text(
+                """#!/bin/sh
+printf 'fixture stdout\n'
+printf 'fixture stderr\n' >&2
+printf '%s\n' "$@" > args.txt
+exit "$1"
+""",
+                encoding="utf-8",
+            )
+            fixture.chmod(0o755)
+
+            for expected_status in (0, 7):
+                with self.subTest(expected_status=expected_status):
+                    output = root / str(expected_status)
+                    output.mkdir()
+                    fixture_relative = Path("fixture.sh")
+                    (output / fixture_relative).write_text(
+                        fixture.read_text(encoding="utf-8"), encoding="utf-8"
+                    )
+                    (output / fixture_relative).chmod(0o755)
+                    arguments = [
+                        str(expected_status),
+                        "argument with spaces",
+                        "embedded 'single' and \"double\" quotes",
+                        "line one\nEOF\nline three",
+                        "$(printf inert)",
+                        "(inert); printf should-not-run",
+                    ]
+                    command = shlex.join([f"./{fixture_relative}", *arguments])
+                    wrapper = recipe.replace(
+                        "<repo-command> [args...]", command
+                    )
+                    result = subprocess.run(
+                        ["sh", "-c", wrapper],
+                        cwd=output,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+
+                    self.assertEqual(result.returncode, expected_status)
+                    self.assertEqual(
+                        (output / "argv.nul").read_bytes(),
+                        b"".join(
+                            argument.encode("utf-8") + b"\0"
+                            for argument in [f"./{fixture_relative}", *arguments]
+                        ),
+                    )
+                    self.assertEqual(
+                        (output / "args.txt").read_text(encoding="utf-8"),
+                        "".join(f"{argument}\n" for argument in arguments),
+                    )
+                    self.assertEqual(
+                        (output / "exit-code.txt").read_text(encoding="utf-8"),
+                        f"{expected_status}\n",
+                    )
+                    self.assertEqual(
+                        (output / "stdout.txt").read_text(encoding="utf-8"),
+                        "fixture stdout\n",
+                    )
+                    self.assertEqual(
+                        (output / "stderr.txt").read_text(encoding="utf-8"),
+                        "fixture stderr\n",
+                    )
+                    metrics = (output / "metrics.txt").read_text(encoding="utf-8")
+                    self.assertTrue(metrics)
+                    self.assertNotIn("fixture stdout", metrics)
+                    self.assertNotIn("fixture stderr", metrics)
+                    self.assertEqual(result.stdout, "")
+                    self.assertEqual(result.stderr, "")
 
     def test_acp_entry_is_discoverable_on_packaged_hosts(self) -> None:
         entry = ROOT / "skills" / "acp-delegation"
@@ -352,7 +609,7 @@ class PackagingTests(unittest.TestCase):
             "$schema": "https://antigravity.google/schemas/v1/plugin.json",
             "name": "saarius-skills",
             "displayName": "Saarius Skills",
-            "version": "0.7.0",
+            "version": "0.7.1",
             "description": "Experimental agent skills, progressive product-decision workflows, and local ACP delegation.",
         }
         market = json.loads(
@@ -362,9 +619,9 @@ class PackagingTests(unittest.TestCase):
         )
         self.assertEqual(root_plugin, expected_root)
         self.assertEqual(plugin["name"], "saarius-skills")
-        self.assertEqual(plugin["version"], "0.7.0")
+        self.assertEqual(plugin["version"], "0.7.1")
         self.assertEqual(root_plugin["version"], plugin["version"])
-        self.assertEqual(plugin["skills"], "./skills/")
+        self.assertEqual(plugin["skills"], ["./skills/", "./vendor/pstack/skills/"])
         self.assertNotEqual(plugin, root_plugin)
         self.assertEqual(plugin["name"], root_plugin["name"])
         self.assertEqual(market["name"], "saarius-skills")
@@ -507,6 +764,29 @@ class PackagingTests(unittest.TestCase):
         self.assertFalse((DINKUSKIT_LIVE_TEST_SKILL / "references").exists())
         self.assertFalse((ROOT / ".github" / "workflows" / "live-journeys.yml").exists())
 
+    def test_dinkus_sweep_is_a_profile_of_the_portfolio_sweep(self) -> None:
+        skill = (DINKUS_SWEEP_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (DINKUS_SWEEP_SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")
+        cursor = json.loads((ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        self.assertIn("\nname: dinkus-sweep\n", skill.split("\n---\n", 1)[0])
+        self.assertIn("$dinkus-sweep", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("./skills/dinkus-sweep/", cursor["skills"])
+        self.assertEqual(
+            (DINKUS_SWEEP_SKILL / "LICENSE").read_bytes(), (ROOT / "LICENSE").read_bytes()
+        )
+        # A profile layered on the portable core, never a second copy of it.
+        self.assertIn("`smoky-portfolio-sweep`", skill)
+        self.assertIn("grants no authority", skill)
+        self.assertTrue((DINKUS_SWEEP_SKILL / "references" / "dinkus-rails.md").is_file())
+        for repo in ("commerce", "payments", "ship", "template-store", "dinkuskit",
+                     "live-journeys", "coupons", "inventory", "books"):
+            self.assertIn(f"`dinkuskit/{repo}`", skill)
+        for rule in ("Override?", "Never override on your own", "never\nrebase or force-push",
+                     "agentic commerce", "expected head\nSHA"):
+            self.assertIn(rule, skill)
+        self.assertLessEqual(len(skill.splitlines()), 500)
+
     def test_antigravity_acp_skill_is_packaged(self) -> None:
         skill = (ANTIGRAVITY_SKILL / "SKILL.md").read_text(encoding="utf-8")
         metadata = (
@@ -545,6 +825,12 @@ class PackagingTests(unittest.TestCase):
             f"./skills/{name}/"
             for name in sorted(packaged - {omitted})
         ]
+        expected_skills += [
+            f"./vendor/pstack/skills/{path.name}/"
+            for path in (ROOT / "vendor/pstack/skills").iterdir()
+            if path.is_dir() and (path / "SKILL.md").is_file()
+        ]
+        expected_skills.sort(key=lambda path: path.rstrip("/").rsplit("/", 1)[-1])
         codex = json.loads(
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
@@ -575,13 +861,13 @@ class PackagingTests(unittest.TestCase):
                 "$schema": "https://antigravity.google/schemas/v1/plugin.json",
                 "name": "saarius-skills",
                 "displayName": "Saarius Skills",
-                "version": "0.7.0",
+                "version": "0.7.1",
                 "description": "Experimental agent skills, progressive product-decision workflows, and local ACP delegation.",
             },
         )
         self.assertEqual(codex["name"], "saarius-skills")
-        self.assertEqual(codex["version"], "0.7.0")
-        self.assertEqual(codex["skills"], "./skills/")
+        self.assertEqual(codex["version"], "0.7.1")
+        self.assertEqual(codex["skills"], ["./skills/", "./vendor/pstack/skills/"])
         self.assertEqual(marketplace["name"], "saarius-skills")
         self.assertEqual(marketplace["plugins"][0]["source"]["path"], "./")
 
@@ -608,7 +894,7 @@ class PackagingTests(unittest.TestCase):
             "license",
             "keywords",
         }
-        self.assertLessEqual(set(claude), metadata)
+        self.assertLessEqual(set(claude), metadata | {"skills"})
         self.assertLessEqual(set(codex), metadata | {"skills", "interface"})
         self.assertEqual(set(cursor), {"name", "skills"})
         self.assertFalse((ROOT / ".mcp.json").exists())
@@ -709,8 +995,8 @@ class PackagingTests(unittest.TestCase):
 
         self.assertEqual(claude["name"], "saarius-skills")
         self.assertEqual(claude["version"], codex["version"])
-        # Claude Code always scans skills/; archived skills must not be there.
-        self.assertNotIn("skills", claude)
+        # Both roots are explicit so custom-path replacement and additive loaders work.
+        self.assertEqual(claude["skills"], ["./skills/", "./vendor/pstack/skills/"])
         self.assertNotIn("puppet", packaged)
         self.assertNotIn("herdr-puppet", packaged)
         self.assertIn("cursor-acp-delegation", packaged)
@@ -762,6 +1048,364 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("headRefOid", coordinator)
         self.assertIn("needs-evidence", scenarios)
         self.assertNotIn("- `repair` if any leftover item is repair.", rubric)
+
+    def test_smoky_character_studio_skill_is_packaged(self) -> None:
+        skill = (CHARACTER_STUDIO_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (
+            CHARACTER_STUDIO_SKILL / "agents" / "openai.yaml"
+        ).read_text(encoding="utf-8")
+        contract = (
+            CHARACTER_STUDIO_SKILL / "references" / "sprite-v2-contract.md"
+        ).read_text(encoding="utf-8")
+        helper = CHARACTER_STUDIO_SKILL / "scripts" / "compile_pet_atlas.py"
+        cursor = json.loads(
+            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertLessEqual(len(skill.splitlines()), 500)
+        self.assertIn("name: smoky-character-studio\n", skill)
+        self.assertIn("$smoky-character-studio", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("./skills/smoky-character-studio/", cursor["skills"])
+        self.assertEqual(
+            (CHARACTER_STUDIO_SKILL / "LICENSE").read_bytes(),
+            (ROOT / "LICENSE").read_bytes(),
+        )
+        self.assertIn("#FF00FF", skill)
+        self.assertIn("sprite_version: 2", skill)
+        self.assertIn("1536×2288", contract)
+        self.assertIn("Clank", contract)
+        self.assertIn("Bobby Bones", contract)
+        self.assertIn("Blaze", contract)
+        self.assertTrue(helper.is_file())
+        self.assertTrue(helper.stat().st_mode & 0o111)
+        spec_run = subprocess.run(
+            [sys.executable, str(helper), "spec"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(spec_run.returncode, 0, spec_run.stderr)
+        spec_payload = json.loads(spec_run.stdout)
+        self.assertEqual(spec_payload["populated_frames"], 73)
+        self.assertEqual(spec_payload["unused_cells"], 15)
+
+    def test_agy_sidebar_session_skill_is_packaged(self) -> None:
+        skill = (AGY_SIDEBAR_SESSION_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (
+            AGY_SIDEBAR_SESSION_SKILL / "agents" / "openai.yaml"
+        ).read_text(encoding="utf-8")
+        catalog = (
+            AGY_SIDEBAR_SESSION_SKILL / "references" / "language-server-rpcs.md"
+        ).read_text(encoding="utf-8")
+        helper = AGY_SIDEBAR_SESSION_SKILL / "scripts" / "agy-session.py"
+        cursor = json.loads(
+            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertLessEqual(len(skill.splitlines()), 500)
+        self.assertIn("name: agy-sidebar-session\n", skill)
+        self.assertIn("$agy-sidebar-session", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("./skills/agy-sidebar-session/", cursor["skills"])
+        self.assertEqual(
+            (AGY_SIDEBAR_SESSION_SKILL / "LICENSE").read_bytes(),
+            (ROOT / "LICENSE").read_bytes(),
+        )
+        self.assertIn("agentapi new-conversation", skill)
+        self.assertIn("LanguageServerService", catalog)
+        self.assertIn("WaitForConversationFullyIdle", catalog)
+        self.assertTrue(helper.is_file())
+        self.assertTrue(helper.stat().st_mode & 0o111)
+        help_run = subprocess.run(
+            [sys.executable, str(helper), "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(help_run.returncode, 0, help_run.stderr)
+        self.assertIn("export-md", help_run.stdout)
+
+    def test_smoky_github_design_skill_is_packaged_and_verifies_assets(self) -> None:
+        skill = (GITHUB_DESIGN_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (
+            GITHUB_DESIGN_SKILL / "agents" / "openai.yaml"
+        ).read_text(encoding="utf-8")
+        anatomy = (
+            GITHUB_DESIGN_SKILL / "references" / "top10-github-anatomy.md"
+        ).read_text(encoding="utf-8")
+        recipes = (
+            GITHUB_DESIGN_SKILL / "references" / "style-recipes-and-shelf-hygiene.md"
+        ).read_text(encoding="utf-8")
+        helper = GITHUB_DESIGN_SKILL / "scripts" / "verify_github_assets.py"
+        cursor = json.loads(
+            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertLessEqual(len(skill.splitlines()), 500)
+        self.assertIn("name: smoky-github-design\n", skill)
+        self.assertIn("$smoky-github-design", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("./skills/smoky-github-design/", cursor["skills"])
+        self.assertEqual(
+            (GITHUB_DESIGN_SKILL / "LICENSE").read_bytes(),
+            (ROOT / "LICENSE").read_bytes(),
+        )
+        self.assertIn("prefers-color-scheme", skill)
+        self.assertIn("1280×640", skill)
+        self.assertIn("smoky-character-studio", skill)
+        self.assertIn("openclaw/openclaw", anatomy)
+        self.assertIn("morluto/rea", anatomy)
+        self.assertIn("Character-Mark", recipes)
+        self.assertTrue(helper.is_file())
+        self.assertTrue(helper.stat().st_mode & 0o111)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            svg_mark = tmp_root / "mark.svg"
+            svg_mark.write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>',
+                encoding="utf-8",
+            )
+            readme = tmp_root / "README.md"
+            readme.write_text(
+                '<picture>\n'
+                '  <source media="(prefers-color-scheme: dark)" srcset="docs/banner-dark.jpg">\n'
+                '  <source media="(prefers-color-scheme: light)" srcset="docs/banner-light.jpg">\n'
+                '  <img alt="Demo Banner" src="docs/banner-dark.jpg">\n'
+                '</picture>\n\n'
+                'Inline code docs like `Use an <img> element` or '
+                '`<img src="https://github.com/example/private-shelf/releases/download/v1/x.png">` '
+                'must not be treated as live HTML.\n\n'
+                '    <img src="https://github.com/example/private-shelf/releases/download/v1/indented.png">\n\n'
+                '- ~~~sh\n'
+                '  > /tmp/out\n'
+                '  <img src="https://github.com/example/private-shelf/releases/download/v1/list-fence.png">\n'
+                '  ~~~\n'
+                '-     <img src="https://github.com/example/private-shelf/releases/download/v1/list-indented.png">\n',
+                encoding="utf-8",
+            )
+            ok_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--mark",
+                    str(svg_mark),
+                    "--readme",
+                    str(readme),
+                    "--repo-visibility",
+                    "PUBLIC",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(ok_run.returncode, 0, ok_run.stderr)
+            payload = json.loads(ok_run.stdout)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["assets"][0]["width"], 24)
+            self.assertTrue(payload["readme"]["has_picture"])
+
+            bad_readme = tmp_root / "README-bad.md"
+            bad_readme.write_text(
+                "![Broken](https://github.com/example/private-shelf/releases/download/v1/banner.jpg)\n",
+                encoding="utf-8",
+            )
+            # Fails closed in PUBLIC mode even without --forbid-in-public
+            default_bad_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--readme",
+                    str(bad_readme),
+                    "--repo-visibility",
+                    "PUBLIC",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(default_bad_run.returncode, 1)
+            self.assertIn("unverified GitHub asset shelf", default_bad_run.stdout)
+
+            # Passes when explicitly verified as a public shelf, unless also forbidden
+            public_readme = tmp_root / "README-public-shelf.md"
+            public_readme.write_text(
+                "![Public](https://github.com/example/public-shelf/releases/download/v1/banner.jpg)\n",
+                encoding="utf-8",
+            )
+            allowed_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--readme",
+                    str(public_readme),
+                    "--repo-visibility",
+                    "PUBLIC",
+                    "--allow-public-shelf",
+                    "example/public-shelf",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(allowed_run.returncode, 0, allowed_run.stderr)
+
+            forbidden_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--readme",
+                    str(public_readme),
+                    "--repo-visibility",
+                    "PUBLIC",
+                    "--allow-public-shelf",
+                    "example/public-shelf",
+                    "--forbid-in-public",
+                    "example/public-shelf",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(forbidden_run.returncode, 1)
+
+            # Reference-style Markdown images and /releases/latest/download/ URLs fail closed too
+            ref_readme = tmp_root / "README-ref-latest.md"
+            ref_readme.write_text(
+                "![Banner][hero]\n"
+                "![latest][]\n\n"
+                "[hero]: https://github.com/example/private-shelf/releases/download/v1/banner.png\n"
+                "[latest]: https://github.com/example/latest-shelf/releases/latest/download/banner.png\n",
+                encoding="utf-8",
+            )
+            ref_bad_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--readme",
+                    str(ref_readme),
+                    "--repo-visibility",
+                    "PUBLIC",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(ref_bad_run.returncode, 1)
+            self.assertIn("example/private-shelf", ref_bad_run.stdout)
+            self.assertIn("example/latest-shelf", ref_bad_run.stdout)
+
+            # PRIVATE README rejects embedded GitHub release URLs (Camo auth failure)
+            priv_release_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--readme",
+                    str(bad_readme),
+                    "--repo-visibility",
+                    "PRIVATE",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(priv_release_run.returncode, 1)
+            self.assertIn("Camo", priv_release_run.stdout)
+
+            # Content AFTER a list-item fence (- ~~~sh ... ~~~) is still inspected
+            after_list_fence = tmp_root / "README-after-list-fence.md"
+            after_list_fence.write_text(
+                "- ~~~sh\n"
+                "  echo ok\n"
+                "  ~~~\n\n"
+                "![After](https://github.com/example/private-shelf/releases/download/v1/after.png)\n",
+                encoding="utf-8",
+            )
+            after_list_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "--readme",
+                    str(after_list_fence),
+                    "--repo-visibility",
+                    "PUBLIC",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(after_list_run.returncode, 1)
+            self.assertIn("example/private-shelf", after_list_run.stdout)
+
+            zero_mark = tmp_root / "zero.svg"
+            zero_mark.write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 0 0"></svg>',
+                encoding="utf-8",
+            )
+            zero_run = subprocess.run(
+                [sys.executable, str(helper), "--mark", str(zero_mark)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(zero_run.returncode, 1)
+
+            # Social preview rejects 1280x640 SVG/WebP and accepts 1280x640 PNG
+            bad_social_svg = tmp_root / "social.svg"
+            bad_social_svg.write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640"><rect width="1280" height="640"/></svg>',
+                encoding="utf-8",
+            )
+            bad_social_run = subprocess.run(
+                [sys.executable, str(helper), "--social", str(bad_social_svg)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(bad_social_run.returncode, 1)
+            self.assertIn("must be PNG, JPEG, or GIF", bad_social_run.stdout)
+
+            bad_social_webp = tmp_root / "social.webp"
+            bad_social_webp.write_bytes(
+                b"RIFF"
+                + (22).to_bytes(4, "little")
+                + b"WEBP"
+                + b"VP8X"
+                + (10).to_bytes(4, "little")
+                + b"\x00\x00\x00\x00"
+                + (1279).to_bytes(3, "little")
+                + (639).to_bytes(3, "little")
+            )
+            bad_webp_run = subprocess.run(
+                [sys.executable, str(helper), "--social", str(bad_social_webp)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(bad_webp_run.returncode, 1)
+            self.assertIn("must be PNG, JPEG, or GIF", bad_webp_run.stdout)
+
+            import struct
+            import zlib
+
+            ihdr = struct.pack(">IIBBBBB", 1280, 640, 8, 2, 0, 0, 0)
+            valid_png = (
+                b"\x89PNG\r\n\x1a\n"
+                + struct.pack(">I", 13)
+                + b"IHDR"
+                + ihdr
+                + struct.pack(">I", zlib.crc32(b"IHDR" + ihdr) & 0xFFFFFFFF)
+                + struct.pack(">I", 0)
+                + b"IEND"
+                + struct.pack(">I", zlib.crc32(b"IEND") & 0xFFFFFFFF)
+            )
+            good_social_png = tmp_root / "social.png"
+            good_social_png.write_bytes(valid_png)
+            good_social_run = subprocess.run(
+                [sys.executable, str(helper), "--social", str(good_social_png)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(good_social_run.returncode, 0, good_social_run.stderr)
 
 
 if __name__ == "__main__":

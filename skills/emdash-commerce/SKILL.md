@@ -1,11 +1,13 @@
 ---
 name: emdash-commerce
-description: Research major EmDash/DinkusKit Commerce and companion-plugin product, domain, API, or data-model decisions against relevant ecommerce platforms before a GrillTrack proposal or lock. Excludes routine fixes and implementation of settled locks unless material new evidence calls for reopening.
+description: Research major EmDash/DinkusKit Commerce and companion-plugin decisions using relevant platform comparisons and authorized reverse-engineering analysis (REA). Use for product, domain, API, data-model, or architecture questions and relevant grills. Excludes routine fixes and implementation of settled locks unless material new evidence calls for reopening.
 ---
 
 # EmDash Commerce
 
 Prepare a compact, source-linked decision comparison before proposing or confirming a material commerce decision. Support the existing GrillTrack cycle; do not create a competing lifecycle or decide for the user.
+
+When authorized REA can inform the current product, principle, architecture, implementation, or proof question, read [references/rea-strategy.md](references/rea-strategy.md). It covers selective evidence use, reconciliation with current decisions, and unresolved questions in existing records. At a relevant DinkusKit grill, use it to retrieve pertinent open questions. A predefined workflow or roadmap is not required.
 
 ## Decide whether research is needed
 
@@ -16,12 +18,13 @@ Skip competitor research for a typo, ordinary bug repair, refactor preserving co
 ## Establish the decision baseline
 
 - Read applicable repository instructions, charter, the current `.grilltrack/ledger.json` if present, and only the relevant current types, callers, tests, and proof. Inspect companion repositories only when in scope. Name the repository, branch, commit/version and runtime lane; disclose stale checkouts or candidate-only evidence.
+- For DinkusKit work, also read its organization-level [vision](https://github.com/dinkuskit/.github/blob/main/VISION.md) and [scope and planning](https://github.com/dinkuskit/.github/blob/main/ROADMAP.md). Treat these as direction and planning boundaries, not a feature schedule. Surface conflicts with local charters or current owner decisions rather than assuming every repository is synchronized.
 - Reuse the current decision packet and its owner. Distinguish implemented behavior, persisted locks, explicit user choices awaiting persistence, proposals, deferrals, and unknowns. Preserve accepted choices and authorization, including direct user updates newer than a packet. Surface a mismatch with durable state without silently overwriting either.
 - State the focused question and constraints. Research discoverable facts before asking product questions. Do not turn a prior deferral, such as bundles, into a permanent prohibition or treat a partial module as approval for product adoption.
 
 ## Compare relevant platforms
 
-Normally compare WooCommerce on WordPress, Shopify, and BigCommerce. Target 3–5 genuinely relevant platforms; add one or two for the domain, such as Adobe Commerce for complex catalog/B2B or commercetools for composable typed contracts. Explain substitutions briefly. Do not claim a market-share ranking. Read [references/source-map.md](references/source-map.md) when selecting official starting points.
+For platform comparisons, normally compare WooCommerce on WordPress, Shopify, and BigCommerce. Target 3–5 genuinely relevant platforms; add one or two for the domain, such as Adobe Commerce for complex catalog/B2B or commercetools for composable typed contracts. Explain substitutions briefly. Do not claim a market-share ranking. Read [references/source-map.md](references/source-map.md) when selecting official starting points. A narrow REA question does not require an unrelated platform survey.
 
 Use current official documentation, API schemas and release notes for claims. Reuse prior research only after checking its freshness and relevance. Record the check date and named API/package version where available; pin moving `latest` links when practical. Distinguish core functionality, extensions/apps, plan or permission gates, beta, announced features and unverified availability. Undocumented is not proof of unsupported.
 
@@ -44,8 +47,8 @@ Respect current project boundaries: Commerce owns authoritative catalog price/se
 Deliver a short packet or scoped update to the existing packet:
 
 1. Focused question, source baseline, accepted constraints and unresolved choices.
-2. A comparison table: platform/version/status, relevant behavior with source links, practical tradeoff and coverage limit. Avoid feature catalogs.
-3. **Adopt / adapt / defer / reject** recommendations for the relevant patterns, each with rationale, migration/runtime implications and the decision still needed. These labels describe recommendations, not GrillTrack lifecycle states.
+2. Relevant evidence and its limits; for platform comparisons, a table of platform/version/status, sourced behavior and practical tradeoffs. Avoid feature catalogs.
+3. **Adopt / adapt / defer / reject / investigate** recommendations for the relevant patterns, each with rationale, migration/runtime implications and the smallest meaningful proof or decision still needed. These labels describe recommendations, not GrillTrack lifecycle states.
 4. A bounded proposed decision and affected dependencies, or an explicit material evidence gap. Mark which evidence would change the recommendation.
 
 Use the installed GrillTrack skill for proposals, shared-understanding confirmation, locks, reopening and downstream verification. Its CLI alone maintains ledger/event state; never hand-edit either or duplicate their history here. If that workflow is unavailable, deliver research only and identify the missing transition. Preserve an existing mutation/packet owner; do not dispatch or create a second writer merely to attach research.

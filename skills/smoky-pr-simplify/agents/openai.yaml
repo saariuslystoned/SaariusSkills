@@ -1,0 +1,6 @@
+interface:
+  display_name: "PR Simplification"
+  short_description: "Reduce a PR to its smallest complete change."
+  default_prompt: "Use $smoky-pr-simplify to reconsider the selected change, simplify its responsibilities and tests, and verify the smallest complete implementation."
+policy:
+  allow_implicit_invocation: true

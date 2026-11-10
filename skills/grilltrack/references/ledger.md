@@ -67,8 +67,10 @@ python3 scripts/grilltrack_ledger.py --project "$ROOT" init \
 python3 scripts/grilltrack_ledger.py --project "$ROOT" focus \
   --domain "product direction" --cadence sequential
 python3 scripts/grilltrack_ledger.py --project "$ROOT" propose \
-  --id direction-001 --question "Who is this for?" --choice "Operators"
-python3 scripts/grilltrack_ledger.py --project "$ROOT" lock --id direction-001
+  --id direction-001 --scope durable \
+  --question "Who is this for?" --choice "Operators"
+python3 scripts/grilltrack_ledger.py --project "$ROOT" lock \
+  --id direction-001 --user-reply "yes, operators first"
 python3 scripts/grilltrack_ledger.py --project "$ROOT" confirm \
   --summary "Build the operator-first slice and verify its primary flow."
 python3 scripts/grilltrack_ledger.py --project "$ROOT" implement \
@@ -78,7 +80,30 @@ python3 scripts/grilltrack_ledger.py --project "$ROOT" verify \
 python3 scripts/grilltrack_ledger.py --project "$ROOT" review \
   --id direction-001 --source-identity "git:<full-commit-sha>" \
   --ref ".grilltrack/proof/review/PROOF.md" --result clean
+python3 scripts/grilltrack_ledger.py --project "$ROOT" compact --output summary
 ```
+
+### Decision scopes, live gatekeeper, and compaction
+
+- **Scopes (`--scope durable | slice | deferral`)**:
+  - `durable`: Permanent architectural or product invariants retained in the
+    active ledger projection.
+  - `slice`: Single-PR or tactical decisions that archive out of active
+    `ledger.json` once `verified` and `compact` runs.
+  - `deferral`: Parked work requiring `--revisit-when "<condition>"`. Locking a
+    `deferral` transitions status to `deferred` with `deferred_reason` populated
+    so future agents see an explicit revisit trigger instead of a permanent ban.
+- **Live Lock Gatekeeper (`lock --user-reply` and `gate`)**:
+  - Evaluates whether the proposed `choice` and `rationale` overlock beyond the
+    user's reply, routing to TypeSafe Jev (`jev-1.13.0`) first and falling back
+    automatically to the OpenAI Responses Decision API (`gpt-6.1-sol`) when Jev
+    credits are exhausted, or to the deterministic local rubric offline.
+- **Ledger Compaction (`compact`)**:
+  - Moves `superseded` decisions, `verified` `slice` decisions, and prior
+    per-decision `history[]` snapshots out of active `.grilltrack/ledger.json`
+    into `.grilltrack/archive/compacted-<track-id>.json` (while keeping the
+    append-only `.grilltrack/events.jsonl` log intact) and records
+    `compacted_decision_ids` so active dependency links remain valid.
 
 For a review with findings, pass one or more adjudicated classifications:
 

@@ -72,6 +72,24 @@ the 1.2 URL behavior and the safer site-level workarounds.
   current platform policies (for example
   [OpenAI commerce policies](https://openai.com/policies/commerce-policies/))
   and the merchant's product restrictions before enabling a channel.
+- Auto-render storefront `/llms.txt`, `/llms-full.txt`, and `/agents.md` from
+  live DinkusKit Commerce catalog and store policy data on every storefront
+  using `@dinkuskit/commerce/features/feeds` (`buildAgentCatalogFeed`,
+  `buildStorefrontLlmsTxt`, `buildStorefrontLlmsFullTxt`,
+  `buildStorefrontAgentsMd`, and optional `ProductAiProjection` fields on
+  `ProductFeedContent.aiProjection`). Keep `/llms.txt`, `/llms-full.txt`, and
+  `/agents.md` explicitly allowlisted on the public security boundary alongside
+  `/robots.txt` and `/sitemap.xml`.
+- Expose deterministic integer minor-unit pricing for shopping agents and
+  single-use virtual card issuers:
+  - `GuestCheckoutPricingSummary` (`checkout.pricing`) includes explicit
+    `tax: { currency: "USD", minor: "0" }` alongside `merchandiseSubtotal`,
+    `couponDiscount`, `netMerchandise`, `shipping`, and `finalTotal`.
+  - On `/checkout`, `[data-checkout-breakdown]` renders
+    `data-checkout-currency="USD"`, `data-checkout-subtotal-minor`,
+    `data-checkout-shipping-minor`, `data-checkout-tax-minor="0"`, and
+    `data-checkout-total-minor` and keeps them synchronized when shipping or
+    coupons change.
 
 ## Safe redirects and proof
 

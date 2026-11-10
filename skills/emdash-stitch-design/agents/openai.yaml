@@ -1,0 +1,6 @@
+interface:
+  display_name: "EmDash Stitch Design"
+  short_description: "Design EmDash sites with Google Stitch MCP and GrillTrack"
+  default_prompt: "Use $emdash-stitch-design to snapshot the live EmDash page into Google Stitch, generate visual candidates for GrillTrack, and apply the winning design back into Astro."
+policy:
+  allow_implicit_invocation: true

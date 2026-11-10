@@ -1,0 +1,19 @@
+{
+  "source_revision": "3c176f392220c3e34a67b3fe250342600596d9b0",
+  "file": "skills/bobby-mode/SKILL.md",
+  "sha256": "904f36d3c0168c6618e0c2ae11a01be6dbae2ea262eaee5aeda73f5ae8d69593",
+  "word_count_including_frontmatter": 322,
+  "yaml_parser": "Ruby YAML.safe_load",
+  "frontmatter": {
+    "name": "bobby-mode",
+    "description": "Bobby's personal working style across coding assistants. Use when Bobby invokes bobby-mode, asks to work in his style, or has established it as his active profile."
+  },
+  "checks": [
+    "frontmatter constraints pass",
+    "no unfinished scaffold",
+    "no external or local link dependencies",
+    "no private execution bindings in revised skill",
+    "historical generator constant matches initial profile bytes"
+  ],
+  "limitation": "skill-creator quick_validate.py could not import yaml in the available Python environment; used Ruby YAML.safe_load plus explicit name, description, metadata and scaffold checks. No dependency installed."
+}

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Smoky Character Studio"
+  short_description: "Bring characters to life as full identities and sprite_version 2 pet rigs."
+  default_prompt: "Use $smoky-character-studio to grill, lock, render, compile, and verify a character identity and sprite_version 2 extended pet rig."
+policy:
+  allow_implicit_invocation: true

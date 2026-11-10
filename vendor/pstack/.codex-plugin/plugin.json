@@ -1,0 +1,40 @@
+{
+  "name": "pstack-saarius",
+  "version": "0.2.0",
+  "description": "Ten selected upstream PStack engineering skills by Lauren Tan, loaded directly from the pinned vendor snapshot.",
+  "author": {
+    "name": "Bobby Bones",
+    "url": "https://github.com/saariuslystoned"
+  },
+  "homepage": "https://github.com/saariuslystoned/SaariusSkills",
+  "repository": "https://github.com/saariuslystoned/SaariusSkills",
+  "license": "MIT",
+  "keywords": [
+    "pstack",
+    "agent-skills",
+    "engineering-workflows",
+    "tdd",
+    "unslop",
+    "blast-radius",
+    "architect"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "pstack (Saarius)",
+    "shortDescription": "Selected upstream PStack engineering workflows.",
+    "longDescription": "Ten selected upstream PStack engineering skills by Lauren Tan, loaded directly from the pinned vendor snapshot.",
+    "developerName": "Saariusly Stoned",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/saariuslystoned/SaariusSkills",
+    "defaultPrompt": [
+      "Apply /unslop to eliminate robotic filler and keep diffs surgical.",
+      "Run /blast-radius to prove downstream impact before editing.",
+      "Use /architect to define interface contracts and types before coding.",
+      "Follow /tdd to write a failing test first and prove red-green-refactor."
+    ]
+  }
+}

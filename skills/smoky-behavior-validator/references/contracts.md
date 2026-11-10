@@ -1,6 +1,6 @@
 # Observable behavior contracts
 
-Define the contract without implementation details:
+Begin with the assigned acceptance criteria and target-owned published interface specifications, not implementation details. If no contract exists, write a short inline one from those inputs before testing; a separate file is optional. Record missing/conflicting expectations as gaps and block only the affected verdicts pending clarification. Continue independent checks where possible; do not turn guesses into requirements.
 
 ```text
 goal: <observable outcome>
@@ -8,12 +8,25 @@ target: <web app|CLI|API|device|artifact and exact version/environment>
 access: <authorized URL, command, device or file>
 fixtures: <allowed test inputs and approved credential mechanism; no values>
 tasks: <concrete user actions>
-expected: <visible output and persistent state>
-probes: <changed input, retry/reopen, obvious invalid or boundary case>
+expected: <observable result per acceptance clause; cite its source/revision>
+gaps: <missing or conflicting expectations, if any>
+probes: <relevant changed input, retry/reopen, invalid or boundary case>
 evidence: <screenshots, response/exit summaries, artifact checks>
 excluded: <actions and claims outside scope>
 ```
 
-For an API, verify response semantics, relevant freshness and state changes using authorized fixtures. For a CLI, verify standard streams, exit codes, non-interactive behavior and the actual dry-run boundary. For UI/device tasks, capture the action and resulting visible state, then persistence where relevant. For generated files, reopen them in a suitable viewer and inspect the claimed content.
+Select checks relevant to the claim, rather than applying every probe to every target:
 
-A successful deploy/build is not proof of runtime behavior. Use only assigned test targets; the contract must state allowed mutations and communication. Source access needed to proceed is `blocked_source_required`, not an invitation to inspect implementation.
+- Web: perform the interaction and observe its result; refresh/reopen when persistence is promised. A button or success banner can satisfy a display-only criterion, but alone cannot prove additional promised work or persistence.
+- CLI: check relevant standard streams, exit codes, non-interactive behavior, output/state and any claimed dry-run boundary.
+- API: check response semantics, relevant freshness and externally observable state changes where promised, using authorized fixtures. HTTP success can satisfy a status-only criterion, but alone cannot prove additional promised response content or state changes.
+- Registered test device: bind the exact device/app/test identity; observe the action and visible result, then reopen when relevant. Missing registration or access is blocked, not permission to substitute a personal device.
+- Artifact: identify the exact file/version (hash when useful). Existence evidence can satisfy an existence-only criterion; when content is promised, open it in an appropriate viewer or consumer and inspect that content, not merely its existence.
+
+Relevant edge cases can expose a violation of an existing criterion. If their expected outcome is unspecified, report the observation and expectation gap without declaring an invented product failure. Exclude aesthetic/code-quality preferences unless observable acceptance explicitly covers them.
+
+Use only assigned test targets; state allowed mutations and communication before acting. Credential mechanisms may be named, never credential values. Capture only necessary redacted observations, not unrelated desktop, account or log content. Stop before an unapproved action and report the specific missing authority.
+
+A successful edit, deploy/build or mock exercise is not proof of live target behavior. Keep implementation review/repair separate. Source access needed to proceed is `blocked_source_required`, not an invitation to inspect implementation. Record the tested target's exact release/build or artifact identity and observation time; obtain identity from authorized metadata, not source inspection. State when identity cannot be verified and limit the claim.
+
+For the narrow upstream comparisons behind this revision, see [sources](sources.md).

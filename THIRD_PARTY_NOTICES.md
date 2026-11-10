@@ -70,14 +70,32 @@ disclosure, skill boundary, and evaluation approach.
 
 ## pstack (Cursor)
 
-Pinned source: <https://github.com/cursor/plugins/tree/fadd23794c0075468eb8964b0fd93e06e09486ad/pstack/skills>
+Pinned source: <https://github.com/cursor/plugins/tree/a66a8931c2dd71f1ed6abf6a52b1898a9f389ae4/pstack/skills>
 
-Vendored cherry-picks live under `pstack/skills/` and are symlinked from `skills/`:
+Vendored cherry-picks live only under `vendor/pstack/skills/` and are loaded directly by plugin manifests:
 `architect`, `automate-me`, `blast-radius`, `create-verification-skill`, `how`, `maintain-verification-skill`, `reflect`, `tdd`, `unslop`, `why`.
 
-License: follow the Cursor plugins repository license for those files. Copyright remains with the upstream authors. `bobby-mode` and `pstack-playbooks` are Saarius overlays, not Cursor files.
+License: follow the Cursor plugins repository license for those files. Copyright remains with the upstream authors. `ryan-mode` and `pstack-playbooks` are authored Saarius skills in root `skills/`, not Cursor files.
 
 `backnotprop/pstack` is a third-party mirror and is not the pin.
+
+## dotskills portable adaptations
+
+Pinned source:
+<https://github.com/vincentkoc/dotskills/tree/c9ca51e3a4e93fe10266d78e430c6575a5b19d30>
+(observed 2026-11-05). License: MIT. Copyright (c) 2026 Vincent Koc.
+
+- `skills/technical-deslop` → `skills/smoky-deslop`: scoped diff cleanup and
+  behavior/repository-style preservation, with stronger identity and safety checks.
+- `skills/technical-documentation` → `skills/smoky-technical-documentation`:
+  source fidelity, bounded human/agent docs and proportionate evidence, without
+  upstream workflow/model rosters, audit orchestration or mandatory STE/lint.
+
+Full upstream permission/copyright notices and adaptation details travel in
+`skills/smoky-deslop/THIRD_PARTY_NOTICES.md`
+and `skills/smoky-technical-documentation/THIRD_PARTY_NOTICES.md` (repository-root paths).
+No upstream STE reference material, lint script, dictionary or assets are bundled.
+No endorsement or live installation is implied.
 
 ## Comparison-only systems
 

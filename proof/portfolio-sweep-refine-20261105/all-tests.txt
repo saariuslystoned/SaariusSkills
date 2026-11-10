@@ -1,0 +1,25 @@
+review packaged correction for changed upstream excerpt: references/block-kit.md
+packaged EmDash skill drift: emdash-cli
+refusing symlink in packaged skill: upgrading-emdash
+----------------------------------------------------------------------
+Ran 208 tests in 105.488s
+
+OK
+EmDash packaged skills updated
+EmDash packaged skills clean
+EmDash packaged skills updated
+EmDash packaged skills clean
+EmDash packaged skills updated
+EmDash packaged skills clean
+PStack updated: 10 upstream skills; 157aed4bcf19cc9b5a7b9cc0ea0658a29c369535; local skills untouched
+PStack updated: 10 upstream skills; 157aed4bcf19cc9b5a7b9cc0ea0658a29c369535; local skills untouched
+PStack check clean: 10 upstream + 2 local skills; 157aed4bcf19cc9b5a7b9cc0ea0658a29c369535
+PStack updated: 10 upstream skills; 157aed4bcf19cc9b5a7b9cc0ea0658a29c369535; local skills untouched
+PStack updated: 10 upstream skills; 157aed4bcf19cc9b5a7b9cc0ea0658a29c369535; local skills untouched
+PStack check clean: 10 upstream + 2 local skills; a66a8931c2dd71f1ed6abf6a52b1898a9f389ae4
+PStack updated: 10 upstream skills; 364628eb3ac4e3328281a2e9c56eef6e9573532e; local skills untouched
+PStack updated: 10 upstream skills; 9cd15f9687c1655eda3f9fc3099969f81ff0617f; local skills untouched
+PStack check clean: 10 upstream + 2 local skills; 9cd15f9687c1655eda3f9fc3099969f81ff0617f
+PStack updated: 10 upstream skills; 364628eb3ac4e3328281a2e9c56eef6e9573532e; local skills untouched
+PStack updated: 10 upstream skills; 364628eb3ac4e3328281a2e9c56eef6e9573532e; local skills untouched
+PStack updated: 10 upstream skills; 364628eb3ac4e3328281a2e9c56eef6e9573532e; local skills untouched

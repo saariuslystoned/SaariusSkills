@@ -1,0 +1,29 @@
+{
+  "duplicate_names": {},
+  "issue_counts": {},
+  "privacy_note": "Only selected skill metadata and optional UI metadata were read; no logs or transcripts were scanned.",
+  "qualitative_assessment": "not-performed",
+  "root": null,
+  "selection": [
+    "<checkout>/skills/smoky-skill-cleaner"
+  ],
+  "skill_count": 1,
+  "skills": [
+    {
+      "advisories": [],
+      "body_words": 642,
+      "description_length": 290,
+      "directory": "smoky-skill-cleaner",
+      "issues": [],
+      "metadata_verified": true,
+      "name": "smoky-skill-cleaner",
+      "packaging_errors": [],
+      "path": "<checkout>/skills/smoky-skill-cleaner",
+      "references": [
+        "references/audit-policy.md"
+      ],
+      "unverified": []
+    }
+  ],
+  "skipped_symlinks": []
+}

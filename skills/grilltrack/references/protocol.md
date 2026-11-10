@@ -48,6 +48,28 @@ clear. Record rationale when the user supplies it.
 When you recommend a direction in a question, phrase the question so that
 “yes” unambiguously accepts that direction.
 
+#### Scope discipline and anti-overlock rules
+
+Classify every proposed decision with an explicit `--scope`:
+
+- `durable` (default): Permanent repository-wide architectural, domain, or
+  security invariants meant to govern future work indefinitely.
+- `slice`: Tactical choices scoped to the current PR, feature slice, or
+  situational headroom measurement (for example, leaving a point-in-time byte
+  reserve or choosing a temporary rollout sequence). Verified `slice` decisions
+  archive automatically on `compact`.
+- `deferral`: Features or capabilities intentionally parked for a later phase
+  ("not right now", "wait for Phase 3", "after v1 ships"). Always pass
+  `--scope deferral --revisit-when "<trigger>"` (or run `defer`); locking a
+  `deferral` transitions the entry to `status: "deferred"` rather than a
+  permanent `"locked"` prohibition.
+
+Never bundle unasked side-constraints, exact point-in-time measurements, or
+one-off PR repair chores into a `durable` lock when the user replies with a
+short affirmative ("yes", "sounds good", "do that"). Pass `--user-reply` to
+`lock` (or preflight with `gate`) so the gatekeeper (Jev `jev-1.13.0` first,
+falling back to OpenAI Decision API `gpt-6.1-sol`) verifies scope fidelity.
+
 ### 4. Confirm
 
 Summarize:

@@ -1,0 +1,23 @@
+{
+  "repository": "https://github.com/vincentkoc/dotskills",
+  "revision": "c9ca51e3a4e93fe10266d78e430c6575a5b19d30",
+  "observed_date": "2026-11-05",
+  "license": "MIT, Copyright (c) 2026 Vincent Koc",
+  "sha256": {
+    "LICENSE": "021abf1cacb291c2b0be92ab078d6c336f859f1bec9a3a3afbc039362971e31e",
+    "skills/technical-deslop/SKILL.md": "5678ca25269c2f9ade3f7b9926fb0077742bb663a867d821b3ebb276a4e2efef",
+    "skills/technical-deslop/references/playbook.md": "62770a4d1693cdbe108805a55122c7eeaa1d25287f8a31c9fc4995d4b4b92e89",
+    "skills/technical-deslop/references/slop-patterns.md": "47b6e996e2d9eb934d232c81e9297b210dde78f648cafd3843274f97eb88461f",
+    "skills/technical-documentation/SKILL.md": "aa303f550049dbdd8bb848c66e512a6e0fd4f4dc9fe6b6adf8fb2728234a92fe",
+    "skills/technical-documentation/references/build.md": "bd9d444cd8fa65c2515e53c240cdaa387ec68106b8767a10b541b3647d717873",
+    "skills/technical-documentation/references/review.md": "9d7d50b23da83c8603253e69f6f8fa724fce58dc34a1ad54f1520e81235e65cd",
+    "skills/technical-documentation/references/principles.md": "9bd9726a4bb9ed54cb14fae860282bbba8bcdbb3cd06146c3699177e6a14674a",
+    "skills/technical-documentation/references/agent-and-contributing.md": "d52050192b194289abc356c83fcad3a6faa6c061162ec1d7269d465f2c356078",
+    "skills/technical-documentation/references/tooling.md": "f937aa4ee596ccbc117f1bc7b03ca9a2e619accf01b28d1c88f92a359835b311"
+  },
+  "adaptation": {
+    "retained": ["changed-hunk cleanup", "repository idioms", "behavior preservation", "source-based documentation", "scope-bounded investigation", "proportionate evidence", "framework compatibility"],
+    "strengthened": ["index versus working-tree identity", "security and reliability preservation", "existing writable owner", "exact-head review", "repository-owned policy and alias precedence", "separate implementation and deployment claims"],
+    "excluded": ["assets", "model rosters", "orchestration templates and agents", "large audit and PR program machinery", "STE rules, examples and lint scripts", "automatic alias normalization", "blanket STE mandates"]
+  }
+}

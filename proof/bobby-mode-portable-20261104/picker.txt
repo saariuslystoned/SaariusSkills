@@ -1,0 +1,4 @@
+$ python3 skills/grilltrack/scripts/validate_picker.py fixtures/frontend-picker/manifest.json
+valid
+
+exit_code=0

@@ -1,0 +1,24 @@
+$ python3 skills/phone-proof/scripts/phone_proof.py --help
+usage: phone_proof.py [-h] [--adb ADB] [--serial SERIAL] [--pretty]
+                      {inventory,capture,verify,tree} ...
+
+Inventory Android displays and capture structurally valid screenshot proof.
+
+positional arguments:
+  {inventory,capture,verify,tree}
+    inventory           List physical displays without exposing serials.
+    capture             Capture one physical display and validate PNG
+                        structure.
+    verify              Validate an existing PNG and flag unusually small
+                        captures.
+    tree                Dump the accessibility tree and extract delimiter-safe
+                        text evidence.
+
+options:
+  -h, --help            show this help message and exit
+  --adb ADB             ADB executable name or path.
+  --serial SERIAL       Exact target serial when more than one authorized
+                        device is present; never emitted.
+  --pretty              Pretty-print JSON.
+
+exit_code=0
