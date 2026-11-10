@@ -212,3 +212,45 @@ archive, plan, digest, and projection semantics above.
 Adjudication is currently supported only for shared-ledger-base composition.
 No-ledger-base histories fail closed on any cross-fork decision-body conflict;
 they do not invent a common adjudication source or synthetic base projection.
+
+## Link genuine committed historical canonical state
+
+When immutable roots survive but their genuine historical canonical ledger is
+no longer the live track, use `history-link`; do not invent a closed archive or
+change historical decision statuses. Supply full same-repository Git commits:
+
+```bash
+python3 scripts/grilltrack_ledger.py --project <isolated-project> history-link \
+  --anchor-ref <exact-common-Git-base> --witness-ref <historical-canonical-commit>
+# Inspect the JSON plan, then explicitly approve precisely its plan_id:
+python3 scripts/grilltrack_ledger.py --project <isolated-project> history-link \
+  --anchor-ref <same-base> --witness-ref <same-witness> --apply <plan_id>
+```
+
+The default is read-only planning. JSON goes to stdout; validation errors go to
+stderr with exit2. No prompts, credentials, environment fallback or lifecycle
+transitions are involved. Apply writes one immutable
+`.grilltrack/history-links/<link_id>.json` record. It leaves canonical state,
+events, archives, prior proof and decision verification unchanged. The apply
+digest binds the exact target HEAD, canonical snapshot, anchor and witness;
+a changed target requires a new preview. Repeating the same apply is idempotent.
+
+The witness must be a proper Git ancestor of the anchor, with a real canonical
+join record, exact projected event prefix and recursively recomputed source
+lineage. Its linked roots must still exist byte-for-byte in the target. Paused
+history remains paused; this operation does not qualify historical proof for a
+new source revision. Source-index object presence alone is insufficient.
+
+Commit the reviewed record with the source candidate before planning a later
+reconciliation: uncommitted records are not authority. The reconciler binds the
+committed records into its plan and validates their ancestry, exact witness
+bytes and inherited presence. A record may seed only its own validated canonical
+source chain at its anchor or descendants, including that exact common base;
+it cannot whitelist arbitrary roots or affect earlier/nonancestral inputs.
+All incoming link anchors must already be ancestors of current; otherwise planning
+refuses before apply. Merge that source ancestry first rather than publishing a
+single-parent commit with invalid inherited authority. Applied joins retain
+incoming link records explicitly. Recomputing an old retained
+plan cannot expand the caller's witness scope. This is a history link, not a
+decision-conflict selection or event-prefix bypass.
+Reconciliation still uses its normal exact inputs, adjudication and approval.
