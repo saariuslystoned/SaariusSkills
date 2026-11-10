@@ -1,0 +1,6 @@
+interface:
+  display_name: "EmDash Motion Studio"
+  short_description: "Progressive GrillTrack 3D cutaway, multiplane occlusion, and choreographed animations for EmDash sites"
+  default_prompt: "Use $emdash-motion-studio to run the Progressive GrillTrack Animation Workflow: propose and render 5 noticeably different start-to-finish stage frameworks in Round 0 (validated via validate_picker.py), then build, verify in headless Chrome, and grill one core piece at a time across Mode A (3D Isometric Cutaway), Mode B (Multiplane Occlusion + Pigment Drift), Mode C (Choreographed Timeline), or optional Mode D (Tactile Foil & Tear-Off Pass)."
+policy:
+  allow_implicit_invocation: true

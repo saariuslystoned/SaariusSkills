@@ -37,11 +37,14 @@ the first provisioned user becomes Admin. Verify later users receive their
 intended roles and that setup cannot be taken over after initialization.
 
 Build a route inventory before adding an outer guard: admin/setup, authenticated
-API surfaces, authentication callbacks, public content, plugin endpoints and
-provider webhooks. For Access, gate admin, setup and authenticated APIs on every
-hostname (workers.dev, apex and www) before DNS points at the Worker. Anonymous
-requests must be redirected to login or denied, never shown an open setup page.
-Do not prescribe 404 for every `/_emdash` path: [plugin
+API surfaces, authentication callbacks, public content, public Media Library
+delivery (`GET`/`HEAD` on `/_emdash/api/media/file/<safe-key>` when the site
+serves CMS-managed images or `getSiteSettings()` logos/favicons), plugin
+endpoints and provider webhooks. For Access, gate admin, setup and authenticated
+APIs on every hostname (workers.dev, apex and www) before DNS points at the
+Worker. Anonymous requests must be redirected to login or denied, never shown an
+open setup page. Do not prescribe 404 for every `/_emdash` path: public media
+reads (`/_emdash/api/media/file/<safe-key>`), [plugin
 routes](https://docs.emdashcms.com/plugins/creating-plugins/api-routes/) and
 provider webhooks can intentionally be public. Keep an explicit inventory of
 those exact-path exceptions, each with its own validation/signature rules, not
@@ -64,6 +67,16 @@ are required, removing the runner or executing them natively does not satisfy
 the requirement. Report the exact hosting decision; do not purchase or downgrade
 capabilities by inference. Inventory generated bindings and resources before an
 authorized deploy rather than assuming automatic provisioning is harmless.
+
+When a site serves CDN imagery from Cloudflare Images (`imagedelivery.net`),
+upstream `@emdash-cms/cloudflare` ships a first-party `cloudflareImages({})`
+media provider (`import { cloudflareImages } from "@emdash-cms/cloudflare"`,
+passed to `emdash({ mediaProviders: [cloudflareImages({})] })`, reading
+`CF_ACCOUNT_ID`, `CF_IMAGES_ACCOUNT_HASH`, and `CF_IMAGES_TOKEN`) that connects
+`imagedelivery.net` directly into the `/_emdash/admin` Media Picker (browse,
+upload, delete, and automatic `w=...,h=...,f=...,fit=scale-down` URL transforms
+via `getEmbed`) so sites do not have to hardcode raw
+`https://imagedelivery.net/...` URL strings.
 
 ## Configuration and deployment proof
 

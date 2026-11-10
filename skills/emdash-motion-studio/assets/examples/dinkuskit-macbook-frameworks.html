@@ -1,0 +1,1115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="motion-probes" content="candidate_1_assembly_line:free=1&yaw=45&candidate=1&t=0.72&xr=1&labels=1@1120,900;candidate_2_command_island:free=1&yaw=45&candidate=2&t=0.72&xr=1&labels=1@1120,900;candidate_3_vertical_tower:free=1&yaw=45&candidate=3&t=0.72&xr=1&labels=1@1120,900;candidate_4_cockpit_hud:free=1&yaw=45&candidate=4&t=0.72&xr=1&labels=1@1120,900;candidate_5_radial_turntable:free=1&yaw=45&candidate=5&t=0.72&xr=1&labels=1@1120,900;candidate_1_t0_start:free=1&yaw=45&candidate=1&t=0.0&labels=1@1120,900;candidate_1_t05_mid:free=1&yaw=45&candidate=1&t=0.52&xr=1&labels=1@1120,900;candidate_1_t10_end:free=1&yaw=45&candidate=1&t=0.95&labels=1@1120,900;candidate_2_t0_start:free=1&yaw=45&candidate=2&t=0.0&labels=1@1120,900;candidate_2_t05_mid:free=1&yaw=45&candidate=2&t=0.52&xr=1&labels=1@1120,900;candidate_2_t10_end:free=1&yaw=45&candidate=2&t=0.95&labels=1@1120,900;candidate_3_t0_start:free=1&yaw=45&candidate=3&t=0.0&labels=1@1120,900;candidate_3_t05_mid:free=1&yaw=45&candidate=3&t=0.52&xr=1&labels=1@1120,900;candidate_3_t10_end:free=1&yaw=45&candidate=3&t=0.95&labels=1@1120,900;candidate_4_t0_start:free=1&yaw=45&candidate=4&t=0.0&labels=1@1120,900;candidate_4_t05_mid:free=1&yaw=45&candidate=4&t=0.52&xr=1&labels=1@1120,900;candidate_4_t10_end:free=1&yaw=45&candidate=4&t=0.95&labels=1@1120,900;candidate_5_t0_start:free=1&yaw=45&candidate=5&t=0.0&labels=1@1120,900;candidate_5_t05_mid:free=1&yaw=45&candidate=5&t=0.52&xr=1&labels=1@1120,900;candidate_5_t10_end:free=1&yaw=45&candidate=5&t=0.95&labels=1@1120,900;mobile_390x844:free=1&yaw=45&candidate=1&t=0.72&xr=1&labels=1&vw=390@390,844">
+  <title>DinkusKit Round 0 — 5 Start-to-Finish Animation Stage Frameworks</title>
+  <style>
+    /* DinkusKit Studio Paper & Aizome Ink Palette with light-dark() Token Support */
+    :root, .emdash-motion-stage {
+      color-scheme: light;
+      --color-canvas: light-dark(#f4f1ea, #121722);
+      --color-surface: light-dark(#ebe5d8, #1a2232);
+      --color-ink: light-dark(#1b222c, #eaeff7);
+      --color-muted: light-dark(#5f6b7a, #94a3b8);
+      --color-border: light-dark(#d5cec0, #2c384e);
+      --color-accent: light-dark(#2b5b9e, #4b83d1);
+      --color-shadow: light-dark(#3b5078, #090d14);
+    }
+    :root[data-theme="dark"], .dark, .emdash-motion-stage[data-theme="dark"] {
+      color-scheme: dark;
+    }
+    .gt-picker-shell {
+      width: 100%;
+      max-width: 880px;
+      margin: 0 auto 6px;
+      padding: 9px 11px;
+      border: 1.5px solid var(--ink, #1b222c);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--paper, #f4f1ea) 93%, var(--ink, #1b222c));
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .gt-picker-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font: 700 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--muted, #5f6b7a);
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .gt-picker-tabs {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 5px;
+    }
+    .gt-tab {
+      all: unset;
+      cursor: pointer;
+      box-sizing: border-box;
+      padding: 5px 6px;
+      border-radius: 7px;
+      border: 1.3px solid var(--rule, #d5cec0);
+      background: var(--paper, #f4f1ea);
+      color: var(--ink, #1b222c);
+      font: 700 9.6px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      transition: all .14s ease;
+    }
+    .gt-tab small {
+      font-weight: 600;
+      font-size: 8.2px;
+      color: var(--muted, #5f6b7a);
+    }
+    .gt-tab[data-active="true"] {
+      background: var(--ink, #1b222c);
+      color: var(--paper, #f4f1ea);
+      border-color: var(--ink, #1b222c);
+    }
+    .gt-tab[data-active="true"] small {
+      color: #c5d4e8;
+    }
+    .gt-pieces-bar {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 5px;
+    }
+    .gt-piece-card {
+      all: unset;
+      cursor: pointer;
+      box-sizing: border-box;
+      padding: 5px 7px;
+      border-radius: 7px;
+      border: 1.2px solid var(--rule, #d5cec0);
+      background: color-mix(in srgb, var(--paper, #f4f1ea) 96%, var(--ink, #1b222c));
+      font: 600 9px/1.22 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--ink, #1b222c);
+      display: block;
+    }
+    .gt-piece-card[data-active="true"] {
+      border-color: var(--accent, #2b5b9e);
+      background: color-mix(in srgb, var(--accent, #2b5b9e) 13%, var(--paper, #f4f1ea));
+    }
+    .gt-piece-card b {
+      display: block;
+      font-size: 9.2px;
+      color: var(--accent, #2b5b9e);
+      margin-bottom: 1px;
+    }
+    .gt-piece-card em {
+      display: block;
+      font-style: normal;
+      font-size: 8.3px;
+      color: var(--muted, #5f6b7a);
+      margin-top: 1px;
+    }
+    .gt-scrub-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-wrap: wrap;
+      font: 700 9.5px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--muted, #5f6b7a);
+    }
+    .gt-scrub-row input[type="range"] {
+      flex: 1;
+      min-width: 120px;
+      accent-color: var(--accent, #2b5b9e);
+      cursor: pointer;
+    }
+    .gt-phase-btn {
+      all: unset;
+      cursor: pointer;
+      padding: 3px 6px;
+      border-radius: 5px;
+      border: 1px solid var(--rule, #d5cec0);
+      background: var(--paper, #f4f1ea);
+      color: var(--ink, #1b222c);
+      font: 700 8.8px/1.1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .gt-phase-btn:hover {
+      border-color: var(--ink, #1b222c);
+    }
+    .gt-phase-btn[data-sound="true"] {
+      background: var(--accent, #2b5b9e);
+      color: #ffffff;
+      border-color: var(--ink, #1b222c);
+    }
+    @media (max-width: 560px) {
+      .gt-picker-shell { padding: 6px 8px; gap: 4px; margin-bottom: 4px; }
+      .gt-picker-tabs { grid-template-columns: repeat(3, 1fr); gap: 4px; }
+      .gt-tab { padding: 3px 5px; font-size: 8.5px; }
+      .gt-tab small { display: none; }
+      .gt-pieces-bar { grid-template-columns: repeat(3, 1fr); gap: 4px; }
+      .gt-piece-card { padding: 3px 5px; font-size: 8px; }
+      .gt-piece-card em { display: none; }
+    }
+  </style>
+</head>
+<body>
+<script src="core.js"></script>
+<script src="multiplane.js"></script>
+<script src="choreo.js"></script>
+<script>
+/* ============================================================
+   DinkusKit Round 0 — 5 Materially Distinct Start-to-Finish Frameworks
+   GrillTrack Progressive Animation Workflow:
+   - Round 0 (This Explorer): Compare 5 noticeably different end-to-end
+     stage frameworks (t=0 Start -> t=0.5 Mid -> t=1.0 Finish) and lock one.
+   - Round 1 (Piece 1 Grill): Build & grill the MacBook Storefront + Cutaway Factory.
+   - Round 2 (Piece 2 Grill): Keep Piece 1 locked; build & grill Product Drop + Open Box + 4 Flaps + Kraft Tape.
+   - Round 3 (Piece 3 Grill): Keep Pieces 1 & 2 locked; build & grill Pitney Bowes 4x6 Printer + Label Slap + Mail Chute.
+   ============================================================ */
+
+const BW = 108, BD = 160, BH = 4, H = 74;
+
+const AIZOME = { l:'#3568b0', m:'#234982', d:'#132a4f' };
+const ALUM   = { l:'#e8ecf0', m:'#c5cdd6', d:'#8994a0' };
+const SPACE  = { l:'#626b75', m:'#454d56', d:'#282d33' };
+const KRAFT  = { l:'#dfa668', m:'#c2894d', d:'#8a5c2d' };
+const TAPE_M = { l:'#edd09d', m:'#d4b279', d:'#9c7e4c' };
+const BRASS  = { l:'#f2c96b', m:'#cf9f3e', d:'#8c651c' };
+const STRIPE = { l:'#55d69e', m:'#2ea874', d:'#186343' };
+const CF_ORG = { l:'#f79640', m:'#db6f18', d:'#8f4208' };
+const CRIM   = { l:'#ed5f55', m:'#c73e35', d:'#7a1f19' };
+
+/* Optional Add-On: Procedural Web Audio Micro-Foley (Strictly Opt-In, Muted by Default) */
+function createMicroFoley(){
+  let ctx = null, enabled = false;
+  const ensure = () => {
+    if (!enabled) return null;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!ctx && AC) ctx = new AC();
+    if (ctx && ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  };
+  return {
+    setEnabled(v){ enabled = !!v; if (enabled) ensure(); },
+    isEnabled(){ return enabled; },
+    click(freq = 920, dur = 0.028){
+      const ac = ensure(); if (!ac) return;
+      const osc = ac.createOscillator(), g = ac.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, ac.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(140, ac.currentTime + dur);
+      g.gain.setValueAtTime(0.16, ac.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
+      osc.connect(g); g.connect(ac.destination);
+      osc.start(); osc.stop(ac.currentTime + dur);
+    },
+    paperTear(dur = 0.14, centerHz = 1800){
+      const ac = ensure(); if (!ac) return;
+      const len = Math.floor(ac.sampleRate * dur);
+      const buf = ac.createBuffer(1, len, ac.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < len; i++){
+        const env = Math.sin((i / len) * Math.PI);
+        data[i] = (Math.random() * 2 - 1) * env * (0.6 + 0.4 * Math.sin(i * 0.08));
+      }
+      const src = ac.createBufferSource(); src.buffer = buf;
+      const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = centerHz; bp.Q.value = 1.4;
+      const g = ac.createGain(); g.gain.value = 0.2;
+      src.connect(bp); bp.connect(g); g.connect(ac.destination);
+      src.start();
+    },
+  };
+}
+const foley = createMicroFoley();
+
+const FRAMEWORKS = [
+  {
+    num: 1,
+    id: 'c1-assembly-line',
+    short: '1 · Assembly Line',
+    name: 'Framework 1: Assembly Line Desk (Left-to-Right Conveyor Flow)',
+    arch: 'LINEAR CONVEYOR DESK',
+    t0Desc: 'Start (T=0.0): Closed MacBook at left conveyor head; empty open box on rollers.',
+    t05Desc: 'Mid (T=0.5): Lid opens 110°, Stripe/D1 fire, kettle drops into box on belt.',
+    t10Desc: 'Finish (T=1.0): 4 flaps fold & tape, PB printer slaps 4×6 label, drops in chute.',
+    piece1: 'Left Station: MacBook Pro + cutaway factory',
+    piece2: 'Center Roller Belt: Kettle drop + 4-flap box + tape',
+    piece3: 'Right Bridge: PB 4×6 printer slap + mail chute',
+  },
+  {
+    num: 2,
+    id: 'c2-command-island',
+    short: '2 · Command Island',
+    name: 'Framework 2: Isometric Command Island + Multiplane Horizon',
+    arch: 'FOREGROUND ISLAND + 3-PLANE SKYLINE',
+    t0Desc: 'Start (T=0.0): Center MacBook closed on island; harbor viaduct idle behind.',
+    t05Desc: 'Mid (T=0.5): Center MacBook opens; left printer heats; right box packs on lift.',
+    t10Desc: 'Finish (T=1.0): Labeled box lifts to viaduct; courier van drives behind trusses.',
+    piece1: 'Center Pedestal: Angled MacBook + cutaway dock',
+    piece2: 'Right Wing Lift Pad: Kettle arc + 4-flap box + tape',
+    piece3: 'Left Printer + Top Multiplane Viaduct van transit',
+  },
+  {
+    num: 3,
+    id: 'c3-vertical-tower',
+    short: '3 · Vertical Stack',
+    name: 'Framework 3: Exploded 3-Tier Vertical Stack / Architecture Tower',
+    arch: '3-STORY Z-STACK CUTAWAY TOWER',
+    t0Desc: 'Start (T=0.0): Tier 3 top MacBook closed; Tier 2 engine room & Tier 1 bay idle.',
+    t05Desc: 'Mid (T=0.5): Top MacBook opens; Tier 2 Stripe/D1 spin; kettle drops down tube.',
+    t10Desc: 'Finish (T=1.0): Tier 1 ground box folds/tapes, PB printer slaps 4×6, mail drops.',
+    piece1: 'Tier 3 Top Deck (MacBook) + Tier 2 Engine Room',
+    piece2: 'Vertical Glass Drop Chute + Tier 1 Box Packer',
+    piece3: 'Tier 1 Ground PB 4×6 Printer + Dispatch Hopper',
+  },
+  {
+    num: 4,
+    id: 'c4-cockpit-hud',
+    short: '4 · Cockpit + Coupon',
+    name: 'Framework 4: Split-Screen Cockpit (3D Desk + Telemetry & Tear-Off Coupon)',
+    arch: '3D DESK + MODE D TEAR-OFF PASS HUD',
+    t0Desc: 'Start (T=0.0): Left 3D desk MacBook closed; right SAVE20 foil pass intact.',
+    t05Desc: 'Mid (T=0.5): Perforated SAVE20 stub tears off (-20%); Stripe $68 & box pack fire.',
+    t10Desc: 'Finish (T=1.0): Stub detaches; 4×6 thermal barcode syncs to live telemetry rail.',
+    piece1: 'Left 3D MacBook + Right Mode D Tear-Off Pass',
+    piece2: 'Center 3D Box Pack + Live Cockpit Telemetry',
+    piece3: '3D PB Thermal Printer + ORDERS/STRIPE/PB Rail',
+  },
+  {
+    num: 5,
+    id: 'c5-radial-turntable',
+    short: '5 · Radial Turntable',
+    name: 'Framework 5: Radial Turntable Workshop (4-Quadrant Rotary Bench)',
+    arch: '360° 4-QUADRANT ROTARY WORKBENCH',
+    t0Desc: 'Start (T=0.0): Circular brass bench at 0°; Q1 MacBook closed; rotary arm at Q1.',
+    t05Desc: 'Mid (T=0.5): Rotary arm sweeps Q1→Q2 (Stripe/D1 Vault)→Q3 (Box), dropping kettle.',
+    t10Desc: 'Finish (T=1.0): Arm sweeps Q3→Q4 (PB Printer + Chute); 4×6 label slaps & mails.',
+    piece1: 'Q1 (MacBook Ingress) + Q2 (Stripe/D1 Vault Pods)',
+    piece2: 'Central Rotary Arm + Q3 (4-Flap Box & Tape)',
+    piece3: 'Q4 (Pitney Bowes 4×6 Printer + Mail Launcher)',
+  }
+];
+
+function deriveKinematics(t){
+  const u = clamp01(t);
+  return {
+    t: u,
+    lidOpen: easeInOutCubic(subRange(u, 0.01, 0.16)),
+    screenOn: easeInOutCubic(subRange(u, 0.05, 0.18)),
+    couponStamp: Math.sin(subRange(u, 0.08, 0.22) * Math.PI),
+    couponApplied: easeInOutCubic(subRange(u, 0.10, 0.20)),
+    tearProgress: easeInOutCubic(subRange(u, 0.08, 0.42)),
+    edgeSpin: u > 0.03 ? u * 12 : 0,
+    stripeGate: easeInOutCubic(subRange(u, 0.20, 0.36)),
+    stripePaid: u >= 0.28 ? 1 : easeInOutCubic(subRange(u, 0.20, 0.28)),
+    skuPick: easeInOutCubic(subRange(u, 0.38, 0.52)),
+    emailPulse: subRange(u, 0.40, 0.56),
+    packProgress: easeInOutCubic(subRange(u, 0.38, 0.56)),
+    flapFold: easeInOutCubic(subRange(u, 0.56, 0.66)),
+    tapeSeal: easeInOutCubic(subRange(u, 0.64, 0.71)),
+    printHeat: Math.sin(subRange(u, 0.64, 0.78) * Math.PI),
+    labelFlight: easeInOutCubic(subRange(u, 0.66, 0.76)),
+    mailLaunch: easeInOutCubic(subRange(u, 0.80, 0.96)),
+    chuteFlap: Math.sin(subRange(u, 0.84, 0.96) * Math.PI),
+    vanTransit: easeInOutCubic(subRange(u, 0.65, 0.98)),
+    armAngle: easeInOutCubic(subRange(u, 0.05, 0.92)) * (Math.PI * 1.5),
+  };
+}
+
+const boxOfPts = (pts, pad = 0.4) => [
+  [0,1,2].map(i => Math.min(...pts.map(p => p[i])) - pad),
+  [0,1,2].map(i => Math.max(...pts.map(p => p[i])) + pad),
+];
+
+function unitShadow(x0, y0, x1, y1, zTop){
+  return castShadow([
+    ...on(PZ(BH), rectUV(x0, y0, x1, y1)),
+    ...on(PZ(zTop), rectUV(x0, y0, x1, y1)),
+  ], BH);
+}
+
+/* ---------- REUSABLE POSITIONABLE 3D BUILDING BLOCKS ---------- */
+function drawMacbookUnit(cx, cy, z0, K, xrK, scale = 1.0){
+  const hw = 18 * scale, hd = 22 * scale, hBase = 5.2 * scale;
+  const x0 = cx - hw, x1 = cx + hw, y0 = cy - hd, y1 = cy + hd, z1 = z0 + hBase;
+  const prof = rrUV(y0, z0, y1, z1, 1.2, 4);
+  let baseSvg = extrude(prof, x0, x1, ALUM, tone);
+  if (facing([1, 0, 0])) baseSvg += shape(on(PX(x1), prof), tone([1, 0, 0], ALUM), 0.95);
+  if (facing([-1, 0, 0])) baseSvg += shape(on(PX(x0), prof), tone([-1, 0, 0], ALUM), 0.95);
+  const kb = on(PZ(z1 + 0.04), rrUV(x0 + 3*scale, y0 + 3*scale, x1 - 8*scale, y1 - 3*scale, 1));
+  baseSvg += shape(kb, '#1e2229', 0.75);
+  const tp = on(PZ(z1 + 0.04), rrUV(x1 - 7*scale, cy - 6*scale, x1 - 1.5*scale, cy + 6*scale, 0.8));
+  baseSvg += shape(tp, '#cfd6de', 0.65);
+  baseSvg += hullInk([...on(PX(x0), prof), ...on(PX(x1), prof)], 2.0);
+
+  if (xrK > 0.05){
+    let inner = '';
+    inner += box(x0 + 2, cy + 4, z0 + 0.6, x0 + 10, y1 - 2, z0 + 3.8, CF_ORG, toneI, 0.7);
+    inner += cyl(x0 + 14, cy + 10, z0 + 0.6, z0 + 4.2, 2.8 * scale, ALUM, toneI, 0.7, 14);
+    inner += box(cx - 2, cy + 4, z0 + 0.6, cx + 8, y1 - 3, z0 + 4.4, K.couponApplied > 0.2 ? CRIM : BRASS, toneI, 0.7);
+    inner += box(x0 + 3, y0 + 3, z0 + 0.6, cx, cy - 2, z0 + 4.2, K.stripePaid > 0.4 ? STRIPE : AIZOME, toneI, 0.75);
+    inner += box(cx + 2, y0 + 3, z0 + 0.6, x1 - 3, cy - 2, z0 + 3.8, KRAFT, toneI, 0.7);
+    baseSvg = xrGhost(baseSvg, '', xrK, prof, x0, x1, ALUM) + `<g opacity="${f(xrK)}">${inner}</g>`;
+  }
+
+  // Hinged Lid (0 -> 110 deg)
+  const xH = x0 + 1.5 * scale, zH = z1 + 0.1;
+  const deg = K.lidOpen * 110, rad = deg * Math.PI / 180;
+  const L_lid = (x1 - x0 - 1.5 * scale), T_lid = 1.4 * scale;
+  const ux = Math.cos(rad), uz = Math.sin(rad);
+  const nx = -Math.sin(rad), nz = Math.cos(rad);
+  const lidPt = (s, y, w) => [xH + s * ux + w * nx, y, zH + s * uz + w * nz];
+
+  const c000 = lidPt(0, y0, 0), c100 = lidPt(L_lid, y0, 0), c110 = lidPt(L_lid, y1, 0), c010 = lidPt(0, y1, 0);
+  const c001 = lidPt(0, y0, T_lid), c101 = lidPt(L_lid, y0, T_lid), c111 = lidPt(L_lid, y1, T_lid), c011 = lidPt(0, y1, T_lid);
+  const innerFace = [c000, c100, c110, c010];
+  const outerFace = [c001, c011, c111, c101];
+  let lidSvg = loft(innerFace, [c001, c101, c111, c011], nr => tone(nr, ALUM));
+  if (vis([nx, 0, nz])){
+    lidSvg += shape(outerFace, tone([nx, 0, nz], ALUM), 0.95);
+  }
+  if (vis([-nx, 0, -nz]) && K.lidOpen > 0.04){
+    lidSvg += shape(innerFace, '#141821', 0.9);
+    const scr = [
+      lidPt(2.2*scale, y0 + 2.2*scale, -0.05),
+      lidPt(L_lid - 2.2*scale, y0 + 2.2*scale, -0.05),
+      lidPt(L_lid - 2.2*scale, y1 - 2.2*scale, -0.05),
+      lidPt(2.2*scale, y1 - 2.2*scale, -0.05),
+    ];
+    lidSvg += shape(scr, K.screenOn > 0.1 ? '#f4f1ea' : '#1d2430', 0.75);
+    if (K.screenOn > 0.15){
+      const cardL = [
+        lidPt(6*scale, cy + 1*scale, -0.09),
+        lidPt(L_lid - 5*scale, cy + 1*scale, -0.09),
+        lidPt(L_lid - 5*scale, y1 - 3.5*scale, -0.09),
+        lidPt(6*scale, y1 - 3.5*scale, -0.09),
+      ];
+      lidSvg += shape(cardL, AIZOME.l, 0.6);
+      const payCol = K.mailLaunch > 0.5 ? '#2b5b9e' : K.stripePaid > 0.4 ? '#2ea874' : '#f4b829';
+      const cardR = [
+        lidPt(6*scale, y0 + 3.5*scale, -0.09),
+        lidPt(L_lid - 5*scale, y0 + 3.5*scale, -0.09),
+        lidPt(L_lid - 5*scale, cy - 1*scale, -0.09),
+        lidPt(6*scale, cy - 1*scale, -0.09),
+      ];
+      lidSvg += shape(cardR, payCol, 0.6);
+      const [sx, sy] = P(...lidPt(L_lid * 0.55, cy, -0.15));
+      lidSvg += `<text x="${f(sx)}" y="${f(sy)}" font-size="${f(4.4 * INK_K)}" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-weight="800" fill="#1b222c">DINKUSKIT</text>`;
+    }
+  }
+  lidSvg += hullInk([...innerFace, ...outerFace], 2.0);
+
+  return [
+    { box: [[x0, y0, z0], [x1, y1, z1 + 0.15]], svg: act('macbook', baseSvg) },
+    { box: boxOfPts([...innerFace, ...outerFace], 0.15), svg: act('macbook', lidSvg) },
+  ];
+}
+
+function drawBoxAndKettleUnit(cx, cy, z0, K, scale = 1.0, prodStart = null){
+  const parts = [];
+  const hw = 12 * scale, hd = 11 * scale, hBox = 14.5 * scale;
+  const bx0 = cx - hw, bx1 = cx + hw, by0 = cy - hd, by1 = cy + hd, bz0 = z0, bz1 = z0 + hBox;
+
+  const pk = K.packProgress;
+  const [sx, sy, sz] = prodStart || [cx, cy + 20 * scale, z0 + 2];
+  const px = lerp(sx, cx, pk);
+  const py = lerp(sy, cy, pk);
+  const pz = lerp(sz, bz0 + 1.0, pk) + Math.sin(pk * Math.PI) * (15 * scale);
+  const nested = pk >= 0.62;
+
+  const kettleSvg = (kx, ky, kz) =>
+    box(kx - 4.2*scale, ky - 4.2*scale, kz, kx + 4.2*scale, ky + 4.2*scale, kz + 7.5*scale, AIZOME, tone, 0.85)
+    + box(kx - 4.3*scale, ky - 4.3*scale, kz + 3*scale, kx + 4.3*scale, ky + 4.3*scale, kz + 4.6*scale, BRASS, toneI, 0.65);
+
+  if (!nested){
+    parts.push({
+      box: [[px - 4.5*scale, py - 4.5*scale, pz], [px + 4.5*scale, py + 4.5*scale, pz + 8.5*scale]],
+      svg: act('box', kettleSvg(px, py, pz)),
+    });
+  }
+
+  const A = on(PZ(bz0), rectUV(bx0, by0, bx1, by1));
+  const B = on(PZ(bz1), rectUV(bx0, by0, bx1, by1));
+  const inner = fill(pd(A), KRAFT.d) + (nested && K.flapFold < 0.95 ? kettleSvg(cx, cy, pz) : '');
+  let boxSvg = openShell(A, B, nr => tone(nr, KRAFT), inner) + hullInk([...A, ...B], 1.9);
+
+  // All 4 Hinged Folding Flaps (Left, Right, Back, Front)
+  const fk = K.flapFold;
+  const angSide = (-25 + fk * 115) * Math.PI / 180;
+  const angFB   = (-20 + fk * 110) * Math.PI / 180;
+  const sInY = Math.sin(angSide) * (hd - 0.3), sUpY = Math.cos(angSide) * (hd - 0.3) * (1 - fk * 0.98);
+  const sInX = Math.sin(angFB) * (hw - 0.2),   sUpX = Math.cos(angFB) * (hw - 0.2) * (1 - fk * 0.98);
+  const flapL = [[bx0 + 0.3, by1, bz1], [bx1 - 0.3, by1, bz1], [bx1 - 0.3, by1 - Math.max(-2.5, sInY), bz1 + sUpY], [bx0 + 0.3, by1 - Math.max(-2.5, sInY), bz1 + sUpY]];
+  const flapR = [[bx0 + 0.3, by0, bz1], [bx1 - 0.3, by0, bz1], [bx1 - 0.3, by0 + Math.max(-2.5, sInY), bz1 + sUpY], [bx0 + 0.3, by0 + Math.max(-2.5, sInY), bz1 + sUpY]];
+  const flapB = [[bx0, by0, bz1 + 0.12], [bx0, by1, bz1 + 0.12], [bx0 + Math.max(-2.5, sInX), by1, bz1 + 0.12 + sUpX], [bx0 + Math.max(-2.5, sInX), by0, bz1 + 0.12 + sUpX]];
+  const flapF = [[bx1, by0, bz1 + 0.12], [bx1, by1, bz1 + 0.12], [bx1 - Math.max(-2.5, sInX), by1, bz1 + 0.12 + sUpX], [bx1 - Math.max(-2.5, sInX), by0, bz1 + 0.12 + sUpX]];
+  if (fk < 0.85){
+    boxSvg += shape(flapL, KRAFT.m, 0.8) + shape(flapR, KRAFT.m, 0.8);
+  }
+  boxSvg += shape(flapB, KRAFT.l, 0.85) + shape(flapF, KRAFT.l, 0.85);
+  if (fk >= 0.85){
+    boxSvg += line([[cx, by0, bz1 + 0.16], [cx, by1, bz1 + 0.16]], 0.9);
+  }
+
+  // Kraft Tape across seam + front lip overhang
+  if (K.tapeSeal > 0.02){
+    const tk = K.tapeSeal;
+    const txEnd = bx0 + (bx1 - bx0) * tk;
+    const ty0 = cy - 2.4*scale, ty1 = cy + 2.4*scale;
+    boxSvg += shape(on(PZ(bz1 + 0.24), rectUV(bx0, ty0, txEnd, ty1)), TAPE_M.l, 0.7);
+    if (tk > 0.85 && facing([1, 0, 0])){
+      const lipH = ((tk - 0.85) / 0.15) * (3.6 * scale);
+      boxSvg += shape(on(PX(bx1 + 0.06), rectUV(ty0, bz1 - lipH, ty1, bz1 + 0.22)), TAPE_M.m, 0.6);
+    }
+  }
+  if (facing([1, 0, 0])){
+    boxSvg += tx(bx1 + 0.1, cy, bz0 + hBox * 0.5, 'BOX #1042', 2.2 * scale, INK, 800);
+  }
+  parts.push({
+    box: [[bx0 - 1, by0 - 1, bz0], [bx1 + 1, by1 + 1, bz1 + 5 * scale]],
+    svg: act('box', boxSvg),
+  });
+  return parts;
+}
+
+function drawPrinterAndLabelUnit(px, py, pz, boxCx, boxCy, boxTopZ, K, xrK, scale = 1.0){
+  const parts = [];
+  const hw = 12 * scale, hd = 12 * scale, hP = 15.5 * scale;
+  const x0 = px - hw, x1 = px + hw, y0 = py - hd, y1 = py + hd, z0 = pz, z1 = pz + hP;
+  const prof = rrUV(y0, z0, y1, z1, 3.0 * scale, 5);
+  let body = extrude(prof, x0, x1, CERAMIC, tone);
+  if (facing([1, 0, 0])){
+    body += shape(on(PX(x1), prof), tone([1, 0, 0], CERAMIC), 0.95);
+    body += shape(on(PX(x1 + 0.05), rrUV(y0 + 2.2*scale, z0 + 3*scale, y1 - 2.2*scale, z1 - 2.5*scale, 1.5)), AIZOME.d, 0.75);
+    body += shape(on(PX(x1 + 0.1), rectUV(y0 + 3.5*scale, z0 + 8*scale, y1 - 3.5*scale, z0 + 9.8*scale)), '#12161f', 0.65);
+    body += tx(x1 + 0.15, py, z0 + 5*scale, 'PB 4x6', 2.2 * scale, '#f4f1ea', 800);
+  }
+  body += hullInk([...on(PX(x0), prof), ...on(PX(x1), prof)], 2.0);
+  if (xrK > 0.05){
+    const inner = cyl(px - 2*scale, py, z0 + 2*scale, z0 + 11*scale, 3.8*scale, CERAMIC, toneI, 0.7, 14)
+      + box(px + 2*scale, y0 + 2*scale, z0 + 8*scale, x1 - 1.5*scale, y1 - 2*scale, z0 + 11*scale, K.printHeat > 0.05 ? CRIM : CF_ORG, toneI, 0.75);
+    body = xrGhost(body, '', xrK, prof, x0, x1, CERAMIC) + `<g opacity="${f(xrK)}">${inner}</g>`;
+  }
+  parts.push({
+    box: [[x0, y0, z0], [x1 + 0.4, y1, z1 + 0.4]],
+    svg: act('printer', body),
+  });
+
+  // 4x6 Thermal Label flying from printer mouth to box top
+  if (K.labelFlight > 0.01){
+    const lk = K.labelFlight;
+    const lx = lerp(x1 + 1, boxCx + 2*scale, lk);
+    const ly = lerp(py, boxCy, lk);
+    const lz = lerp(z0 + 9*scale, boxTopZ + 0.45, lk) + Math.sin(lk * Math.PI) * 8 * scale;
+    const lw = 7.5 * scale, ld = 10.5 * scale;
+    const pts = on(PZ(lz), rectUV(lx - lw/2, ly - ld/2, lx + lw/2, ly + ld/2));
+    let lbl = shape(pts, '#ffffff', 0.9)
+      + fill(pd(on(PZ(lz + 0.04), rectUV(lx + lw/2 - 1.8*scale, ly - ld/2 + 0.6*scale, lx + lw/2 - 0.5*scale, ly + ld/2 - 0.6*scale))), CRIM.l);
+    for (let i = 0; i < 5; i++){
+      const by = ly - ld/2 + 1.4*scale + i * 1.6*scale;
+      lbl += line([[lx - lw/2 + 1, by, lz + 0.06], [lx, by, lz + 0.06]], 0.9);
+    }
+    parts.push({
+      box: [[lx - lw/2, ly - ld/2, lz], [lx + lw/2, ly + ld/2, lz + 1.2]],
+      svg: act('printer', lbl),
+    });
+  }
+  return parts;
+}
+
+function drawChuteUnit(cx, cy, z0, K, scale = 1.0){
+  const hw = 13 * scale, hd = 8 * scale, hC = 22 * scale;
+  const x0 = cx - hw, x1 = cx + hw, y0 = cy - hd, y1 = cy + hd, z1 = z0 + hC;
+  let s = box(x0, y0, z0, x1, y1, z1, AIZOME, tone, 1.0);
+  if (facing([0, 1, 0])){
+    s += shape(on(PY(y1 + 0.06), rrUV(x0 + 2*scale, z0 + 2*scale, x1 - 2*scale, z1 - 3*scale, 1.5)), BRASS.l, 0.8);
+    s += shape(on(PY(y1 + 0.12), rectUV(x0 + 3.5*scale, z0 + 3*scale, x1 - 3.5*scale, z1 - 6*scale)), '#10151f', 0.7);
+  }
+  if (facing([1, 0, 0])){
+    s += shape(on(PX(x1 + 0.06), rrUV(y0 + 1.5*scale, z1 - 8*scale, y1 - 1.5*scale, z1 - 2*scale, 1)), '#f4f1ea', 0.7);
+    s += tx(x1 + 0.14, cy, z1 - 4.8*scale, 'MAIL', 2.2 * scale, INK, 800);
+  }
+  return {
+    box: [[x0, y0, z0], [x1 + 0.4, y1 + 0.4, z1 + 1]],
+    svg: act('chute', s),
+  };
+}
+
+/* ============================================================
+   CANDIDATE 1: ASSEMBLY LINE DESK (Left-to-Right Roller Conveyor Flow)
+   ============================================================ */
+function renderCandidate1(st, K, xrK){
+  let s = '';
+  const BTOP = boardTop(0, 0, BW, BD, BH, 6);
+  s += board(0, 0, BW, BD, BH, 6, BOARD);
+
+  // Individual cast shadows per station (never bridging across separate stations)
+  const slideY = -K.mailLaunch * 22;
+  const boxCy = 70 + slideY;
+  s += clipTo(BTOP,
+    unitShadow(39, 107, 73, 149, BH + 14) +
+    unitShadow(44, 24, 80, 148, BH + 3) +
+    unitShadow(16, 44, 40, 68, BH + 18) +
+    unitShadow(49, 6, 75, 22, BH + 24)
+  );
+
+  // Segmented Left-to-Right Steel & Brass Roller Conveyor Track (x = 44..80, y = 24..148)
+  // Sliced along y with strict z separation (bed z = BH..BH+2.2, rollers z = BH+2.25..BH+2.85, stations z >= BH+2.9)
+  const convParts = [];
+  for (let y = 24; y < 148; y += 8){
+    const yNext = Math.min(148, y + 8);
+    convParts.push({
+      box: [[44, y, BH], [80, yNext, BH + 2.2]],
+      svg: box(44, y, BH, 80, yNext, BH + 2.2, SPACE, toneI, 0.75),
+    });
+    const ry = y + 4;
+    convParts.push({
+      box: [[45, ry - 1.1, BH + 2.25], [79, ry + 1.1, BH + 2.85]],
+      svg: box(45.5, ry - 1.0, BH + 2.25, 78.5, ry + 1.0, BH + 2.8, BRASS, toneI, 0.55),
+    });
+  }
+
+  const parts = [
+    ...convParts,
+    // Station 1 (Left, y=128): MacBook Pro feeding the conveyor
+    ...drawMacbookUnit(56, 128, BH + 2.95, K, xrK, 0.95),
+    // Station 2 (Center, y=70 -> 48): Corrugated Shipping Box riding the conveyor belt
+    ...drawBoxAndKettleUnit(62, boxCy, BH + 2.95, K, 0.95, [62, 100, BH + 6]),
+    // Station 3 (Rear-Center, x=28, y=56): Pitney Bowes Thermal Printer beside conveyor
+    ...drawPrinterAndLabelUnit(28, 56, BH, 62, boxCy, BH + 2.95 + 13.8, K, xrK, 0.95),
+    // Station 4 (Far Right, y=14): Outgoing Mail Chute at end of conveyor (y = 6..22, cleanly separated from y >= 24 belt)
+    drawChuteUnit(62, 14, BH, K, 0.95),
+  ];
+
+  s += byDepth(parts);
+
+  const bounds = [0, BW, 0, BD, 0, H];
+  s += xrCallouts([
+    { at: [56, 128, BH + 24], text: 'PIECE 1 · MACBOOK CONVEYOR HEAD', on: K.lidOpen > 0.1 },
+    { at: [62, boxCy, BH + 20], text: 'PIECE 2 · CONVEYOR BOX & TAPE',   on: K.packProgress > 0.1 },
+    { at: [28, 56, BH + 17],  text: 'PIECE 3 · PB 4x6 PRINTER & CHUTE',on: K.labelFlight > 0.05 || K.mailLaunch > 0.1 },
+  ], bounds);
+  return s;
+}
+
+/* ============================================================
+   CANDIDATE 2: ISOMETRIC COMMAND ISLAND + WIDE MULTIPLANE HORIZON
+   ============================================================ */
+function renderCandidate2(st, K, xrK){
+  let s = '';
+  // Panoramic 3-Layer Multiplane + Pigment Drift Harbor Skyline centered in top stage bay (between .actions and .stats)
+  const pig = renderPigmentDrift({
+    width: 540, height: 108, idPrefix: 'c2-mp', position: 'full', opacity: 0.46,
+    colors: ['#132a4f', '#2b5b9e', '#4b83d1', '#dfa668', '#f4f1ea'],
+  }, K.t);
+  const vanX = 55 + K.vanTransit * 355;
+  let trusses = '';
+  for (let x = 95; x <= 445; x += 58){
+    trusses += `<rect x="${x}" y="52" width="7" height="44" fill="#5b7083" stroke="${INK}" stroke-width="1.1"/>`;
+    trusses += `<path d="M ${x - 15} 54 L ${x + 3.5} 36 L ${x + 22} 54 Z" fill="#93a8bc" stroke="${INK}" stroke-width="0.9"/>`;
+  }
+  s += `
+    <g id="c2-panoramic-multiplane" transform="translate(98, 2) scale(0.25)">
+      <defs><clipPath id="c2-clip"><rect x="0" y="0" width="540" height="96" rx="10"/></clipPath></defs>
+      <g clip-path="url(#c2-clip)">
+        <rect x="0" y="0" width="540" height="96" fill="#ebe5d8"/>
+        ${pig}
+        <rect x="22" y="38" width="44" height="58" fill="#b8c7d9" stroke="${INK}" stroke-width="1.2"/>
+        <rect x="74" y="24" width="56" height="72" fill="#c9d6e4" stroke="${INK}" stroke-width="1.2"/>
+        <rect x="435" y="30" width="72" height="66" fill="#c9d6e4" stroke="${INK}" stroke-width="1.2"/>
+        <rect x="0" y="80" width="540" height="6" fill="#47596b" stroke="${INK}" stroke-width="1.2"/>
+        <!-- Midground Courier Van passing BEHIND Foreground Bridge Trusses -->
+        <g transform="translate(${f(vanX)}, 64)">
+          <rect x="0" y="2" width="36" height="14" rx="2.5" fill="#2b5b9e" stroke="${INK}" stroke-width="1.3"/>
+          <path d="M 36 5 L 45 5 L 48 10 L 48 16 L 36 16 Z" fill="#3568b0" stroke="${INK}" stroke-width="1.3"/>
+          <rect x="4" y="6" width="25" height="3.2" fill="#f2c96b"/>
+          <circle cx="9" cy="16.5" r="3.2" fill="${INK}"/>
+          <circle cx="39" cy="16.5" r="3.2" fill="${INK}"/>
+        </g>
+        ${trusses}
+      </g>
+      <rect x="0" y="0" width="540" height="96" rx="10" fill="none" stroke="${INK}" stroke-width="2.6"/>
+      <rect x="10" y="8" width="250" height="20" rx="5" fill="#1b222c"/>
+      <text x="135" y="21.5" text-anchor="middle" font-size="9.2" font-family="ui-monospace,Menlo,monospace" font-weight="800" fill="#f4f1ea" letter-spacing=".04em">MULTIPLANE VIADUCT + PIGMENT DRIFT</text>
+    </g>
+  `;
+
+  // Foreground Command Island Pedestal: board(x0, y0, x1, y1, h, r, m) with full [22..94, 16..144] bounds so every station stands on the island!
+  const BTOP = boardTop(22, 16, 94, 144, BH, 10);
+  s += board(22, 16, 94, 144, BH, 10, BOARD);
+  s += clipTo(BTOP,
+    unitShadow(46, 62, 78, 102, BH + 14) +
+    unitShadow(30, 108, 50, 128, BH + 16) +
+    unitShadow(56, 30, 76, 50, BH + 15) +
+    unitShadow(30, 22, 50, 36, BH + 20)
+  );
+
+  const liftZ = BH + K.mailLaunch * 5;
+  const parts = [
+    // Elevated scissor-lift pad under the right-wing shipping box
+    {
+      box: [[55, 29, BH], [77, 51, liftZ]],
+      svg: box(55, 29, BH, 77, 51, Math.max(BH + 0.8, liftZ), SPACE, toneI, 0.8),
+    },
+    ...drawMacbookUnit(62, 82, BH, K, xrK, 0.88),
+    ...drawPrinterAndLabelUnit(40, 118, BH, 66, 40, liftZ + 12.5, K, xrK, 0.84),
+    ...drawBoxAndKettleUnit(66, 40, liftZ + 0.05, K, 0.84, [64, 62, BH + 4]),
+    drawChuteUnit(40, 29, BH, K, 0.78),
+  ];
+  s += byDepth(parts);
+
+  const bounds = [0, BW, 0, BD, 0, H];
+  s += xrCallouts([
+    { at: [62, 82, BH + 21],  text: 'PIECE 1 · CENTER COMMAND MACBOOK', on: K.lidOpen > 0.1 },
+    { at: [66, 40, liftZ + 16], text: 'PIECE 2 · RIGHT WING BOX LIFT',  on: K.packProgress > 0.1 },
+    { at: [40, 118, BH + 15], text: 'PIECE 3 · LEFT PRINTER + VIADUCT', on: K.labelFlight > 0.05 },
+  ], bounds);
+  return s;
+}
+
+/* ============================================================
+   CANDIDATE 3: EXPLODED 3-TIER VERTICAL STACK / ARCHITECTURE TOWER
+   ============================================================ */
+function renderCandidate3(st, K, xrK){
+  let s = '';
+  // Full Ground Tier 1 Base (x0=10, y0=12, x1=98, y1=156) so all structural columns and ground stations stand solidly inside the board!
+  const BTOP = boardTop(10, 12, 98, 156, BH, 6);
+  s += board(10, 12, 98, 156, BH, 6, BOARD);
+  s += clipTo(BTOP,
+    unitShadow(18, 98, 56, 144, BH + 38) +
+    unitShadow(34, 54, 78, 96, BH + 22) +
+    unitShadow(56, 28, 76, 48, BH + 15) +
+    unitShadow(26, 28, 46, 48, BH + 15)
+  );
+
+  const t2Z = BH + 18; // Tier 2 Mezzanine height (Stepped Center Commerce Engine Room)
+  const t3Z = BH + 35; // Tier 3 Penthouse height (Stepped Rear-Left MacBook Storefront)
+
+  const parts = [];
+  // Tier 3 Rear-Left Structural Brass Columns (x=18..56, y=98..144) split by tier height
+  for (const [cx, cy] of [[18, 98], [18, 144], [56, 98], [56, 144]]){
+    parts.push({ box: [[cx-1.1, cy-1.1, BH], [cx+1.1, cy+1.1, t2Z]], svg: cyl(cx, cy, BH, t2Z, 1.0, BRASS, toneI, 0.7, 10) });
+    parts.push({ box: [[cx-1.1, cy-1.1, t2Z+0.1], [cx+1.1, cy+1.1, t3Z]], svg: cyl(cx, cy, t2Z+0.1, t3Z, 1.0, BRASS, toneI, 0.7, 10) });
+  }
+  // Tier 2 Center Mezzanine Brass Columns (x=34..78, y=54..94)
+  for (const [cx, cy] of [[34, 54], [34, 94], [78, 54], [78, 94]]){
+    parts.push({ box: [[cx-1.1, cy-1.1, BH], [cx+1.1, cy+1.1, t2Z]], svg: cyl(cx, cy, BH, t2Z, 1.0, BRASS, toneI, 0.7, 10) });
+  }
+
+  // Tier 2 Stepped Mezzanine Deck (x=34..78, y=54..96 at z=t2Z) — stepped back from Tier 1 (y=18..48) so Tier 1 is 100% unobstructed!
+  parts.push({
+    box: [[34, 54, t2Z], [78, 96, t2Z + 1.5]],
+    svg: box(34, 54, t2Z, 78, 96, t2Z + 1.4, ALUM, toneI, 0.85),
+  });
+  // Exposed Commerce Engine Modules on Tier 2 Mezzanine (Cloudflare Edge, Coupon Stamp, Stripe Vault, D1 Inventory)
+  parts.push({ box: [[37, 80, t2Z+1.55], [49, 93, t2Z+7.8]], svg: box(37, 80, t2Z+1.55, 49, 93, t2Z+7.6, CF_ORG, tone, 0.85) });
+  parts.push({ box: [[52, 80, t2Z+1.55], [64, 93, t2Z+8.5]], svg: box(52, 80, t2Z+1.55, 64, 93, t2Z+8.2, K.couponApplied > 0.2 ? CRIM : BRASS, tone, 0.85) });
+  parts.push({ box: [[37, 60, t2Z+1.55], [52, 74, t2Z+8.2]], svg: box(37, 60, t2Z+1.55, 52, 74, t2Z+8.0, K.stripePaid > 0.4 ? STRIPE : AIZOME, tone, 0.9) });
+  parts.push({ box: [[56, 60, t2Z+1.55], [74, 74, t2Z+7.8]], svg: box(56, 60, t2Z+1.55, 74, 74, t2Z+7.6, KRAFT, tone, 0.85) });
+
+  // Vertical Clear Pneumatic Drop Tube under the front edge of Tier 2 (x=66, y=56) dropping into Tier 1 Shipping Box
+  parts.push({
+    box: [[63.5, 53.5, BH + 12.5], [68.5, 58.5, t2Z - 0.1]],
+    svg: cyl(66, 56, BH + 12.5, t2Z - 0.1, 2.4, CLEAR, toneI, 0.75, 14),
+  });
+
+  // Tier 3 Cantilevered Penthouse Deck (x=18..56, y=98..144 at z=t3Z)
+  parts.push({
+    box: [[18, 98, t3Z], [56, 144, t3Z + 1.5]],
+    svg: box(18, 98, t3Z, 56, 144, t3Z + 1.4, ALUM, toneI, 0.85),
+  });
+  parts.push(...drawMacbookUnit(37, 121, t3Z + 1.55, K, xrK, 0.80));
+
+  // Tier 1 Foreground Fulfillment Bay (y = 18..48, completely in front of Tier 2 so nothing is occluded)
+  parts.push(...drawBoxAndKettleUnit(66, 36, BH, K, 0.84, [66, 56, t2Z - 2]));
+  parts.push(...drawPrinterAndLabelUnit(36, 36, BH, 66, 36, BH + 12.2, K, xrK, 0.82));
+  parts.push(drawChuteUnit(82, 76, BH, K, 0.76));
+
+  s += byDepth(parts);
+
+  const bounds = [0, BW, 0, BD, 0, H];
+  s += xrCallouts([
+    { at: [37, 121, t3Z + 16], text: 'TIER 3 (TOP) · PIECE 1 MACBOOK',      on: K.lidOpen > 0.1 },
+    { at: [45, 67,  t2Z + 8],  text: 'TIER 2 (MID) · COMMERCE ENGINE ROOM', on: K.stripePaid > 0.2 },
+    { at: [66, 36,  BH + 13],  text: 'TIER 1 (BOT) · PIECES 2 & 3 BAY',     on: K.packProgress > 0.1 || K.labelFlight > 0.05 },
+  ], bounds);
+  return s;
+}
+
+/* ============================================================
+   CANDIDATE 4: SPLIT-SCREEN COCKPIT (3D Desk + Mode D Tear-Off Coupon & Live Telemetry HUD)
+   ============================================================ */
+function renderCandidate4(st, K, xrK){
+  let s = '';
+  // Left-side 3D Studio Desk: board(x0=18, y0=74, x1=92, y1=154) so all 3D stations stand solidly on the desk!
+  const BTOP = boardTop(18, 74, 92, 154, BH, 6);
+  s += board(18, 74, 92, 154, BH, 6, BOARD);
+  s += clipTo(BTOP,
+    unitShadow(38, 116, 68, 150, BH + 13) +
+    unitShadow(56, 92, 76, 112, BH + 13) +
+    unitShadow(24, 92, 44, 112, BH + 14) +
+    unitShadow(56, 76, 76, 88, BH + 18)
+  );
+
+  const parts = [
+    ...drawMacbookUnit(53, 133, BH, K, xrK, 0.80),
+    ...drawBoxAndKettleUnit(66, 102, BH, K, 0.80, [64, 118, BH + 4]),
+    ...drawPrinterAndLabelUnit(34, 102, BH, 66, 102, BH + 11.6, K, xrK, 0.78),
+    drawChuteUnit(66, 82, BH, K, 0.74),
+  ];
+  s += byDepth(parts);
+
+  // Right-Side Cockpit Panel + Mode D Tactile Holographic Tear-Off Coupon Stub (SAVE20)
+  // Positioned cleanly in the lower-right bay (below .stats and to the right of the 3D desk, zero overlap!)
+  const tear = K.tearProgress;
+  const stubShiftX = tear * 10;
+  const stubDropY  = tear * tear * 9;
+  const stubRot    = tear * 12;
+  const foilX      = Math.round(20 + Math.sin(K.t * Math.PI * 2) * 35);
+
+  const securityXr = xrK > 0.4 ? `
+    <g opacity="${f(xrK * 0.96)}">
+      <rect x="5" y="5" width="102" height="42" rx="2.5" fill="#101824" fill-opacity="0.92" stroke="#55d69e" stroke-width="0.9" stroke-dasharray="2 1.5"/>
+      <circle cx="92" cy="26" r="9" fill="none" stroke="#f2c96b" stroke-width="0.9"/>
+      <circle cx="92" cy="26" r="5" fill="none" stroke="#f2c96b" stroke-width="0.8"/>
+      <text x="10" y="16" font-size="5.3" font-family="ui-monospace,Menlo,monospace" font-weight="800" fill="#55d69e">X-RAY · NFC SECURITY THREAD</text>
+      <text x="10" y="29" font-size="8.6" font-family="ui-monospace,Menlo,monospace" font-weight="900" fill="#f2c96b">SAVE20 · AUTHENTIC</text>
+      <text x="10" y="40" font-size="5.1" font-family="ui-monospace,Menlo,monospace" font-weight="700" fill="#cbd5e1">SHA: 8F4A·D1042·VERIFIED</text>
+    </g>
+  ` : '';
+
+  s += `
+    <g id="c4-cockpit-hud" transform="translate(192, 92) scale(0.56)">
+      <rect x="0" y="0" width="204" height="226" rx="9" fill="#161d28" stroke="${INK}" stroke-width="1.8"/>
+      <text x="10" y="15" font-size="6.8" font-family="ui-monospace,Menlo,monospace" font-weight="800" fill="#f2c96b" letter-spacing=".05em">COCKPIT HUD + MODE D PASS</text>
+
+      <!-- MODE D: Tactile Holographic Foil Coupon Pass with Perforated Tear-Off Stub -->
+      <g transform="translate(10, 22)">
+        <defs>
+          <linearGradient id="c4-foil" x1="${foilX}%" y1="0%" x2="${foilX + 45}%" y2="100%">
+            <stop offset="0%" stop-color="#f2c96b"/>
+            <stop offset="45%" stop-color="#fff6d6"/>
+            <stop offset="70%" stop-color="#7ce8c8"/>
+            <stop offset="100%" stop-color="#d49b35"/>
+          </linearGradient>
+        </defs>
+        <!-- Main Ticket Body -->
+        <rect x="0" y="0" width="116" height="52" rx="5" fill="url(#c4-foil)" stroke="${INK}" stroke-width="1.2"/>
+        <rect x="4" y="4" width="108" height="44" rx="3" fill="none" stroke="#1b222c" stroke-width="0.7" stroke-dasharray="2.5 2"/>
+        <g opacity="${f(1 - xrK * 0.9)}">
+          <text x="10" y="15" font-size="5.8" font-family="ui-monospace,Menlo,monospace" font-weight="800" fill="#1b222c">MODE D · FOIL COUPON</text>
+          <text x="10" y="30" font-size="11.0" font-family="ui-monospace,Menlo,monospace" font-weight="900" fill="#7a1f19">SAVE20 -20%</text>
+          <text x="10" y="42" font-size="5.6" font-family="ui-monospace,Menlo,monospace" font-weight="700" fill="#1b222c">${tear > 0.4 ? 'REDEEMED · -$17.00' : 'PERFORATED PASS'}</text>
+        </g>
+        ${securityXr}
+
+        <!-- Perforation Punch Notches & Die-Cut Line at x = 116 -->
+        <circle cx="116" cy="0" r="3.8" fill="#161d28"/>
+        <circle cx="116" cy="52" r="3.8" fill="#161d28"/>
+        <line x1="116" y1="5" x2="116" y2="47" stroke="#f4f1ea" stroke-width="1.2" stroke-dasharray="2.5 2.5"/>
+
+        <!-- Detaching Tear-Off Stub -->
+        <g transform="translate(${f(118 + stubShiftX)}, ${f(stubDropY)}) rotate(${f(stubRot)}, 0, 26)">
+          <rect x="0" y="0" width="42" height="52" rx="4" fill="#edd09d" stroke="${INK}" stroke-width="1.2"/>
+          <text x="21" y="20" text-anchor="middle" font-size="6.0" font-family="ui-monospace,Menlo,monospace" font-weight="800" fill="#1b222c">STUB</text>
+          <text x="21" y="32" text-anchor="middle" font-size="5.8" font-family="ui-monospace,Menlo,monospace" font-weight="800" fill="#7a1f19">#1042</text>
+          <text x="21" y="43" text-anchor="middle" font-size="5.2" font-family="ui-monospace,Menlo,monospace" font-weight="700" fill="#4a5568">${Math.round(tear * 100)}%</text>
+        </g>
+      </g>
+
+      <!-- Live Piece Timeline Progress Bars (spaced cleanly below the detaching stub) -->
+      <g transform="translate(10, 94)">
+        <text x="0" y="8" font-size="6.0" font-family="ui-monospace,Menlo,monospace" font-weight="800" fill="#94a3b8">PIECE 1 · STOREFRONT &amp; STRIPE ($68)</text>
+        <rect x="0" y="11" width="184" height="5.5" rx="2.7" fill="#283244"/>
+        <rect x="0" y="11" width="${f(184 * Math.max(K.lidOpen * 0.5, K.stripePaid))}" height="5.5" rx="2.7" fill="#55d69e"/>
+
+        <text x="0" y="27" font-size="6.0" font-family="ui-monospace,Menlo,monospace" font-weight="800" fill="#94a3b8">PIECE 2 · BOX PACK, 4 FLAPS &amp; TAPE</text>
+        <rect x="0" y="30" width="184" height="5.5" rx="2.7" fill="#283244"/>
+        <rect x="0" y="30" width="${f(184 * Math.max(K.packProgress * 0.6, K.tapeSeal))}" height="5.5" rx="2.7" fill="#dfa668"/>
+
+        <text x="0" y="46" font-size="6.0" font-family="ui-monospace,Menlo,monospace" font-weight="800" fill="#94a3b8">PIECE 3 · PB 4x6 LABEL &amp; CHUTE</text>
+        <rect x="0" y="49" width="184" height="5.5" rx="2.7" fill="#283244"/>
+        <rect x="0" y="49" width="${f(184 * Math.max(K.labelFlight * 0.7, K.mailLaunch))}" height="5.5" rx="2.7" fill="#f79640"/>
+
+        <!-- Bottom Live Telemetry Strip: ORDERS | STRIPE NET | PB TRACKING -->
+        <rect x="0" y="62" width="184" height="58" rx="5" fill="#f4f1ea" stroke="${INK}" stroke-width="1"/>
+        <text x="8" y="75" font-size="6.0" font-family="ui-monospace,Menlo,monospace" font-weight="800" fill="#1b222c">ORDERS: #1042 (${K.lidOpen > 0.1 ? '1 ACTIVE' : 'IDLE'})</text>
+        <text x="8" y="88" font-size="6.0" font-family="ui-monospace,Menlo,monospace" font-weight="800" fill="#186343">STRIPE NET: ${K.stripePaid > 0.4 ? '$68.00 PAID (-20%)' : '$0.00 PENDING'}</text>
+        <text x="8" y="101" font-size="5.8" font-family="ui-monospace,Menlo,monospace" font-weight="700" fill="#2b5b9e">PB TRACKING: 9400 1000 0010 42</text>
+        <text x="8" y="113" font-size="5.8" font-family="ui-monospace,Menlo,monospace" font-weight="800" fill="${K.mailLaunch > 0.6 ? '#1f7a54' : '#b8621b'}">STATUS: ${K.mailLaunch > 0.6 ? 'MAILED · COMPLETED' : K.labelFlight > 0.2 ? '4x6 LABEL SLAPPED' : 'PACKING ORDER'}</text>
+      </g>
+    </g>
+  `;
+
+  const bounds = [0, BW, 0, BD, 0, H];
+  s += xrCallouts([
+    { at: [53, 133, BH + 21], text: 'PIECE 1 · MACBOOK + TEAR-OFF PASS', on: K.lidOpen > 0.1 },
+    { at: [66, 102, BH + 17], text: 'PIECE 2 · BOX PACK + TELEMETRY',    on: K.packProgress > 0.1 },
+    { at: [34, 102, BH + 15], text: 'PIECE 3 · PB 4x6 + CHUTE',          on: K.labelFlight > 0.05 },
+  ], bounds);
+  return s;
+}
+
+/* ============================================================
+   CANDIDATE 5: RADIAL TURNTABLE WORKSHOP (4-Quadrant Circular Rotary Bench)
+   ============================================================ */
+function renderCandidate5(st, K, xrK){
+  let s = '';
+  const cx = 56, cy = 80, rTurntable = 52;
+  const parts = [];
+
+  // Circular Wood & Brass Rotary Turntable Platter (z = 0..BH + 2.75)
+  parts.push({
+    box: [[cx - rTurntable, cy - rTurntable, 0], [cx + rTurntable, cy + rTurntable, BH + 2.75]],
+    svg: cyl(cx, cy, 0, BH + 2.2, rTurntable, BOARD, tone, 2.0, 36)
+       + cyl(cx, cy, BH + 2.2, BH + 2.75, rTurntable - 3, BRASS, toneI, 1.0, 36)
+       + line([[cx - rTurntable + 4, cy, BH + 2.78], [cx + rTurntable - 4, cy, BH + 2.78]], 1.0)
+       + line([[cx, cy - rTurntable + 4, BH + 2.78], [cx, cy + rTurntable - 4, BH + 2.78]], 1.0),
+  });
+
+  // Central Rotary Transfer Carousel Drum (z = BH + 2.8..BH + 11.8) + Sweeping Arm cleanly above drum (z = BH + 12.0..BH + 14.5)
+  const armAng = K.armAngle;
+  const armEndX = cx + Math.cos(armAng) * 23;
+  const armEndY = cy + Math.sin(armAng) * 23;
+  parts.push({
+    box: [[cx - 5.4, cy - 5.4, BH + 2.8], [cx + 5.4, cy + 5.4, BH + 11.8]],
+    svg: cyl(cx, cy, BH + 2.8, BH + 11.8, 5.2, AIZOME, tone, 1.2, 18),
+  });
+  parts.push({
+    box: boxOfPts([[cx - 3.2, cy - 3.2, BH + 11.9], [cx + 3.2, cy + 3.2, BH + 14.8], [armEndX, armEndY, BH + 13.5]], 1.2),
+    svg: rod([cx, cy, BH + 12.6], [armEndX, armEndY, BH + 12.6], 1.35, BRASS, toneI, 0.9, 1.35, 10)
+       + cyl(cx, cy, BH + 11.9, BH + 14.5, 3.2, BRASS, toneI, 0.9, 14),
+  });
+
+  // Q1 (North-West: x=36, y=108): Order & Coupon Ingress MacBook Pro Storefront
+  parts.push(...drawMacbookUnit(36, 108, BH + 2.8, K, xrK, 0.80));
+
+  // Q2 (South-West: x=76, y=108): Exposed Stripe Vault & D1 Inventory Carousel Pods
+  parts.push({
+    box: [[68, 98, BH + 2.8], [84, 118, BH + 13.5]],
+    svg: box(68, 106, BH + 2.8, 82, 118, BH + 11.5, K.stripePaid > 0.4 ? STRIPE : AIZOME, tone, 0.9)
+       + cyl(72, 101, BH + 2.8, BH + 12.5, 2.5, BRASS, toneI, 0.8, 12)
+       + cyl(79, 101, BH + 2.8, BH + 12.5, 2.5, CF_ORG, toneI, 0.8, 12),
+  });
+
+  // Q3 (South-East: x=76, y=52): Corrugated Shipping Box Packing & Taping Station
+  parts.push(...drawBoxAndKettleUnit(76, 52, BH + 2.8, K, 0.84, [76, 82, BH + 8]));
+
+  // Q4 (North-East: x=34, y=56): Pitney Bowes 4x6 Thermal Printer + Radial Mail Chute
+  parts.push(...drawPrinterAndLabelUnit(34, 56, BH + 2.8, 76, 52, BH + 2.8 + 12.2, K, xrK, 0.82));
+  parts.push(drawChuteUnit(48, 34, BH + 2.8, K, 0.78));
+
+  s += byDepth(parts);
+
+  const bounds = [0, BW, 0, BD, 0, H];
+  s += xrCallouts([
+    { at: [36, 108, BH + 20], text: 'Q1/Q2 (PIECE 1) · MACBOOK & VAULT PODS', on: K.lidOpen > 0.1 },
+    { at: [76, 52,  BH + 18], text: 'Q3 (PIECE 2) · ROTARY BOX PACKING',      on: K.packProgress > 0.1 },
+    { at: [34, 56,  BH + 18], text: 'Q4 (PIECE 3) · PB 4x6 & LAUNCHER',       on: K.labelFlight > 0.05 },
+  ], bounds);
+  return s;
+}
+
+/* ---------- MAIN SCENE ROUTER ---------- */
+function scene(st, m){
+  const candIdx = Math.max(1, Math.min(5, st.candidate || 1));
+  const K = deriveKinematics(st.t ?? 0.72);
+  const xrK = ease(st.xr || 0);
+
+  if (candIdx === 1) return renderCandidate1(st, K, xrK);
+  if (candIdx === 2) return renderCandidate2(st, K, xrK);
+  if (candIdx === 3) return renderCandidate3(st, K, xrK);
+  if (candIdx === 4) return renderCandidate4(st, K, xrK);
+  return renderCandidate5(st, K, xrK);
+}
+
+const xrCaption = st => {
+  const fw = FRAMEWORKS[Math.max(1, Math.min(5, st.candidate || 1)) - 1];
+  return `${fw.name} — Piece 1: ${fw.piece1} | Piece 2: ${fw.piece2} | Piece 3: ${fw.piece3}`;
+};
+
+let ui, animId = 0;
+
+function syncPickerUI(st){
+  const root = (ui && ui.rootEl) || document;
+  const cand = Math.max(1, Math.min(5, st.candidate || 1));
+  const fw = FRAMEWORKS[cand - 1];
+  const t = clamp01(st.t ?? 0.72);
+  root.querySelectorAll('.gt-tab').forEach(btn => {
+    btn.setAttribute('data-active', String(+btn.dataset.cand === cand));
+  });
+  const p1 = root.querySelector('#gt-p1'), p2 = root.querySelector('#gt-p2'), p3 = root.querySelector('#gt-p3');
+  if (p1){
+    p1.setAttribute('data-active', String(t < 0.36));
+    p1.innerHTML = `<b>START (T=0.0) ──► Piece 1 · ${fw.piece1}</b><em>${fw.t0Desc}</em>`;
+  }
+  if (p2){
+    p2.setAttribute('data-active', String(t >= 0.36 && t < 0.66));
+    p2.innerHTML = `<b>MID (T=0.5) ──► Piece 2 · ${fw.piece2}</b><em>${fw.t05Desc}</em>`;
+  }
+  if (p3){
+    p3.setAttribute('data-active', String(t >= 0.66));
+    p3.innerHTML = `<b>FINISH (T=1.0) ──► Piece 3 · ${fw.piece3}</b><em>${fw.t10Desc}</em>`;
+  }
+  const slider = root.querySelector('#gt-slider');
+  const timeLbl = root.querySelector('#gt-time');
+  if (slider) slider.value = String(t);
+  if (timeLbl) timeLbl.textContent = `T = ${t.toFixed(2)}`;
+  const sndBtn = root.querySelector('#gt-sound-btn');
+  if (sndBtn){
+    sndBtn.setAttribute('data-sound', String(foley.isEnabled()));
+    sndBtn.textContent = foley.isEnabled() ? 'Sound: On' : 'Sound: Off';
+  }
+}
+
+function selectCandidate(st, n){
+  st.candidate = Math.max(1, Math.min(5, n | 0));
+  foley.click(880, 0.025);
+  syncPickerUI(st);
+  ui.render();
+}
+
+function scrubTo(st, targetT, ms = 650){
+  const t0 = st.t ?? 0.72, dtTotal = clamp01(targetT) - t0, id = ++animId;
+  if (targetT > 0.6 && targetT < 0.8) foley.paperTear(0.12, 1750);
+  else foley.click(720, 0.025);
+  if (Math.abs(dtTotal) < 1e-4){
+    st.t = clamp01(targetT);
+    syncPickerUI(st);
+    ui.render();
+    return;
+  }
+  let el = 0;
+  ui.animate(dt => {
+    if (id !== animId) return false;
+    el += dt * 1000;
+    const k = Math.min(1, el / ms);
+    st.t = clamp01(t0 + dtTotal * easeInOutCubic(k));
+    syncPickerUI(st);
+    return k < 1;
+  });
+}
+
+ui = mountFigure({
+  fig: 'R0',
+  turn: 'full',
+  title: 'DinkusKit Round 0 — 5 Start-to-Finish Build Frameworks',
+  idea: 'Pick 1 of the 5 overall stage frameworks above. Each lays out the full build from closed MacBook (T=0.0) to box packing (T=0.5) to thermal label & mail dispatch (T=1.0). Once you lock a framework, we build and grill Piece 1, Piece 2, and Piece 3 one at a time.',
+  size: [BW, BD, H],
+  center: [BW / 2, BD / 2],
+  palette: 'aizome',
+  state: { candidate: 1, t: 0.72, xr: 1, xrT: 1 },
+  scene,
+  readout: st => {
+    const fw = FRAMEWORKS[Math.max(1, Math.min(5, st.candidate || 1)) - 1];
+    return `candidate ${fw.num}/5 · ${fw.arch.toLowerCase()} · t=${(st.t ?? 0.72).toFixed(2)}`;
+  },
+  stats: st => {
+    const fw = FRAMEWORKS[Math.max(1, Math.min(5, st.candidate || 1)) - 1];
+    const t = st.t ?? 0.72;
+    const phase = t < 0.25 ? 'START (T=0.0)' : t < 0.68 ? 'MID (T=0.5)' : 'FINISH (T=1.0)';
+    return [
+      { label: 'Framework', value: `${fw.num} / 5`, small: true },
+      { label: 'Architecture', value: fw.short.split('·')[1].trim(), small: true },
+      { label: 'Build Phase', value: phase, small: true },
+    ];
+  },
+  buttons: [
+    { label: '1. Piece 1: MacBook (T=0.18)',    onClick: st => scrubTo(st, 0.18) },
+    { label: '2. Piece 2: Box & Tape (T=0.58)', onClick: st => scrubTo(st, 0.58) },
+    { label: '3. Piece 3: 4×6 & Mail (T=0.88)', onClick: st => scrubTo(st, 0.88) },
+  ],
+  acts: {
+    macbook: st => scrubTo(st, st.t < 0.2 ? 0.52 : 0.0),
+    box:     st => scrubTo(st, 0.52),
+    printer: st => scrubTo(st, 0.74),
+    chute:   st => scrubTo(st, 0.95),
+  },
+  scrub: (st, tNorm) => {
+    animId++;
+    st.t = clamp01(tNorm);
+    syncPickerUI(st);
+  },
+  params: (st, q) => {
+    const c = q.get('candidate') || q.get('variant');
+    if (c !== null){
+      st.candidate = Math.max(1, Math.min(5, +c | 0));
+    }
+    if (q.has('t')){
+      st.t = clamp01(+q.get('t') || 0);
+    }
+  },
+});
+
+// Mount GrillTrack 5-Candidate Picker & 3-Piece Start-to-Finish Roadmap Bar
+(() => {
+  const rootEl = ui.rootEl || document.body;
+  const stageEl = rootEl.querySelector('.stage');
+  if (!stageEl) return;
+  const shell = document.createElement('div');
+  shell.className = 'gt-picker-shell';
+  shell.setAttribute('data-grilltrack-picker', 'dinkuskit-macbook-round0');
+  shell.innerHTML = `
+    <div class="gt-picker-top">
+      <span>GrillTrack Round 0 · 5 End-to-End Stage Frameworks (Keys 1–5)</span>
+      <span id="gt-time">T = 0.72</span>
+    </div>
+    <div class="gt-picker-tabs" role="tablist" aria-label="Stage framework candidates">
+      ${FRAMEWORKS.map(fw => `
+        <button class="gt-tab" role="tab" data-cand="${fw.num}" data-active="${fw.num === 1}">
+          <span>${fw.short}</span>
+          <small>${fw.arch}</small>
+        </button>
+      `).join('')}
+    </div>
+    <div class="gt-pieces-bar">
+      <button class="gt-piece-card" id="gt-p1" data-t="0.00"></button>
+      <button class="gt-piece-card" id="gt-p2" data-t="0.52"></button>
+      <button class="gt-piece-card" id="gt-p3" data-t="0.95"></button>
+    </div>
+    <div class="gt-scrub-row">
+      <button class="gt-phase-btn" data-t="0.00">Start (T=0.0)</button>
+      <button class="gt-phase-btn" data-t="0.52">Mid Pack (T=0.5)</button>
+      <button class="gt-phase-btn" data-t="0.72">Label Slap (T=0.72)</button>
+      <button class="gt-phase-btn" data-t="0.95">Finish Mail (T=1.0)</button>
+      <input id="gt-slider" type="range" min="0" max="1" step="0.01" value="0.72" aria-label="Scrub framework timeline">
+      <button class="gt-phase-btn" id="gt-sound-btn" data-sound="false" title="Optional Web Audio Micro-Foley (Opt-In)">Sound: Off</button>
+    </div>
+  `;
+  stageEl.parentNode.insertBefore(shell, stageEl);
+
+  shell.querySelectorAll('.gt-tab').forEach(btn => {
+    btn.addEventListener('click', () => selectCandidate(window.__st, +btn.dataset.cand));
+  });
+  shell.querySelectorAll('.gt-phase-btn[data-t], .gt-piece-card[data-t]').forEach(btn => {
+    btn.addEventListener('click', () => scrubTo(window.__st, +btn.dataset.t));
+  });
+  const sndBtn = shell.querySelector('#gt-sound-btn');
+  if (sndBtn){
+    sndBtn.addEventListener('click', () => {
+      foley.setEnabled(!foley.isEnabled());
+      if (foley.isEnabled()) foley.click(960, 0.03);
+      syncPickerUI(window.__st);
+    });
+  }
+  const slider = shell.querySelector('#gt-slider');
+  if (slider){
+    slider.addEventListener('input', e => {
+      if (window.__setMotionTime) window.__setMotionTime(+e.target.value);
+    });
+  }
+  addEventListener('keydown', e => {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+    if (e.key >= '1' && e.key <= '5'){
+      selectCandidate(window.__st, +e.key);
+    }
+  });
+  syncPickerUI(window.__st);
+})();
+
+xrMount(() => ui, xrCaption);
+</script>
+</body>
+</html>

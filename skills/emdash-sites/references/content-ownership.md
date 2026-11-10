@@ -106,15 +106,34 @@ Media Library for images editors need to change. Uploads go to the storage
 adapter (R2 on Cloudflare); store references in `image` fields, use
 `darkVariant` for paired images where supported, and serve them from
 `/_emdash/api/media/file/<key>` or the storage's configured public URL. Verify
-that serving path stays public through the selected auth boundary. Bootstrap
-media explicitly in the seed so a clean install starts complete. Static
-repository assets remain appropriate for deliberately code-owned imagery;
-record that reason rather than leaving an apparently editable page with an
+that serving path stays public (`GET`/`HEAD` on `/_emdash/api/media/file/<safe-key>`)
+through the selected auth boundary: a blanket 404 or Access challenge over all
+`/_emdash/*` paths breaks every Media Library image and `getSiteSettings()`
+logo/favicon on the public site. Bootstrap media explicitly in `seed/seed.json`
+via `$media` so a clean install starts complete. When an Access-gated site
+intentionally denies anonymous `/_emdash/api/media/file/*` on public production,
+have its authenticated import script (`POST /_emdash/api/media` with
+`deduplicate=true` and `alt`) register the repository's 2D `.webp` brand/poster
+assets into `/_emdash/admin` Media Library (deduplicated by SHA-1
+`contentHash`) while public templates continue to render static `/brand/*.webp`.
+Static repository assets remain appropriate for deliberately code-owned imagery
+and runtime binary assets (such as 3D glTF `.glb` models in `public/models/...`,
+which EmDash's upload allowlist and inline media responder do not serve inline);
+pair every 3D `.glb` stage with a 2D `.webp` fallback poster in the Media
+Library (kept visible until the `.glb` finishes loading in `onModelLoaded`) and
+record that split rather than leaving an apparently editable page with an
 unexplained empty Media Library.
 
 Keep alt text, dimensions and any required provenance checks with the media
 workflow; when imagery moves into the library, move those rules to a check on
-the library and the human upload rather than dropping them.
+the library and the human upload rather than dropping them. For sites hosted on
+Cloudflare that use Cloudflare Images (`imagedelivery.net`), register the
+first-party `cloudflareImages({})` provider from `@emdash-cms/cloudflare`
+(`emdash({ mediaProviders: [cloudflareImages({})] })`, reading `CF_ACCOUNT_ID`,
+`CF_IMAGES_ACCOUNT_HASH`, and `CF_IMAGES_TOKEN`) so editors can browse, upload,
+delete, and insert responsive `w=...,h=...,f=...,fit=scale-down` transforms
+through `/_emdash/admin` Media Picker instead of hardcoding raw
+`https://imagedelivery.net/...` URL strings in source.
 
 ## Commerce media reference model
 

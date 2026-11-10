@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Harbor Line — Multiplane Occlusion + Pigment Drift</title>
+</head>
+<body>
+<script src="multiplane.js"></script>
+<script>
+/* ============================================================
+   Mode B Showcase: Harbor Line Transit Stage
+   Demonstrates:
+   1. Plane 0 (Background Stage): Hand-inked skyline (Midtown towers, brutalist
+      Cantilever Hall, glass botanical Conservatory dome, distant suspension bridge)
+      + Soft Current Pigment Drift watercolor/ink-bleed sky & harbor wash.
+   2. Plane 1 (Animated Midground): Express yellow aero-train gliding along the
+      elevated viaduct (synced 1:1 with the bottom stop timeline), counter-bound
+      crimson commuter rail on the lower deck, and harbor steam ferry.
+   3. Plane 2 (Foreground Occlusion Masks): Cable-stayed bridge tower + stay cables,
+      steel Pratt truss cage, cantilevered building overhang, and glass conservatory
+      vault ribs painted over Plane 1 so the trains pass BEHIND them naturally.
+   ============================================================ */
+
+const INK = '#182430';
+const STEEL = '#2d3d4d';
+const STONE = '#cad4dc';
+const SHADOW_BLUE = '#8ea1b2';
+const PAPER = '#eef2f5';
+
+function drawWindows(x0, y0, w, h, cols, rows, col = '#263645'){
+  let s = '';
+  const gx = w / (cols + 1), gy = h / (rows + 1);
+  const ww = Math.max(2, gx * 0.56), wh = Math.max(3, gy * 0.58);
+  for (let r = 1; r <= rows; r++){
+    for (let c = 1; c <= cols; c++){
+      const wx = (x0 + c * gx - ww / 2).toFixed(1);
+      const wy = (y0 + r * gy - wh / 2).toFixed(1);
+      s += `<rect x="${wx}" y="${wy}" width="${ww.toFixed(1)}" height="${wh.toFixed(1)}" fill="${col}" opacity="0.78"/>`;
+    }
+  }
+  return s;
+}
+
+/* ---------- PLANE 0: Background Stage (Skyline, Distant Viaducts, Harbor Water) ---------- */
+function background(st, t){
+  let s = '';
+  // Distant horizon clouds & atmospheric bands
+  s += `<g opacity="0.55" stroke="${SHADOW_BLUE}" stroke-width="1" fill="none">
+    <path d="M 60 95 Q 190 82 320 94 T 580 90"/>
+    <path d="M 680 78 Q 830 66 980 80 T 1150 76"/>
+  </g>`;
+
+  // Left harbor industrial warehouses & distant crane
+  s += `<g stroke="${INK}" stroke-width="1.4" stroke-linejoin="round">
+    <rect x="48" y="268" width="22" height="92" fill="${STONE}"/>
+    <rect x="78" y="252" width="26" height="108" fill="#d9e1e8"/>
+    <!-- Midtown high-rise cluster -->
+    <rect x="368" y="176" width="56" height="196" fill="#bcc8d4"/>
+    ${drawWindows(368, 176, 56, 180, 5, 14)}
+    <rect x="424" y="108" width="96" height="264" fill="#d5dfe7"/>
+    ${drawWindows(424, 114, 96, 245, 7, 18)}
+    <rect x="520" y="218" width="44" height="154" fill="#b4c2cf"/>
+    ${drawWindows(520, 218, 44, 140, 4, 10)}
+    <!-- Brutalist Cantilever Hall (back core) -->
+    <rect x="598" y="128" width="164" height="244" fill="#ced8e0"/>
+    ${drawWindows(606, 138, 148, 220, 6, 11)}
+    <!-- Botanical Conservatory (rear glass vaults & palms) -->
+    <path d="M 790 372 L 790 232 A 54 68 0 0 1 898 232 L 898 372 Z" fill="#dce7ee" fill-opacity="0.7"/>
+    <path d="M 898 372 L 898 188 A 92 106 0 0 1 1082 188 L 1082 372 Z" fill="#e3edf3" fill-opacity="0.74"/>
+    <path d="M 1082 372 L 1082 232 A 54 68 0 0 1 1190 232 L 1190 372 Z" fill="#dce7ee" fill-opacity="0.7"/>
+    <!-- Interior botanical silhouettes inside the conservatory -->
+    <g fill="#425a6d" opacity="0.65" stroke="none">
+      <circle cx="845" cy="318" r="24"/><circle cx="868" cy="306" r="19"/>
+      <circle cx="945" cy="296" r="28"/><circle cx="1032" cy="292" r="30"/>
+      <circle cx="1125" cy="314" r="22"/>
+    </g>
+  </g>`;
+
+  // Elevated railway deck bed (the track surface sits in Background so Midground trains ride on it)
+  s += `<g stroke="${INK}" stroke-width="1.5">
+    <rect x="0" y="346" width="1200" height="8" fill="#8d9dad"/>
+    <line x1="0" y1="344" x2="1200" y2="344" stroke="#e89b2d" stroke-width="2"/>
+  </g>`;
+
+  // Harbor river surface & horizontal etching lines
+  s += `<rect x="0" y="408" width="1200" height="112" fill="#dde5ec" fill-opacity="0.58"/>`;
+  s += `<g stroke="${SHADOW_BLUE}" stroke-width="1" opacity="0.65">`;
+  for (let y = 418; y <= 506; y += 9){
+    const dash = (y % 18 === 0) ? '28 14 60 18' : '45 18 22 12';
+    s += `<line x1="20" y1="${y}" x2="1180" y2="${y}" stroke-dasharray="${dash}"/>`;
+  }
+  s += `</g>`;
+  return s;
+}
+
+/* ---------- PLANE 1: Animated Midground (Trains & Harbor Ferry) ---------- */
+function midground(st, t){
+  // Primary Express Aero-Train (moves left -> right from x = -80 to x = 1120 synced to t = 0..1)
+  const trainX = -40 + t * 1140;
+  const carW = 68, carGap = 4;
+  let train = `<g id="mp-express-train" transform="translate(${trainX.toFixed(1)}, 326)">`;
+  for (let i = 0; i < 4; i++){
+    const cx = i * (carW + carGap);
+    const isLead = i === 3;
+    const isTail = i === 0;
+    const bodyPath = isLead
+      ? `M ${cx} 18 L ${cx} 2 Q ${cx + 2} 0 ${cx + 8} 0 L ${cx + carW - 18} 0 Q ${cx + carW - 4} 2 ${cx + carW + 8} 14 L ${cx + carW + 8} 18 Z`
+      : isTail
+      ? `M ${cx - 6} 18 L ${cx + 4} 2 Q ${cx + 8} 0 ${cx + 14} 0 L ${cx + carW} 0 L ${cx + carW} 18 Z`
+      : `M ${cx} 18 L ${cx} 0 L ${cx + carW} 0 L ${cx + carW} 18 Z`;
+    train += `<path d="${bodyPath}" fill="#f0a830" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/>`;
+    train += `<line x1="${cx}" y1="11" x2="${cx + carW}" y2="11" stroke="#c4512d" stroke-width="2"/>`;
+    // Illuminated passenger windows
+    for (let w = 8; w < carW - 14; w += 11){
+      train += `<rect x="${cx + w}" y="3.5" width="7" height="5" rx="1" fill="#fff6d6" stroke="${INK}" stroke-width="0.9"/>`;
+    }
+    // Bogies / wheels
+    train += `<circle cx="${cx + 12}" cy="19" r="2.5" fill="${INK}"/><circle cx="${cx + carW - 12}" cy="19" r="2.5" fill="${INK}"/>`;
+  }
+  train += `</g>`;
+
+  // Secondary Counter-Bound Commuter Train (moves right -> left on lower viaduct deck)
+  const commX = 1160 - ((t * 1.35) % 1) * 1380;
+  let commuter = `<g id="mp-commuter-train" transform="translate(${commX.toFixed(1)}, 358)" opacity="0.92">`;
+  for (let i = 0; i < 3; i++){
+    const cx = i * 56;
+    commuter += `<rect x="${cx}" y="0" width="52" height="13" rx="3" fill="#437c68" stroke="${INK}" stroke-width="1.3"/>`;
+    for (let w = 6; w < 44; w += 10){
+      commuter += `<rect x="${cx + w}" y="3" width="6" height="4" fill="#d9f7be"/>`;
+    }
+  }
+  commuter += `</g>`;
+
+  // Harbor Steam Ferry gliding across the foreground river
+  const ferryX = 960 - t * 620;
+  const wakeX = ferryX + 92;
+  const ferry = `
+    <g id="mp-harbor-ferry" transform="translate(${ferryX.toFixed(1)}, 442)">
+      <path d="M 92 22 L 190 14 M 92 24 L 210 29" stroke="#ffffff" stroke-width="1.6" opacity="0.75"/>
+      <path d="M 0 18 L 12 26 L 86 26 L 94 16 L 6 16 Z" fill="#2c3b48" stroke="${INK}" stroke-width="1.5" stroke-linejoin="round"/>
+      <rect x="18" y="8" width="54" height="8" rx="1.5" fill="#f4f1ea" stroke="${INK}" stroke-width="1.3"/>
+      <rect x="44" y="0" width="7" height="8" fill="#d96b43" stroke="${INK}" stroke-width="1.2"/>
+      <circle cx="${52 + Math.sin(t * 25) * 3}" cy="-5" r="3.5" fill="#ffffff" opacity="0.65"/>
+    </g>
+  `;
+
+  return commuter + train + ferry;
+}
+
+/* ---------- PLANE 2: Foreground Occlusion Masks (Towers, Trusses, Cantilevers, Arches) ----------
+   Everything drawn in Plane 2 sits IN FRONT OF Plane 1, so the moving trains pass BEHIND these structures! */
+function foreground(st, t){
+  let s = `<g stroke="${INK}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round">`;
+
+  // 1. Cable-stayed suspension bridge tower + fan cables (left side, x = 80..360)
+  // The fan cables and main concrete A-frame pylon cross in front of the train deck at y = 326..350
+  for (let i = 1; i <= 9; i++){
+    const ty = 122 + i * 11;
+    s += `<line x1="150" y1="${ty}" x2="${150 - i * 19}" y2="348" stroke="${STEEL}" stroke-width="1.15"/>`;
+    s += `<line x1="164" y1="${ty}" x2="${164 + i * 22}" y2="348" stroke="${STEEL}" stroke-width="1.15"/>`;
+  }
+  // Main foreground bridge pylon leg & portal standing in front of the train track
+  s += `<path d="M 134 408 L 146 112 L 168 112 L 180 408 L 166 408 L 160 278 L 154 278 L 148 408 Z" fill="#dce3ea" stroke="${INK}" stroke-width="1.8"/>`;
+
+  // Foreground harbor warehouses & gantry cranes (bottom-left occlusion)
+  s += `<path d="M 24 408 L 24 334 L 58 310 L 92 334 L 92 408 Z" fill="#8b9dad"/>`;
+  s += `<path d="M 88 408 L 88 338 L 122 314 L 156 338 L 156 408 Z" fill="#9fb0bf"/>`;
+  s += `<path d="M 224 408 L 224 344 L 270 322 L 316 344 L 316 408 Z" fill="#cbd5de"/>`;
+  s += drawWindows(32, 342, 52, 54, 3, 3, '#1d2833');
+  s += drawWindows(96, 344, 52, 52, 3, 3, '#1d2833');
+
+  // 2. Foreground Pratt Steel Truss Viaduct Cage & Piers (spans x = 0..1200 across the train deck)
+  // Vertical piers and overhead steel truss bars that the yellow & green trains pass behind
+  for (let x = 330; x <= 1150; x += 110){
+    s += `<rect x="${x - 6}" y="324" width="12" height="84" fill="#7c8f9e" stroke="${INK}" stroke-width="1.5"/>`;
+  }
+  // Truss lattice girder below & partially overlapping lower commuter rail
+  s += `<rect x="0" y="352" width="1200" height="6" fill="#5e7182"/>`;
+  for (let x = 20; x < 1180; x += 28){
+    s += `<path d="M ${x} 354 L ${x + 14} 374 L ${x + 28} 354" fill="none" stroke="${STEEL}" stroke-width="1.5"/>`;
+  }
+
+  // 3. Brutalist Cantilever Overhang (x = 562..740) projecting into the foreground plane
+  s += `<rect x="562" y="252" width="168" height="42" fill="#dce4ec" stroke="${INK}" stroke-width="1.8"/>`;
+  s += `<rect x="572" y="260" width="148" height="26" fill="#23313f"/>`;
+  s += `<rect x="634" y="294" width="24" height="114" fill="#9badbc" stroke="${INK}" stroke-width="1.6"/>`;
+
+  // 4. Botanical Conservatory Foreground Arch Ribs & Columns (x = 790..1190)
+  // The train glides right through the conservatory station behind these foreground iron columns!
+  for (const ax of [790, 898, 990, 1082, 1188]){
+    s += `<rect x="${ax - 5}" y="232" width="10" height="176" fill="#8fa2b2" stroke="${INK}" stroke-width="1.5"/>`;
+  }
+  s += `<path d="M 790 232 A 54 68 0 0 1 898 232" fill="none" stroke="${INK}" stroke-width="3.2"/>`;
+  s += `<path d="M 898 188 A 92 106 0 0 1 1082 188" fill="none" stroke="${INK}" stroke-width="3.6"/>`;
+  s += `<path d="M 1082 232 A 54 68 0 0 1 1188 232" fill="none" stroke="${INK}" stroke-width="3.2"/>`;
+
+  // Ground quay wall
+  s += `<rect x="0" y="404" width="1200" height="7" fill="#536575"/>`;
+  s += `</g>`;
+  return s;
+}
+
+mountMultiplane({
+  title: 'Midtown Towers',
+  eyebrow: 'NEXT STOP',
+  viewBox: [1200, 520],
+  duration: 14,
+  pigment: {
+    enabled: true,
+    position: 'bottom',
+    opacity: 0.38,
+    colors: ['#2b196e', '#1c52b8', '#6290dc', '#dfbed0', '#eef2f5'],
+  },
+  stops: [
+    { id: 'harbor',       label: 'Harbor Bridge',   at: 0.12, etaMin: 5 },
+    { id: 'midtown',      label: 'Midtown Towers',  at: 0.40, etaMin: 3 },
+    { id: 'cantilever',   label: 'Cantilever Hall', at: 0.65, etaMin: 2, skip: true },
+    { id: 'conservatory', label: 'Conservatory',    at: 0.88, etaMin: 0 },
+  ],
+  background,
+  midground,
+  foreground,
+});
+</script>
+</body>
+</html>

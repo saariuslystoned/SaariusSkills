@@ -88,6 +88,8 @@ Read [references/teknium-catalog-and-astro-recipes.md](references/teknium-catalo
 4. **Strict Compliance with DinkusKit's Zero `\bany\b` Rule (`scripts/check-features.mjs`):**
    - DinkusKit's `scripts/check-features.mjs` (invoked by `bin/verify-web`) scans every `.astro`, `.mjs`, and `.ts` file under `src/` and **fails the build if the standalone word `any` (`/\bany\b/u`) appears anywhere** — including inside JS/HTML comments or UI strings.
    - All bundled assets (`assets/dither.js`, `assets/viewport-pool.js`, `assets/surface-micro.js`, and `assets/ephemera.js`) maintain **zero matches of `/\bany\b/u`**.
+5. **Map Editable 2D Images & Posters into `/_emdash/admin` Media Library (`type: "image"` + `$media`):**
+   - Never leave editable hero images, product photos, or 2D fallback posters stranded only in `public/` where editors cannot see or replace them in `/_emdash/admin`. Declare editable imagery as `"type": "image"` on collections/blocks, seed them via `$media` in `seed/seed.json` (served through `/_emdash/api/media/file/<key>`), and keep `public/` reserved for runtime code assets (such as 3D `.glb` meshes in `public/models/` or shader vendor scripts).
 
 ---
 

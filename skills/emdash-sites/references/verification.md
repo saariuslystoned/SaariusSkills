@@ -27,9 +27,14 @@ For the affected surface, check:
   production-host redirects (for example apex to canonical 301) only on the
   declared production hosts, not locally or on a preview host.
 - Protected admin/setup content rejects anonymous requests under the selected
-  authentication mode, while authorized editors and deliberately public plugin
-  endpoints still work. Check Access only where configured, and verify
-  authorized editor access separately.
+  authentication mode, while authorized editors, public Media Library file reads
+  (`/_emdash/api/media/file/<safe-key>` when the site uses CMS media), and
+  deliberately public plugin endpoints still work. Check Access only where
+  configured, and verify authorized editor access separately.
+- Rendered CMS images (`<Image />`, `/_emdash/api/media/file/<key>`, or
+  `/_image?href=...`) return HTTP 200 with `naturalWidth > 0`, and any paired
+  3D `.glb` stage keeps its 2D `.webp` poster visible until `onModelLoaded`
+  mounts the WebGL mesh.
 - Editor-owned navigation renders the CMS menu, and a permitted editor change
   survives deployment. Mark fallback navigation distinctly during bootstrap.
 - Navigation holds at its real item count: keep any call to action in its own

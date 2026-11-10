@@ -1,0 +1,1729 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="motion-probes" content="closed_macbook:t=0.0@1180,860;storefront_catalog_scroll:t=0.22@1180,860;open_storefront_add_to_cart:t=0.35@1180,860;cart_checkout_stripe:t=0.60@1180,860;stripe_sandbox_pay:t=0.76@1180,860;stripe_paid_chaching:t=0.92@1180,860;mobile_390x844:t=0.92&vw=390@390,844">
+  <title>DinkusKit.com — Homepage Hero (Ultra-Realistic 3D MacBook Pro .glb · Live playground.dinkuskit.com Checkout &amp; Cha-Ching!)</title>
+  <style>
+    :root, .emdash-motion-stage {
+      color-scheme: light;
+      --color-canvas: light-dark(#f4f1ea, #0f141d);
+      --color-surface: light-dark(#e9e3d6, #171f2e);
+      --color-ink: light-dark(#18202b, #eef3fa);
+      --color-muted: light-dark(#566272, #94a3b8);
+      --color-border: light-dark(#d2cab9, #293548);
+      --color-accent: light-dark(#2563eb, #60a5fa);
+      --color-emerald: #10b981;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--color-canvas);
+      color: var(--color-ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .dk-site-shell {
+      max-width: 1140px;
+      margin: 0 auto;
+      padding: 10px 20px 14px;
+    }
+    .dk-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 8px 16px;
+      border: 1.5px solid var(--color-border);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.80);
+      backdrop-filter: blur(10px);
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+      margin-bottom: 10px;
+    }
+    .dk-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font: 800 14px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: 0.03em;
+      color: var(--color-ink);
+      text-decoration: none;
+    }
+    .dk-brand-diamond {
+      width: 12px;
+      height: 12px;
+      background: linear-gradient(135deg, #2563eb, #10b981);
+      border-radius: 2px;
+      transform: rotate(45deg);
+      display: inline-block;
+    }
+    .dk-brand-tag {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      color: var(--color-muted);
+      letter-spacing: 0.05em;
+    }
+    .dk-nav-links {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      font: 600 12.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--color-muted);
+    }
+    .dk-nav-links span.active {
+      color: var(--color-ink);
+      font-weight: 800;
+    }
+    .dk-nav-meta {
+      font: 700 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: #18202b;
+      color: #f8fafc;
+      letter-spacing: 0.04em;
+    }
+
+    .dk-hero-card {
+      border: 1.5px solid var(--color-border);
+      border-radius: 18px;
+      background: #fcfbf9;
+      box-shadow: 0 18px 42px rgba(15, 23, 42, 0.08), 0 2px 6px rgba(15, 23, 42, 0.04);
+      overflow: hidden;
+      padding: 14px 20px 12px;
+    }
+    .dk-hero-top {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 18px;
+      flex-wrap: wrap;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .dk-hero-copy {
+      max-width: 690px;
+    }
+    .dk-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font: 800 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #1d4ed8;
+      margin-bottom: 5px;
+    }
+    .dk-eyebrow-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+    }
+    .dk-hero-title {
+      margin: 0 0 5px;
+      font-size: 23.5px;
+      font-weight: 850;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      color: var(--color-ink);
+    }
+    .dk-hero-sub {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--color-muted);
+    }
+    .dk-hero-sub strong {
+      color: var(--color-ink);
+      font-weight: 700;
+    }
+    .dk-hero-RightMeta {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 5px;
+      font: 700 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .dk-stage-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 14px;
+      border-radius: 999px;
+      border: 1.5px solid #1e293b;
+      background: #f1f5f9;
+      color: #0f172a;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+      cursor: pointer;
+      user-select: none;
+    }
+    .dk-stage-status[data-phase="storefront"] {
+      background: #eff6ff;
+      border-color: #2563eb;
+      color: #1e3a8a;
+    }
+    .dk-stage-status[data-phase="cart"] {
+      background: #eef2ff;
+      border-color: #4f46e5;
+      color: #312e81;
+    }
+    .dk-stage-status[data-phase="paid"] {
+      background: #ecfdf5;
+      border-color: #059669;
+      color: #065f46;
+    }
+    .dk-stage-hint {
+      font-size: 10px;
+      color: var(--color-muted);
+      letter-spacing: 0.03em;
+    }
+
+    /* 3D WebGL Stage Container + Synchronized SVG HUD Overlay */
+    #dk-hero-stage {
+      position: relative;
+      width: 100%;
+      height: 555px;
+      margin: 8px 0 6px;
+      border-radius: 14px;
+      overflow: hidden;
+      background: radial-gradient(circle at 50% 42%, #182030 0%, #090c14 75%, #05070b 100%);
+      border: 1px solid #263144;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      cursor: pointer;
+    }
+    #dk-webgl-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    #fig {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    /* Bottom 4-Beat Interactive Strip */
+    .dk-station-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-top: 6px;
+      padding-top: 10px;
+      border-top: 1px solid var(--color-border);
+      font: 700 10.5px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .dk-station-cell {
+      padding: 7px 10px;
+      border-radius: 9px;
+      border: 1.2px solid var(--color-border);
+      background: #f8fafc;
+      color: var(--color-muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.18s ease;
+    }
+    .dk-station-cell:hover {
+      border-color: #64748b;
+    }
+    .dk-station-cell.star {
+      border-color: #1e293b;
+      background: #eff6ff;
+      color: #0f172a;
+      box-shadow: 0 2px 5px rgba(15, 23, 42, 0.05);
+    }
+    .dk-station-cell span.badge {
+      font-size: 9px;
+      padding: 2px 6px;
+      border-radius: 5px;
+      background: #1e293b;
+      color: #f8fafc;
+      white-space: nowrap;
+    }
+    .dk-station-cell:not(.star) span.badge {
+      background: #e2e8f0;
+      color: #475569;
+    }
+
+    @media (max-width: 640px) {
+      .dk-site-shell { padding: 6px 8px 12px; width: 100%; max-width: 100%; overflow-x: hidden; }
+      .dk-nav { padding: 6px 10px; gap: 8px; }
+      .dk-nav-links, .dk-nav-meta { display: none; }
+      .dk-hero-card { padding: 10px 10px 8px; border-radius: 14px; }
+      .dk-hero-top { flex-direction: column; align-items: flex-start; gap: 8px; }
+      .dk-hero-copy { max-width: 100%; }
+      .dk-eyebrow { font-size: 9px; line-height: 1.3; white-space: normal; flex-wrap: wrap; }
+      .dk-hero-RightMeta { align-items: flex-start; width: 100%; }
+      .dk-stage-status { font-size: 10px; padding: 6px 10px; max-width: 100%; white-space: normal; line-height: 1.3; }
+      .dk-stage-hint { font-size: 9.5px; white-space: normal; }
+      .dk-hero-title { font-size: 16px; line-height: 1.2; word-break: break-word; }
+      .dk-hero-sub { font-size: 11px; line-height: 1.4; word-break: break-word; }
+      #dk-hero-stage { height: 420px; }
+      .dk-station-strip { grid-template-columns: 1fr; gap: 5px; }
+      .dk-station-cell { font-size: 10px; padding: 6px 9px; }
+    }
+    body.is-mobile-vw .dk-site-shell { padding: 6px 8px 12px; width: 100%; max-width: 100%; overflow-x: hidden; }
+    body.is-mobile-vw .dk-nav { padding: 6px 10px; gap: 8px; }
+    body.is-mobile-vw .dk-nav-links, body.is-mobile-vw .dk-nav-meta { display: none; }
+    body.is-mobile-vw .dk-hero-card { padding: 10px 10px 8px; border-radius: 14px; }
+    body.is-mobile-vw .dk-hero-top { flex-direction: column; align-items: flex-start; gap: 8px; }
+    body.is-mobile-vw .dk-hero-copy { max-width: 100%; }
+    body.is-mobile-vw .dk-eyebrow { font-size: 9px; line-height: 1.3; white-space: normal; flex-wrap: wrap; }
+    body.is-mobile-vw .dk-hero-RightMeta { align-items: flex-start; width: 100%; }
+    body.is-mobile-vw .dk-stage-status { font-size: 10px; padding: 6px 10px; max-width: 100%; white-space: normal; line-height: 1.3; }
+    body.is-mobile-vw .dk-stage-hint { font-size: 9.5px; white-space: normal; }
+    body.is-mobile-vw .dk-hero-title { font-size: 16px; line-height: 1.2; word-break: break-word; }
+    body.is-mobile-vw .dk-hero-sub { font-size: 11px; line-height: 1.4; word-break: break-word; }
+    body.is-mobile-vw #dk-hero-stage { height: 420px; }
+    body.is-mobile-vw .dk-station-strip { grid-template-columns: 1fr; gap: 5px; }
+    body.is-mobile-vw .dk-station-cell { font-size: 10px; padding: 6px 9px; }
+  </style>
+</head>
+<body>
+  <div class="dk-site-shell">
+    <nav class="dk-nav" aria-label="DinkusKit Storefront Navigation">
+      <a class="dk-brand" href="#dk-hero-stage" onclick="return false;">
+        <span class="dk-brand-diamond"></span>
+        <span>dinkuskit.com</span>
+        <span class="dk-brand-tag">EMDASH + ASTRO</span>
+      </a>
+      <div class="dk-nav-links">
+        <span class="active">Storefront</span>
+        <span>Commerce</span>
+        <span>Ship 4×6</span>
+        <span>D1 Ledger</span>
+        <span>Docs</span>
+      </div>
+      <div class="dk-nav-meta">29.3K-TRI .GLB + HDR PBR</div>
+    </nav>
+
+    <section class="dk-hero-card" aria-label="DinkusKit Interactive 3D MacBook Pro Hero">
+      <div class="dk-hero-top">
+        <div class="dk-hero-copy">
+          <div class="dk-eyebrow">
+            <span class="dk-eyebrow-dot"></span>
+            <span>SOLO STUDIO MACBOOK PRO (.GLB) · LIVE PLAYGROUND.DINKUSKIT.COM RETINA CAPTURES · 1-CLICK PURCHASE</span>
+          </div>
+          <h1 class="dk-hero-title">Click the MacBook Pro. Watch a live playground.dinkuskit.com purchase from open lid to Cha-Ching.</h1>
+          <p class="dk-hero-sub">
+            29,287-triangle M-Series MacBook Pro with micro-brushed anodized aluminum, <strong>78 sculpted 3D keycaps</strong>, and Liquid Retina glass running the real <strong>playground.dinkuskit.com &rarr; /products/demo-shirt ($32) &rarr; /cart &rarr; Stripe Sandbox ($37) &rarr; Cha-Ching! $$$ · Order #a026b032</strong>.
+          </p>
+        </div>
+        <div class="dk-hero-RightMeta">
+          <div class="dk-stage-status" id="dk-hero-status" data-phase="rest">
+            <span id="dk-status-text">Click MacBook to Open &amp; Complete a Purchase</span>
+          </div>
+          <div class="dk-stage-hint">1-Click MacBook Trigger · Synthesized Cha-Ching Chime · Drag to Orbit</div>
+        </div>
+      </div>
+
+      <div id="dk-hero-stage" class="emdash-motion-stage" data-chrome="stage-only">
+        <canvas id="dk-webgl-canvas"></canvas>
+        <svg id="fig" viewBox="0 0 1080 555" preserveAspectRatio="xMidYMid meet" aria-label="DinkusKit 3D MacBook Pro Studio HUD"></svg>
+      </div>
+
+      <div class="dk-station-strip">
+        <div class="dk-station-cell star" id="dk-st-cell-1" data-jump-t="0.00">
+          <span><strong>1. CLOSED MACBOOK</strong> · CNC Unibody · Storefront Catalog Scroll</span>
+          <span class="badge">t = 0.00</span>
+        </div>
+        <div class="dk-station-cell" id="dk-st-cell-2" data-jump-t="0.35">
+          <span><strong>2. ADD TO CART</strong> · /products/demo-shirt · Heavyweight Tee ($32) &rarr; Cart 1</span>
+          <span class="badge">t = 0.35</span>
+        </div>
+        <div class="dk-station-cell" id="dk-st-cell-3" data-jump-t="0.60">
+          <span><strong>3. /CART &amp; STRIPE</strong> · $32 Tee + $5 Shipping &rarr; Checkout ($37.00)</span>
+          <span class="badge">t = 0.60</span>
+        </div>
+        <div class="dk-station-cell" id="dk-st-cell-4" data-jump-t="0.92">
+          <span><strong>4. CHA-CHING! PAID</strong> · Visa 4242 Approved · $$$ Order #a026b032</span>
+          <span class="badge">t = 0.92</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Vendored Three.js r128 + GLTFLoader + 29,287-triangle MacBook Pro .glb + Live playground.dinkuskit.com Retina Captures -->
+  <script src="../vendor/three.min.js"></script>
+  <script>if (!window.THREE && document.readyState === 'loading') document.write('<script src="../../../skills/emdash-motion-studio/assets/vendor/three.min.js"><\/script>');</script>
+  <script>if (!window.THREE && document.readyState === 'loading') document.write('<script src="../../../../skills/emdash-motion-studio/assets/vendor/three.min.js"><\/script>');</script>
+  <script src="../vendor/GLTFLoader.js"></script>
+  <script>if (window.THREE && !window.THREE.GLTFLoader && document.readyState === 'loading') document.write('<script src="../../../skills/emdash-motion-studio/assets/vendor/GLTFLoader.js"><\/script>');</script>
+  <script>if (window.THREE && !window.THREE.GLTFLoader && document.readyState === 'loading') document.write('<script src="../../../../skills/emdash-motion-studio/assets/vendor/GLTFLoader.js"><\/script>');</script>
+  <script src="../vendor/macbook-pro-glb.js"></script>
+  <script>if (!window.SHAHDIN_MAC_GLB_B64 && document.readyState === 'loading') document.write('<script src="../../../skills/emdash-motion-studio/assets/vendor/macbook-pro-glb.js"><\/script>');</script>
+  <script>if (!window.SHAHDIN_MAC_GLB_B64 && document.readyState === 'loading') document.write('<script src="../../../../skills/emdash-motion-studio/assets/vendor/macbook-pro-glb.js"><\/script>');</script>
+  <script src="../vendor/playground-screens.js"></script>
+  <script>if (!window.DK_PLAYGROUND_SCREENS && document.readyState === 'loading') document.write('<script src="../../../skills/emdash-motion-studio/assets/vendor/playground-screens.js"><\/script>');</script>
+  <script>if (!window.DK_PLAYGROUND_SCREENS && document.readyState === 'loading') document.write('<script src="../../../../skills/emdash-motion-studio/assets/vendor/playground-screens.js"><\/script>');</script>
+
+  <script>
+  // Engine marker for build.py compatibility: function mountChoreo(
+  (() => {
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const clamp01 = v => clamp(v, 0, 1);
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const sub = (t, a, b) => clamp01((t - a) / Math.max(1e-6, b - a));
+    const easeInOut = t => {
+      const x = clamp01(t);
+      return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+    };
+    const easeOutCubic = t => 1 - Math.pow(1 - clamp01(t), 3);
+    const easeOutBack = t => {
+      const x = clamp01(t);
+      const c1 = 1.70158;
+      const c3 = c1 + 1;
+      return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+    };
+    const f = n => Number(n || 0).toFixed(2);
+
+    /* ============================================================
+       1. SYNTHESIZED "CHA-CHING!" CASH REGISTER + BELL AUDIO
+       ============================================================ */
+    let audioCtx = null;
+    let chaChingPlayedInRun = false;
+
+    function unlockAudio() {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      if (!audioCtx) audioCtx = new AC();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      return audioCtx;
+    }
+
+    function playChaChing() {
+      const ac = unlockAudio();
+      if (!ac) return;
+      const now = ac.currentTime;
+
+      // 1. Mechanical cash-drawer slide & spring latch clack (0.00s -> 0.085s)
+      const noiseLen = Math.floor(ac.sampleRate * 0.085);
+      const noiseBuf = ac.createBuffer(1, noiseLen, ac.sampleRate);
+      const data = noiseBuf.getChannelData(0);
+      for (let i = 0; i < noiseLen; i++) {
+        const env = Math.sin((i / noiseLen) * Math.PI);
+        data[i] = (Math.random() * 2 - 1) * env * 0.45;
+      }
+      const noiseSrc = ac.createBufferSource();
+      noiseSrc.buffer = noiseBuf;
+      const bp = ac.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(1450, now);
+      bp.Q.setValueAtTime(2.2, now);
+      const ng = ac.createGain();
+      ng.gain.setValueAtTime(0.28, now);
+      ng.gain.exponentialRampToValueAtTime(0.005, now + 0.085);
+      noiseSrc.connect(bp);
+      bp.connect(ng);
+      ng.connect(ac.destination);
+      noiseSrc.start(now);
+
+      // 2. First metallic register strike ("Cha-", B6 = 1975.5 Hz)
+      const hit1 = ac.createOscillator();
+      const g1 = ac.createGain();
+      hit1.type = 'triangle';
+      hit1.frequency.setValueAtTime(1975.5, now + 0.03);
+      g1.gain.setValueAtTime(0.22, now + 0.03);
+      g1.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+      hit1.connect(g1);
+      g1.connect(ac.destination);
+      hit1.start(now + 0.03);
+      hit1.stop(now + 0.16);
+
+      // 3. Dual bright brass bell ring ("-Ching!", E7 = 2637 Hz + B7 = 3951 Hz + E8 shimmer)
+      const bellFreqs = [2637.02, 3951.07, 5274.04];
+      const bellGains = [0.26, 0.16, 0.09];
+      bellFreqs.forEach((freq, idx) => {
+        const osc = ac.createOscillator();
+        const g = ac.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now + 0.105);
+        g.gain.setValueAtTime(bellGains[idx], now + 0.105);
+        g.gain.exponentialRampToValueAtTime(0.0008, now + 0.85);
+        osc.connect(g);
+        g.connect(ac.destination);
+        osc.start(now + 0.105);
+        osc.stop(now + 0.86);
+      });
+    }
+
+    /* ============================================================
+       2. SOLO MACBOOK PRO CHOREOGRAPHY KINEMATICS (t = 0.00 -> 1.00)
+          Beat 1 (0.00 -> 0.25): Closed MacBook -> Lid hinges open + Storefront Catalog Scroll -> Click Shirt Card (probed at t=0.22)
+          Beat 2 (0.25 -> 0.46): /products/demo-shirt -> Click Add to Cart ($32.00) -> Added to cart. + Cart 1 (probed at t=0.35)
+          Beat 3 (0.46 -> 0.64): /cart Page -> Click Proceed to Checkout (probed at t=0.60)
+          Beat 4A (0.64 -> 0.83): checkout.stripe.com Sandbox ($37.00 · Visa 4242) -> Click Pay (probed at t=0.76)
+          Beat 4B (0.83 -> 1.00): /checkout/success Order #a026b032 Confirmed + Cha-Ching! $$$ (probed at t=0.92)
+       ============================================================ */
+    function deriveKinematics(tRaw) {
+      const t = clamp01(tRaw);
+
+      // Lid hinge: Math.PI (180 deg closed) -> 1.34 rad (~77 deg open) over t = 0.01 -> 0.20
+      const lidOpen = easeInOut(sub(t, 0.01, 0.20));
+      const hingeRotX = lerp(Math.PI, 1.34, lidOpen);
+
+      // Beat 1: Storefront scroll (0.10 -> 0.20) & click Dinkus Demo Heavyweight T-Shirt card (0.21 -> 0.245)
+      const catalogScroll = easeInOut(sub(t, 0.09, 0.195));
+      const shirtCardClick = sub(t, 0.205, 0.245);
+
+      // Beat 2: /products/demo-shirt Add to cart click (0.31 -> 0.37) & Cart 1 navbar click (0.42 -> 0.455)
+      const addBtnClick = sub(t, 0.31, 0.375);
+      const isAddedToCart = t >= 0.33;
+      const navCartClick = sub(t, 0.42, 0.455);
+
+      // Beat 3: /cart Proceed to Checkout click (0.56 -> 0.63)
+      const cartBtnClick = sub(t, 0.56, 0.63);
+
+      // Beat 4A: Stripe Checkout Pay click (0.74 -> 0.82) -> Beat 4B: Order Confirmed + Cha-Ching! (0.83 -> 1.00)
+      const stripePayClick = sub(t, 0.74, 0.82);
+      const isPaid = t >= 0.83;
+      const chaChingPop = isPaid ? easeOutBack(sub(t, 0.83, 0.89)) : 0;
+      const studioRingGlow = isPaid ? easeOutCubic(sub(t, 0.83, 0.90)) : 0;
+
+      return {
+        t,
+        lidOpen,
+        hingeRotX,
+        catalogScroll,
+        shirtCardClick,
+        addBtnClick,
+        isAddedToCart,
+        navCartClick,
+        cartBtnClick,
+        stripePayClick,
+        isPaid,
+        chaChingPop,
+        studioRingGlow,
+      };
+    }
+
+    /* ============================================================
+       3. HIGH-DPI LIQUID RETINA DISPLAY CANVAS (1600×1040, flipY=true)
+          Real Retina Captures from https://playground.dinkuskit.com
+       ============================================================ */
+    function roundRect(ctx, x, y, w, h, r) {
+      const rr = Math.min(r, w / 2, h / 2);
+      ctx.beginPath();
+      ctx.moveTo(x + rr, y);
+      ctx.arcTo(x + w, y, x + w, y + h, rr);
+      ctx.arcTo(x + w, y + h, x, y + h, rr);
+      ctx.arcTo(x, y + h, x, y, rr);
+      ctx.arcTo(x, y, x + w, y, rr);
+      ctx.closePath();
+    }
+
+    const pgScreens = {};
+    let pgOnloadHook = null;
+
+    function initPlaygroundScreens(onReady) {
+      pgOnloadHook = onReady;
+      const bundle = window.DK_PLAYGROUND_SCREENS;
+      if (!bundle || !bundle.screens) return;
+      Object.keys(bundle.screens).forEach(key => {
+        const item = bundle.screens[key];
+        const img = new Image();
+        img.decoding = 'sync';
+        const entry = { img, w: item.w, h: item.h, ready: false };
+        pgScreens[key] = entry;
+        img.onload = () => {
+          entry.ready = true;
+          if (pgOnloadHook) pgOnloadHook();
+        };
+        img.src = item.src;
+        if (img.complete && img.naturalWidth > 0) {
+          entry.ready = true;
+        }
+      });
+    }
+
+    function drawPlaygroundViewport(ctx, key, scrollY, alpha = 1.0) {
+      const entry = pgScreens[key];
+      const viewY = 100;
+      const viewW = 1600;
+      const viewH = 940;
+      let drew = false;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.rect(0, viewY, viewW, viewH);
+      ctx.clip();
+
+      ctx.fillStyle = key === 'stripe' ? '#ffffff' : '#f4f1e9';
+      ctx.fillRect(0, viewY, viewW, viewH);
+
+      if (entry && entry.img && (entry.ready || (entry.img.complete && entry.img.naturalWidth > 0))) {
+        drew = true;
+        if (key === 'stripe') {
+          // Stripe desktop layout: sticky left Order Summary (x=0..792) + scrollable right Payment Form (x=792..1600)
+          const splitX = 792;
+          const syLeft = 20;
+          const shLeft = Math.min(viewH, entry.h - syLeft);
+          ctx.drawImage(entry.img, 0, syLeft, splitX, shLeft, 0, viewY, splitX, shLeft);
+
+          const maxRight = Math.max(0, entry.h - viewH);
+          const syRight = clamp(scrollY, 0, maxRight);
+          const shRight = Math.min(viewH, entry.h - syRight);
+          ctx.drawImage(entry.img, splitX, syRight, viewW - splitX, shRight, splitX, viewY, viewW - splitX, shRight);
+        } else {
+          const maxScroll = Math.max(0, entry.h - viewH);
+          const sy = clamp(scrollY, 0, maxScroll);
+          const sh = Math.min(viewH, entry.h - sy);
+          ctx.drawImage(entry.img, 0, sy, viewW, sh, 0, viewY, viewW, sh);
+        }
+      }
+      ctx.restore();
+      return drew;
+    }
+
+    function drawPlaygroundToolbarPill(ctx, alpha = 1.0) {
+      if (alpha <= 0.01) return;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      const pw = 576, ph = 38;
+      const px = Math.round((1600 - pw) / 2);
+      const py = 994;
+
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.28)';
+      ctx.shadowBlur = 14;
+      ctx.shadowOffsetY = 4;
+      roundRect(ctx, px, py, pw, ph, 19);
+      ctx.fillStyle = 'rgba(24, 24, 27, 0.94)';
+      ctx.fill();
+      ctx.shadowColor = 'transparent';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Gold PLAYGROUND badge
+      roundRect(ctx, px + 10, py + 6, 108, 26, 13);
+      ctx.fillStyle = 'rgba(234, 179, 8, 0.18)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(234, 179, 8, 0.45)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.fillStyle = '#facc15';
+      ctx.font = '800 12px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('PLAYGROUND', px + 64, py + 23);
+
+      // Edit toggle + timer
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#d4d4d8';
+      ctx.font = '600 13.5px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
+      ctx.fillText('Edit   |   58m remaining   |', px + 134, py + 24);
+
+      // Start your real store pill
+      roundRect(ctx, px + 362, py + 6, 174, 26, 13);
+      ctx.fillStyle = 'rgba(234, 179, 8, 0.20)';
+      ctx.fill();
+      ctx.fillStyle = '#fde047';
+      ctx.font = '700 13px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
+      ctx.fillText('Start your real store ↗', px + 376, py + 23);
+      ctx.fillStyle = '#a1a1aa';
+      ctx.fillText('✕', px + 548, py + 24);
+      ctx.restore();
+    }
+
+    function drawTargetHighlight(ctx, x, y, w, h, radius, color, pulseProgress) {
+      ctx.save();
+      roundRect(ctx, x - 4, y - 4, w + 8, h + 8, radius + 4);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 4;
+      ctx.stroke();
+
+      if (pulseProgress > 0 && pulseProgress < 1) {
+        const expand = pulseProgress * 22;
+        ctx.globalAlpha = (1 - pulseProgress) * 0.75;
+        roundRect(ctx, x - 4 - expand, y - 4 - expand, w + 8 + expand * 2, h + 8 + expand * 2, radius + 8);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3.5;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function createMacBookScreenSurface(renderer) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1600;
+      canvas.height = 1040;
+      const ctx = canvas.getContext('2d');
+      const texture = new THREE.CanvasTexture(canvas);
+      // Rule 5: Keep flipY = true (matches meshes.matte UVs where v=0 is hinge and v=1 is webcam),
+      // LinearMipmapLinearFilter + generateMipmaps = true + maxAnisotropy for razor-sharp angled text!
+      texture.flipY = true;
+      texture.encoding = THREE.sRGBEncoding;
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.generateMipmaps = true;
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      return { canvas, ctx, texture, lastT: -1 };
+    }
+
+    function updateMacBookScreen(surface, K) {
+      const { ctx, texture } = surface;
+      const t = K.t;
+      if (Math.abs(surface.lastT - t) < 1e-5) return;
+
+      const W = 1600, H = 1040;
+      let allReady = true;
+
+      // 1. Real Retina Website Viewport (x = 0..1600, y = 100..1040)
+      // Coordinates mapped 1.25x from live 1280x752 CSS DOM getBoundingClientRect()
+      let curX = 800, curY = 688, curDown = false;
+      let urlText = 'https://playground.dinkuskit.com/';
+      let badgeLabel = 'EMDASH PLAYGROUND';
+      let badgeBg = '#dbeafe';
+      let badgeFg = '#1d4ed8';
+
+      if (t < 0.25) {
+        // STAGE 1: Storefront Home -> Smooth scroll down to #commerce-catalog -> Click Dinkus Demo Heavyweight T-Shirt
+        const scrollY = lerp(0, 1310, K.catalogScroll);
+        allReady = drawPlaygroundViewport(ctx, 'storefront', scrollY, 1.0) && allReady;
+
+        // Real DOM shirtCard: CSS (460, 1309.78, 360, 417.75) -> Canvas (575, 100 + 1637.2 - scrollY, 450, 522.2)
+        const cardX = 575;
+        const cardY = 100 + 1637.2 - scrollY;
+        const cardW = 450;
+        const cardH = 522.2;
+        if (t >= 0.175) {
+          drawTargetHighlight(ctx, cardX, cardY, cardW, cardH, 16, '#2563eb', K.shirtCardClick);
+        }
+
+        const u = easeInOut(sub(t, 0.12, 0.21));
+        curX = lerp(240, cardX + cardW * 0.5, u);
+        curY = lerp(640, cardY + cardH * 0.5, u);
+        curDown = K.shirtCardClick > 0.15 && K.shirtCardClick < 0.85;
+        drawPlaygroundToolbarPill(ctx, 1.0);
+
+      } else if (t < 0.46) {
+        // STAGE 2: Product Detail Page (/products/demo-shirt) -> Click Add to cart -> Added to cart. & Cart 1
+        urlText = 'https://playground.dinkuskit.com/products/demo-shirt';
+        const fade = easeInOut(sub(t, 0.25, 0.275));
+        const scrollY = lerp(0, 68, easeInOut(sub(t, 0.25, 0.30)));
+
+        if (fade < 1.0) {
+          allReady = drawPlaygroundViewport(ctx, 'storefront', 1310, 1.0) && allReady;
+        }
+        const screenKey = K.isAddedToCart ? 'productAdded' : 'productBefore';
+        allReady = drawPlaygroundViewport(ctx, screenKey, scrollY, fade) && allReady;
+
+        // Real DOM addBtn: CSS (836.09, 691.23, 119.77, 40.38) -> Image (1045.1, 864.0, 149.7, 50.5)
+        const btnX = 1045.1;
+        const btnY = 100 + 864.0 - scrollY;
+        const btnW = 149.7;
+        const btnH = 50.5;
+
+        // Real DOM cartLink ("Cart 1"): CSS (1150.06, 68.09, 49.94, 19) -> Image (1437.6, 85.1, 62.4, 23.8)
+        const cartX = 1437.6;
+        const cartY = 100 + 85.1 - scrollY;
+        const cartW = 62.4;
+        const cartH = 23.8;
+
+        if (t >= 0.29) {
+          drawTargetHighlight(
+            ctx,
+            btnX,
+            btnY,
+            btnW,
+            btnH,
+            10,
+            K.isAddedToCart ? '#059669' : '#2563eb',
+            K.addBtnClick
+          );
+        }
+        if (K.isAddedToCart) {
+          drawTargetHighlight(ctx, cartX - 8, cartY - 6, cartW + 16, cartH + 12, 10, '#059669', K.navCartClick);
+          // Crisp floating confirmation badge next to Add to cart button (within bezel-safe x < 1480)
+          ctx.save();
+          roundRect(ctx, btnX + btnW + 14, btnY + 4, 246, 42, 21);
+          ctx.fillStyle = '#065f46';
+          ctx.fill();
+          ctx.strokeStyle = '#34d399';
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+          ctx.fillStyle = '#fef08a';
+          ctx.font = '900 17px ui-monospace, SFMono-Regular, Menlo, monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('✓ Added · Cart (1)', btnX + btnW + 137, btnY + 31);
+          ctx.restore();
+        }
+
+        if (t < 0.39) {
+          const u = easeInOut(sub(t, 0.25, 0.315));
+          curX = lerp(800, btnX + btnW * 0.5, u);
+          curY = lerp(688, btnY + btnH * 0.5, u);
+          curDown = K.addBtnClick > 0.15 && K.addBtnClick < 0.85;
+        } else {
+          const u = easeInOut(sub(t, 0.39, 0.435));
+          curX = lerp(btnX + btnW * 0.5, cartX + cartW * 0.5, u);
+          curY = lerp(btnY + btnH * 0.5, cartY + cartH * 0.5, u);
+          curDown = K.navCartClick > 0.15 && K.navCartClick < 0.85;
+        }
+        drawPlaygroundToolbarPill(ctx, 1.0);
+
+      } else if (t < 0.64) {
+        // STAGE 3: Cart Page (/cart) -> Smooth scroll to Proceed to Checkout -> Click Proceed to Checkout
+        urlText = 'https://playground.dinkuskit.com/cart';
+        badgeLabel = 'CART (1 ITEM · $32)';
+        const fade = easeInOut(sub(t, 0.46, 0.485));
+        const scrollY = lerp(55, 295, easeInOut(sub(t, 0.46, 0.54)));
+
+        if (fade < 1.0) {
+          allReady = drawPlaygroundViewport(ctx, 'productAdded', 68, 1.0) && allReady;
+        }
+        allReady = drawPlaygroundViewport(ctx, 'cart', scrollY, fade) && allReady;
+
+        // Real DOM checkoutBtn: CSS (80, 857.89, 202.23, 44) -> Image (100, 1072.4, 252.8, 55.0)
+        const btnX = 100;
+        const btnY = 100 + 1072.4 - scrollY;
+        const btnW = 252.8;
+        const btnH = 55.0;
+
+        if (t >= 0.53) {
+          drawTargetHighlight(ctx, btnX, btnY, btnW, btnH, 10, '#4f46e5', K.cartBtnClick);
+          if (K.cartBtnClick > 0.1) {
+            ctx.save();
+            roundRect(ctx, btnX + btnW + 20, btnY + 5, 396, 45, 22);
+            ctx.fillStyle = '#1e1b4b';
+            ctx.fill();
+            ctx.strokeStyle = '#818cf8';
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+            ctx.fillStyle = '#e0e7ff';
+            ctx.font = '800 17.5px ui-monospace, SFMono-Regular, Menlo, monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('⚡ Stripe Sandbox ($32 + $5 Ship = $37) →', btnX + btnW + 218, btnY + 33);
+            ctx.restore();
+          }
+        }
+
+        const u = easeInOut(sub(t, 0.47, 0.565));
+        curX = lerp(1469, btnX + btnW * 0.5, u);
+        curY = lerp(129, btnY + btnH * 0.5, u);
+        curDown = K.cartBtnClick > 0.15 && K.cartBtnClick < 0.85;
+        drawPlaygroundToolbarPill(ctx, 1.0);
+
+      } else if (t < 0.83) {
+        // STAGE 4A: Stripe Hosted Sandbox Checkout (checkout.stripe.com) -> Visa 4242 -> Click Pay ($37.00)
+        urlText = 'https://checkout.stripe.com/c/pay/cs_test_dinkuskit_demo_shirt';
+        badgeLabel = 'STRIPE SANDBOX · 4242';
+        badgeBg = '#dcfce7';
+        badgeFg = '#047857';
+
+        const fade = easeInOut(sub(t, 0.64, 0.665));
+        const syRight = lerp(70, 255, easeInOut(sub(t, 0.64, 0.72)));
+
+        if (fade < 1.0) {
+          allReady = drawPlaygroundViewport(ctx, 'cart', 295, 1.0) && allReady;
+          drawPlaygroundToolbarPill(ctx, 1.0 - fade);
+        }
+        allReady = drawPlaygroundViewport(ctx, 'stripe', syRight, fade) && allReady;
+
+        // Real DOM payBtn on Stripe Checkout: Image (900, 1106.25, 472.5, 67.5)
+        const btnX = 900;
+        const btnY = 100 + 1106.25 - syRight;
+        const btnW = 472.5;
+        const btnH = 67.5;
+
+        if (t >= 0.71) {
+          drawTargetHighlight(ctx, btnX, btnY, btnW, btnH, 12, '#10b981', K.stripePayClick);
+        }
+
+        const u = easeInOut(sub(t, 0.65, 0.74));
+        curX = lerp(226, btnX + btnW * 0.5, u);
+        curY = lerp(905, btnY + btnH * 0.5, u);
+        curDown = K.stripePayClick > 0.15 && K.stripePayClick < 0.88;
+
+      } else {
+        // STAGE 4B: Order Confirmation (/checkout/success) -> Order #a026b032 [TEST] + Cha-Ching! $$$
+        urlText = 'https://playground.dinkuskit.com/checkout/success?session_id=cs_test_a026b032';
+        badgeLabel = '✓ ORDER CONFIRMED · $37';
+        badgeBg = '#dcfce7';
+        badgeFg = '#047857';
+
+        const fade = easeInOut(sub(t, 0.83, 0.855));
+        const scrollY = lerp(35, 140, easeInOut(sub(t, 0.83, 0.89)));
+
+        if (fade < 1.0) {
+          allReady = drawPlaygroundViewport(ctx, 'stripe', 255, 1.0) && allReady;
+        }
+        allReady = drawPlaygroundViewport(ctx, 'orderConfirmed', scrollY, fade) && allReady;
+
+        // Compact Cha-Ching verification pill aligned with "Order confirmed." row (x=980..1264, 480px clear of text)
+        const pop = clamp(K.chaChingPop, 0, 1);
+        if (pop > 0.05) {
+          ctx.save();
+          ctx.globalAlpha = pop;
+          const cardBadgeY = 100 + 500 - scrollY;
+          roundRect(ctx, 980, cardBadgeY, 284, 40, 20);
+          ctx.fillStyle = '#064e3b';
+          ctx.fill();
+          ctx.strokeStyle = '#34d399';
+          ctx.lineWidth = 2.2;
+          ctx.stroke();
+          ctx.fillStyle = '#fef08a';
+          ctx.font = '900 15.5px ui-monospace, SFMono-Regular, Menlo, monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('✓ PAID $37 · VISA 4242', 1122, cardBadgeY + 26);
+          ctx.restore();
+        }
+        drawPlaygroundToolbarPill(ctx, fade);
+      }
+
+      // 2. macOS Top Menu Bar (y = 0..34, inset within bezel-safe x = 82..1485)
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, W, 34);
+      ctx.fillStyle = '#e2e8f0';
+      ctx.font = '700 15px -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('   Safari   File   Edit   View   History   Bookmarks   Window', 82, 22);
+      ctx.textAlign = 'right';
+      ctx.fillText('Wi-Fi   100% 🔋   Thu 9:41 AM', 1485, 22);
+      ctx.textAlign = 'left';
+
+      // 3. Safari Browser Chrome Header (y = 34..100, inset within bezel-safe x = 82..1485)
+      ctx.fillStyle = '#f1f5f9';
+      ctx.fillRect(0, 34, W, 66);
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(0, 99, W, 1.5);
+
+      // macOS Window Traffic Lights
+      const dots = [['#ef4444', 92], ['#f59e0b', 118], ['#10b981', 144]];
+      dots.forEach(([col, dx]) => {
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        ctx.arc(dx, 67, 8.5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Back / Forward chevrons
+      ctx.fillStyle = '#64748b';
+      ctx.font = '800 19px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.fillText('‹  ›', 174, 73);
+
+      // Safari URL Pill
+      roundRect(ctx, 226, 45, 984, 44, 11);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+
+      ctx.fillStyle = '#059669';
+      ctx.font = '800 17.5px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText('🔒', 244, 73);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillText(urlText, 274, 73);
+
+      // Right status pill in Safari toolbar (within bezel-safe x <= 1485)
+      roundRect(ctx, 1224, 47, 258, 40, 10);
+      ctx.fillStyle = badgeBg;
+      ctx.fill();
+      ctx.fillStyle = badgeFg;
+      ctx.font = '800 14px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(badgeLabel, 1353, 72);
+      ctx.textAlign = 'left';
+
+      // 4. Animated macOS Pointer Cursor + Click Ripple (t = 0.12 -> 0.83)
+      if (t >= 0.12 && t < 0.83) {
+        ctx.save();
+        ctx.translate(curX, curY);
+        if (curDown) {
+          ctx.scale(0.90, 0.90);
+          ctx.strokeStyle = 'rgba(16, 185, 129, 0.90)';
+          ctx.lineWidth = 5.5;
+          ctx.beginPath();
+          ctx.arc(0, 0, 34, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.shadowColor = 'rgba(15, 23, 42, 0.42)';
+        ctx.shadowBlur = 10;
+        ctx.shadowOffsetY = 3;
+        ctx.fillStyle = '#0f172a';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3.8;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, 44);
+        ctx.lineTo(12, 33);
+        ctx.lineTo(22, 53);
+        ctx.lineTo(31, 48);
+        ctx.lineTo(21, 28);
+        ctx.lineTo(36, 28);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      surface.lastT = allReady ? t : -1;
+      texture.needsUpdate = true;
+    }
+
+    /* ============================================================
+       4. HDR STUDIO SOFTBOX ENVIRONMENT (PMREMGenerator, RGB > 1.0)
+          Verified by DeepInvestigator (@thtbee_ technique)
+       ============================================================ */
+    function buildStudioEnvironment(renderer) {
+      const envScene = new THREE.Scene();
+      envScene.background = new THREE.Color(0x030509);
+
+      const addSoftbox = (w, h, hdrRgb, pos, look) => {
+        const geo = new THREE.PlaneGeometry(w, h);
+        const mat = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(hdrRgb[0], hdrRgb[1], hdrRgb[2]),
+          side: THREE.DoubleSide,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(pos[0], pos[1], pos[2]);
+        mesh.lookAt(look[0], look[1], look[2]);
+        envScene.add(mesh);
+      };
+
+      // 6 Focused Studio Softbox Strips (HDR RGB > 1.0) against deep obsidian studio void
+      // so anodized aluminum shows rich metallic gradients + sharp specular rim bevels!
+      // 1. Overhead Warm-Neutral Key Strip ([5.5, 5.2, 4.8]) positioned so specular sweep frames the dark obsidian Apple logo
+      addSoftbox(8.5, 2.0, [5.5, 5.2, 4.8], [-5.2, 11.8, -1.8], [0, 0, 0]);
+
+      // 2. Front-Left Warm Tungsten Grazing Softbox Strip ([5.5, 4.0, 2.8])
+      addSoftbox(7.0, 2.2, [5.5, 4.0, 2.8], [-11.8, 4.8, 7.2], [0, 0.5, 0]);
+
+      // 3. Front-Right Cool Sky Rim Softbox Strip ([2.2, 4.0, 6.2])
+      addSoftbox(7.0, 2.2, [2.2, 4.0, 6.2], [11.8, 5.2, 6.8], [0, 0.7, 0]);
+
+      // 4. Back-Top Grazing Amber/Gold Rim Strip ([6.5, 4.5, 2.5])
+      addSoftbox(11.5, 1.9, [6.5, 4.5, 2.5], [0, 6.6, -11.5], [0, 0.5, 0]);
+
+      // 5. Left-Side Low Grazing Strip for MagSafe/Thunderbolt Ports ([2.2, 4.0, 6.2])
+      addSoftbox(6.0, 1.4, [2.2, 4.0, 6.2], [-12.0, 1.5, 1.2], [0, 0.25, 0]);
+
+      // 6. Front-Low Grazing Strip for CNC Thumb Notch & 78 3D Keycap Bevels ([5.5, 5.2, 4.8])
+      addSoftbox(8.2, 1.3, [5.5, 5.2, 4.8], [0, 1.6, 12.2], [0, 0.2, 1.5]);
+
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      pmrem.compileCubemapShader();
+      const envTex = pmrem.fromScene(envScene, 0.0).texture;
+      pmrem.dispose();
+      return envTex;
+    }
+
+    function createContactShadowTexture() {
+      const c = document.createElement('canvas');
+      c.width = 512;
+      c.height = 512;
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, 512, 512);
+
+      // Soft dark rounded-rect contact shadow matching MacBook footprint
+      ctx.save();
+      ctx.filter = 'blur(24px)';
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.95)';
+      roundRect(ctx, 56, 82, 400, 348, 48);
+      ctx.fill();
+      ctx.restore();
+
+      const tex = new THREE.CanvasTexture(c);
+      return tex;
+    }
+
+    function createStudioDeskTexture() {
+      const c = document.createElement('canvas');
+      c.width = 1024;
+      c.height = 1024;
+      const ctx = c.getContext('2d');
+
+      const g = ctx.createRadialGradient(512, 512, 18, 512, 512, 512);
+      g.addColorStop(0, '#141c2b');
+      g.addColorStop(0.38, '#0b1019');
+      g.addColorStop(0.75, '#060911');
+      g.addColorStop(1, '#05070d');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 1024, 1024);
+
+      // Subtle architectural grid rings on the dark studio pedestal
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.07)';
+      ctx.lineWidth = 1.5;
+      [140, 220, 310].forEach(r => {
+        ctx.beginPath();
+        ctx.arc(512, 512, r, 0, Math.PI * 2);
+        ctx.stroke();
+      });
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.encoding = THREE.sRGBEncoding;
+      tex.anisotropy = 8;
+      return tex;
+    }
+
+    /* ============================================================
+       5. INITIALIZE THREE.JS SCENE, STUDIO PEDESTAL & .GLB MACBOOK
+       ============================================================ */
+    const stageEl = document.getElementById('dk-hero-stage');
+    const canvas = document.getElementById('dk-webgl-canvas');
+    const figSvg = document.getElementById('fig');
+
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      alpha: false,
+      preserveDrawingBuffer: true,
+      powerPreference: 'high-performance',
+    });
+    renderer.setPixelRatio(2);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.physicallyCorrectLights = true;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.06;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x05070d);
+    scene.fog = new THREE.FogExp2(0x05070d, 0.025);
+    scene.environment = buildStudioEnvironment(renderer);
+
+    const camera = new THREE.PerspectiveCamera(34, 1080 / 555, 0.1, 100);
+
+    // Controlled studio key & grazing rim lights so keycaps & CNC bevels pop without washing out aluminum
+    const hemiLight = new THREE.HemisphereLight(0x94a3b8, 0x05070d, 0.24);
+    scene.add(hemiLight);
+
+    const keyLight = new THREE.DirectionalLight(0xfff7ed, 1.55);
+    keyLight.position.set(-5.5, 9.0, 7.0);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.width = 2048;
+    keyLight.shadow.mapSize.height = 2048;
+    keyLight.shadow.camera.near = 1.0;
+    keyLight.shadow.camera.far = 26.0;
+    const d = 6.5;
+    keyLight.shadow.camera.left = -d;
+    keyLight.shadow.camera.right = d;
+    keyLight.shadow.camera.top = d;
+    keyLight.shadow.camera.bottom = -d;
+    keyLight.shadow.bias = -0.0005;
+    scene.add(keyLight);
+
+    const coolRimLight = new THREE.DirectionalLight(0x38bdf8, 1.45);
+    coolRimLight.position.set(7.5, 3.8, -5.5);
+    scene.add(coolRimLight);
+
+    const frontEdgeLight = new THREE.PointLight(0xe2e8f0, 1.45, 14);
+    frontEdgeLight.position.set(-1.5, 1.2, 6.2);
+    scene.add(frontEdgeLight);
+
+    // Wide Dark Obsidian Studio Surface at y = 0 (no artificial cylinder horizon cutoff)
+    const deskGeo = new THREE.CylinderGeometry(18.0, 18.5, 0.36, 72);
+    const deskMat = new THREE.MeshPhysicalMaterial({
+      map: createStudioDeskTexture(),
+      color: new THREE.Color(0x080b12),
+      roughness: 0.78,
+      metalness: 0.08,
+      clearcoat: 0.04,
+      clearcoatRoughness: 0.45,
+      envMapIntensity: 0.18,
+    });
+    const deskMesh = new THREE.Mesh(deskGeo, deskMat);
+    deskMesh.position.set(0, -0.18, -0.2);
+    deskMesh.receiveShadow = true;
+    scene.add(deskMesh);
+
+    // Contact shadow plane directly under the MacBook's 4 rubber feet (y = 0.002)
+    const contactShadowMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(7.4, 5.3),
+      new THREE.MeshBasicMaterial({
+        map: createContactShadowTexture(),
+        transparent: true,
+        opacity: 0.94,
+        depthWrite: false,
+      })
+    );
+    contactShadowMesh.rotation.x = -Math.PI / 2;
+    contactShadowMesh.position.set(0, 0.002, -0.12);
+    scene.add(contactShadowMesh);
+
+    // Subtle Studio Pedestal Emerald Pulse Ring (lights up on Stripe Paid Cha-Ching!)
+    const ringGeo = new THREE.RingGeometry(3.85, 4.02, 64);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0x10b981,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.0,
+    });
+    const studioRingMesh = new THREE.Mesh(ringGeo, ringMat);
+    studioRingMesh.rotation.x = -Math.PI / 2;
+    studioRingMesh.position.set(0, 0.004, -0.15);
+    scene.add(studioRingMesh);
+
+    // Screen Canvas Texture (1600x1040)
+    const screenSurface = createMacBookScreenSurface(renderer);
+
+    // Load the M-Series MacBook Pro .glb from window.SHAHDIN_MAC_GLB_B64
+    let macHingeNode = null;
+    let macGlbReady = false;
+
+    function decodeBase64ToArrayBuffer(b64) {
+      const binStr = window.atob(b64);
+      const len = binStr.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binStr.charCodeAt(i);
+      }
+      return bytes.buffer;
+    }
+
+    function loadMacBookGlb() {
+      if (!window.SHAHDIN_MAC_GLB_B64 || !window.THREE || !THREE.GLTFLoader) {
+        document.documentElement.setAttribute('data-errors', 'missing-glb-or-loader');
+        return;
+      }
+      const glbBuffer = decodeBase64ToArrayBuffer(window.SHAHDIN_MAC_GLB_B64);
+      const loader = new THREE.GLTFLoader();
+      loader.parse(
+        glbBuffer,
+        '',
+        gltf => {
+          const root = gltf.scene;
+          // Rule 1: Scale & Ground Offset so rubber feet rest cleanly on y = 0
+          const scale = 6.2 / 31.461;
+          root.scale.set(scale, scale, scale);
+          root.position.set(0, 1.2713 * scale, 0);
+
+          const maxAniso = renderer.capabilities.getMaxAnisotropy();
+
+          // Map canonical mesh references (back_1, back_2, body_1, body_2, matte)
+          const meshes = {};
+          root.traverse(obj => {
+            if (obj.name === 'screen') {
+              macHingeNode = obj;
+            }
+            if (!obj.isMesh) return;
+            const matName = (obj.material && obj.material.name) || '';
+            let inScreenLid = false;
+            let p = obj.parent;
+            while (p) {
+              if (p.name === 'screen') {
+                inScreenLid = true;
+                break;
+              }
+              p = p.parent;
+            }
+            if (matName === 'matte' || obj.name === 'matte') {
+              meshes.matte = obj;
+            } else if (matName === 'aluminium') {
+              if (inScreenLid) meshes.back_2 = obj;
+              else meshes.body_1 = obj;
+            } else if (matName === 'blackmatte') {
+              if (inScreenLid) meshes.back_1 = obj;
+              else meshes.body_2 = obj;
+            }
+          });
+
+          // Rule 3: Preserve Embedded 114 KB Micro-Brushed Normal Map on meshes.back_2 & meshes.body_1
+          const origNormalMap =
+            (meshes.back_2 && meshes.back_2.material && meshes.back_2.material.normalMap) ||
+            (meshes.body_1 && meshes.body_1.material && meshes.body_1.material.normalMap) ||
+            null;
+          if (origNormalMap) {
+            origNormalMap.anisotropy = maxAniso;
+          }
+
+          // Space-Silver / Titanium Anodized Aluminum (Rule 3 PBR specification)
+          const matAnodizedAluminum = new THREE.MeshPhysicalMaterial({
+            color: new THREE.Color(0x8a909a),
+            metalness: 0.88,
+            roughness: 0.22,
+            normalMap: origNormalMap,
+            normalScale: new THREE.Vector2(0.4, 0.4),
+            clearcoat: 0.15,
+            clearcoatRoughness: 0.20,
+            envMapIntensity: 1.5,
+          });
+
+          // Rule 4A: Matte Charcoal PBT Keycap Dielectric (meshes.body_2 — 78 3D keycaps, speaker grilles, ports, feet)
+          const matKeycaps = new THREE.MeshPhysicalMaterial({
+            color: new THREE.Color(0x0b0d13),
+            metalness: 0.08,
+            roughness: 0.48,
+            clearcoat: 0.12,
+            clearcoatRoughness: 0.25,
+            envMapIntensity: 0.55,
+          });
+
+          // Rule 4B: Glossy Obsidian Bezel Glass & 3D Lid Apple Logo (meshes.back_1)
+          const matBezelGlass = new THREE.MeshPhysicalMaterial({
+            color: new THREE.Color(0x05070c),
+            metalness: 0.22,
+            roughness: 0.08,
+            clearcoat: 0.92,
+            clearcoatRoughness: 0.06,
+            envMapIntensity: 0.55,
+            side: THREE.DoubleSide,
+          });
+
+          // Rule 5: Retina Display — Emissive Clearcoat Glass (meshes.matte, Zero Diffuse Washout)
+          const matRetinaScreen = new THREE.MeshPhysicalMaterial({
+            color: new THREE.Color(0x020305),
+            emissive: new THREE.Color(0xffffff),
+            emissiveMap: screenSurface.texture,
+            emissiveIntensity: 1.0,
+            roughness: 0.12,
+            metalness: 0.0,
+            clearcoat: 0.45,
+            clearcoatRoughness: 0.08,
+            envMapIntensity: 0.35,
+          });
+
+          if (meshes.back_2) meshes.back_2.material = matAnodizedAluminum;
+          if (meshes.body_1) meshes.body_1.material = matAnodizedAluminum;
+          if (meshes.body_2) meshes.body_2.material = matKeycaps;
+          if (meshes.back_1) meshes.back_1.material = matBezelGlass;
+          if (meshes.matte) meshes.matte.material = matRetinaScreen;
+
+          root.traverse(obj => {
+            if (!obj.isMesh) return;
+            obj.castShadow = true;
+            obj.receiveShadow = true;
+          });
+
+          scene.add(root);
+          macGlbReady = true;
+          renderCurrentFrame();
+        },
+        err => {
+          document.documentElement.setAttribute('data-errors', 'gltf-parse-error:' + String(err));
+        }
+      );
+    }
+
+    /* ============================================================
+       6. SOLO MACBOOK PRO CAMERA CHOREOGRAPHY (t = 0.00 -> 1.00)
+          Mathematically verified bounds: y = 66..528px on 1080x555 desktop
+          and y = 78..354px on 390x844 mobile — zero clipping, zero HUD overlap!
+       ============================================================ */
+    const CAM_KEYFRAMES = [
+      // t = 0.00: Dramatic three-quarter studio close-up of the full closed MacBook Pro
+      // showing CNC edges, front thumb scoop, left MagSafe/Thunderbolt ports, and 3D glossy obsidian lid Apple logo
+      { t: 0.00, pos: [-3.35, 3.15, 7.15], look: [0.0, 0.22, -0.15] },
+      // t = 0.22 -> 0.45: Hero three-quarter angle framing all 78 sculpted 3D keycaps, front thumb notch,
+      // and the full Liquid Retina display showing template-store Product Page & Add to Cart (probed at t = 0.35)
+      { t: 0.22, pos: [-2.35, 4.52, 10.75], look: [0.0, 1.82, -0.45] },
+      { t: 0.45, pos: [-2.05, 4.42, 10.45], look: [0.0, 1.82, -0.46] },
+      // t = 0.52 -> 0.70: Subtle right three-quarter angle for /cart & Checkout with Stripe (probed at t = 0.60)
+      { t: 0.52, pos: [1.65, 4.38, 10.45], look: [0.0, 1.82, -0.48] },
+      { t: 0.70, pos: [1.45, 4.34, 10.30], look: [0.0, 1.82, -0.48] },
+      // t = 0.84 -> 1.00: Hero showcase angle for Stripe Paid + Cha-Ching! $$$ · ORDER #DK-402 (probed at t = 0.92)
+      // with clean headroom above the top Retina bezel for the floating glassmorphic Cha-Ching toast badge
+      { t: 0.84, pos: [-1.50, 4.45, 10.65], look: [0.0, 1.84, -0.48] },
+      { t: 1.00, pos: [-1.50, 4.45, 10.65], look: [0.0, 1.84, -0.48] },
+    ];
+
+    function computeGuidedCamera(t, orbitYawOffset, orbitPitchOffset) {
+      let k0 = CAM_KEYFRAMES[0];
+      let k1 = CAM_KEYFRAMES[CAM_KEYFRAMES.length - 1];
+      for (let i = 0; i < CAM_KEYFRAMES.length - 1; i++) {
+        if (t >= CAM_KEYFRAMES[i].t && t <= CAM_KEYFRAMES[i + 1].t) {
+          k0 = CAM_KEYFRAMES[i];
+          k1 = CAM_KEYFRAMES[i + 1];
+          break;
+        }
+      }
+      const u = easeInOut(sub(t, k0.t, Math.max(k0.t + 1e-5, k1.t)));
+      const px = lerp(k0.pos[0], k1.pos[0], u);
+      const py = lerp(k0.pos[1], k1.pos[1], u);
+      const pz = lerp(k0.pos[2], k1.pos[2], u);
+      const lx = lerp(k0.look[0], k1.look[0], u);
+      const ly = lerp(k0.look[1], k1.look[1], u);
+      const lz = lerp(k0.look[2], k1.look[2], u);
+
+      // Portrait mobile distance scale so the full MacBook Pro fits 390x844 cleanly
+      const aspectScale = camera.aspect < 0.92 ? 1.24 : 1.0;
+      const dx = (px - lx) * aspectScale;
+      const dy = (py - ly) * aspectScale;
+      const dz = (pz - lz) * aspectScale;
+      const cosY = Math.cos(orbitYawOffset);
+      const sinY = Math.sin(orbitYawOffset);
+      const rx = dx * cosY + dz * sinY;
+      const rz = -dx * sinY + dz * cosY;
+      const ry = clamp(dy + orbitPitchOffset * 2.8, 0.8, 12.0);
+
+      camera.position.set(lx + rx, ly + ry, lz + rz);
+      camera.lookAt(lx, ly, lz);
+    }
+
+    /* ============================================================
+       7. UPDATE SCENE & SYNCHRONIZED STUDIO SVG HUD (#fig)
+       ============================================================ */
+    function updateSceneAtTime(K, orbitYaw, orbitPitch, stageW, stageH) {
+      if (macHingeNode) {
+        macHingeNode.rotation.x = K.hingeRotX;
+      }
+      updateMacBookScreen(screenSurface, K);
+
+      // Subtle emerald studio ring glow on pedestal when payment is approved
+      ringMat.opacity = K.studioRingGlow * 0.65;
+      const ringScale = 1.0 + K.studioRingGlow * 0.04;
+      studioRingMesh.scale.set(ringScale, ringScale, 1);
+
+      computeGuidedCamera(K.t, orbitYaw, orbitPitch);
+      updateHudSvg(K, stageW, stageH);
+    }
+
+    function updateHudSvg(K, stageW = 1080, stageH = 555) {
+      if (!figSvg) return;
+      const W = Math.max(300, Math.round(stageW));
+      const H = Math.max(300, Math.round(stageH));
+      figSvg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+      figSvg.setAttribute('preserveAspectRatio', 'none');
+
+      const isCompact = W < 560;
+      const t = K.t;
+
+      let stepBadge = 'AT REST · CLOSED M-SERIES MACBOOK PRO (.GLB)';
+      let stepSub = '29,287 Triangles · 3D Obsidian Apple Logo · HDR Softbox Reflections';
+      let accent = '#38bdf8';
+
+      if (t >= 0.02 && t < 0.25) {
+        stepBadge = isCompact
+          ? 'BEAT 1 · PLAYGROUND.DINKUSKIT.COM CATALOG'
+          : 'BEAT 1 · LID HINGES OPEN → PLAYGROUND.DINKUSKIT.COM CATALOG SCROLL';
+        stepSub = 'Everyday essentials, clearly presented → Clicking Heavyweight T-Shirt ($32.00)';
+        accent = '#3b82f6';
+      } else if (t >= 0.25 && t < 0.46) {
+        stepBadge = isCompact
+          ? 'BEAT 2 · /PRODUCTS/DEMO-SHIRT ($32.00)'
+          : 'BEAT 2 · PLAYGROUND.DINKUSKIT.COM/PRODUCTS/DEMO-SHIRT';
+        stepSub = K.isAddedToCart
+          ? '✓ Added to cart. · Cart 1 · Dinkus Demo Heavyweight T-Shirt ($32.00)'
+          : 'Dinkus Demo Heavyweight T-Shirt ($32.00) · Clicking Add to cart';
+        accent = K.isAddedToCart ? '#10b981' : '#3b82f6';
+      } else if (t >= 0.46 && t < 0.64) {
+        stepBadge = isCompact
+          ? 'BEAT 3 · /CART → PROCEED TO CHECKOUT'
+          : 'BEAT 3 · PLAYGROUND.DINKUSKIT.COM/CART → PROCEED TO CHECKOUT';
+        stepSub = 'Dinkus Demo Heavyweight T-Shirt ($32.00) + $5.00 Flat Shipping = $37.00';
+        accent = '#6366f1';
+      } else if (t >= 0.64 && t < 0.83) {
+        stepBadge = isCompact
+          ? 'BEAT 4A · STRIPE SANDBOX CHECKOUT ($37.00)'
+          : 'BEAT 4A · CHECKOUT.STRIPE.COM · DINKUSKIT-PLAYGROUND [SANDBOX]';
+        stepSub = 'Visa 4242 4242 4242 4242 · Alex Rivera · Clicking Pay $37.00 🔒';
+        accent = '#10b981';
+      } else if (t >= 0.83) {
+        stepBadge = isCompact
+          ? '$$$ · CHA-CHING! · ORDER #A026B032 PAID'
+          : 'BEAT 4B · ORDER CONFIRMED · ORDER #A026B032 [TEST] ($37.00)';
+        stepSub = 'Synthesized Cash-Register Chime · Visa •••• 4242 · Dinkus Commerce Confirmed';
+        accent = '#10b981';
+      }
+
+      const padX = isCompact ? 12 : 24;
+      const railW = W - padX * 2;
+      const barW = Math.max(8, Math.round(t * railW));
+      const railY = H - (isCompact ? 16 : 20);
+
+      // Prompt pill at rest (t < 0.03)
+      let bottomPromptPill = '';
+      if (t < 0.03) {
+        const cw = Math.min(W - 24, isCompact ? 340 : 430);
+        const cx = Math.round((W - cw) / 2);
+        const cy = H - (isCompact ? 62 : 68);
+        bottomPromptPill = `
+          <g transform="translate(${cx}, ${cy})">
+            <rect x="0" y="0" width="${cw}" height="38" rx="19" fill="#0f172a" fill-opacity="0.90" stroke="#38bdf8" stroke-width="1.8"/>
+            <circle cx="22" cy="19" r="5.5" fill="#10b981"/>
+            <text x="${Math.round(cw / 2 + 8)}" y="24" text-anchor="middle" fill="#f8fafc" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="${isCompact ? 10.5 : 13}" font-weight="800">Click MacBook to Open &amp; Complete a Purchase</text>
+          </g>
+        `;
+      }
+
+      // Sleek studio-grade floating glassmorphic "$$$ · CHA-CHING! · ORDER #A026B032 PAID ($37.00)" toast badge above the MacBook (Beat 4B, t >= 0.83)
+      const pillW = !isCompact && K.chaChingPop > 0.01 ? 228 : Math.min(460, W - 260);
+      const rightW = !isCompact && K.chaChingPop > 0.01 ? 188 : 208;
+      const rightX = W - rightW - 16;
+      let chaChingToast = '';
+      if (K.chaChingPop > 0.01) {
+        const pop = clamp(K.chaChingPop, 0, 1.08);
+        const leftEnd = 16 + pillW;
+        const availGap = rightX - leftEnd - 20;
+        const tw = isCompact ? Math.min(W - 18, 348) : clamp(availGap, 340, 488);
+        const th = isCompact ? 36 : 42;
+        const idealTx = Math.round((W - tw) / 2);
+        const tx = isCompact
+          ? idealTx
+          : clamp(idealTx, leftEnd + 10, Math.max(leftEnd + 10, rightX - tw - 10));
+        // On desktop (W >= 560) float at y=10 above the MacBook; on compact mobile float cleanly at y=H-60 above the timeline rail
+        const ty = (isCompact ? H - 60 : 10) + Math.round((1 - Math.min(1, pop)) * 8);
+        const badgeW = isCompact ? 42 : tw < 430 ? 50 : 62;
+        const mainFont = isCompact ? 9.8 : tw < 430 ? 11 : 13;
+        chaChingToast = `
+          <g transform="translate(${tx}, ${ty})">
+            <rect x="0" y="0" width="${tw}" height="${th}" rx="${Math.round(th / 2)}" fill="#064e3b" fill-opacity="0.95" stroke="#34d399" stroke-width="2.2"/>
+            <rect x="6" y="5" width="${badgeW}" height="${th - 10}" rx="${Math.round((th - 10) / 2)}" fill="#10b981"/>
+            <text x="${6 + Math.round(badgeW / 2)}" y="${isCompact ? 23 : 26}" text-anchor="middle" fill="#022c22" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="${isCompact ? 11 : 13}" font-weight="900">$$$</text>
+            <text x="${Math.round((tw + badgeW + 8) / 2)}" y="${isCompact ? 23 : 26}" text-anchor="middle" fill="#fef08a" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="${mainFont}" font-weight="900">CHA-CHING! · ORDER #A026B032 PAID ($37.00)</text>
+          </g>
+        `;
+      }
+
+      if (isCompact) {
+        figSvg.innerHTML = `
+          <g id="art">
+            <rect x="10" y="8" width="${W - 20}" height="42" rx="10" fill="#0f172a" fill-opacity="0.84" stroke="${accent}" stroke-width="1.5"/>
+            <circle cx="24" cy="23" r="4.5" fill="${accent}"/>
+            <text x="36" y="27" fill="#f8fafc" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="800">${stepBadge}</text>
+            <text x="36" y="42" fill="#94a3b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="700">29.3K-TRI .GLB · t=${f(t)}</text>
+            ${chaChingToast}
+            ${bottomPromptPill}
+            <rect x="${padX}" y="${railY}" width="${railW}" height="7" rx="3.5" fill="#1e293b" fill-opacity="0.88"/>
+            <rect x="${padX}" y="${railY}" width="${barW}" height="7" rx="3.5" fill="${accent}"/>
+            <circle cx="${padX}" cy="${railY + 3.5}" r="3.5" fill="#f8fafc"/>
+            <circle cx="${Math.round(padX + railW * 0.35)}" cy="${railY + 3.5}" r="3.5" fill="#f8fafc"/>
+            <circle cx="${Math.round(padX + railW * 0.60)}" cy="${railY + 3.5}" r="3.5" fill="#f8fafc"/>
+            <circle cx="${Math.round(padX + railW * 0.92)}" cy="${railY + 3.5}" r="3.5" fill="#f8fafc"/>
+          </g>
+        `;
+      } else {
+        // When chaChingToast is centered at top (y=10), keep top-left pill compact so it never collides with the centered toast
+        const leftBadgeText = K.chaChingPop > 0.01 ? 'BEAT 4B · STRIPE SANDBOX' : stepBadge;
+        const leftSubText = K.chaChingPop > 0.01 ? 'Visa •••• 4242 · Order Confirmed' : stepSub;
+        figSvg.innerHTML = `
+          <g id="art">
+            <!-- Top-Left Studio Telemetry Pill -->
+            <rect x="16" y="10" width="${pillW}" height="42" rx="11" fill="#0f172a" fill-opacity="0.82" stroke="${accent}" stroke-width="1.5"/>
+            <circle cx="32" cy="24" r="4.5" fill="${accent}"/>
+            <text x="44" y="28" fill="#f8fafc" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10.5" font-weight="800">${leftBadgeText}</text>
+            <text x="44" y="43" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, Inter, sans-serif" font-size="10" font-weight="600">${leftSubText}</text>
+
+            <!-- Top-Right Asset & Timeline Badge -->
+            <rect x="${rightX}" y="11" width="${rightW}" height="34" rx="9" fill="#0f172a" fill-opacity="0.82" stroke="#334155" stroke-width="1.4"/>
+            <text x="${rightX + Math.round(rightW / 2)}" y="32" text-anchor="middle" fill="#38bdf8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="800">MACBOOK .GLB · t=${f(t)}</text>
+
+            ${chaChingToast}
+            ${bottomPromptPill}
+
+            <!-- Bottom Timeline Progress Rail -->
+            <rect x="${padX}" y="${railY}" width="${railW}" height="7" rx="3.5" fill="#1e293b" fill-opacity="0.85"/>
+            <rect x="${padX}" y="${railY}" width="${barW}" height="7" rx="3.5" fill="${accent}"/>
+            <circle cx="${padX}" cy="${railY + 3.5}" r="3.5" fill="#f8fafc"/>
+            <circle cx="${Math.round(padX + railW * 0.35)}" cy="${railY + 3.5}" r="3.5" fill="#f8fafc"/>
+            <circle cx="${Math.round(padX + railW * 0.60)}" cy="${railY + 3.5}" r="3.5" fill="#f8fafc"/>
+            <circle cx="${Math.round(padX + railW * 0.92)}" cy="${railY + 3.5}" r="3.5" fill="#f8fafc"/>
+          </g>
+        `;
+      }
+    }
+
+    /* ============================================================
+       8. DOM STATUS BAR, INTERACTION & URL SCRUB (?t=... & ?vw=...)
+       ============================================================ */
+    function syncDomStatus(K) {
+      const pill = document.getElementById('dk-hero-status');
+      const txt = document.getElementById('dk-status-text');
+      const c1 = document.getElementById('dk-st-cell-1');
+      const c2 = document.getElementById('dk-st-cell-2');
+      const c3 = document.getElementById('dk-st-cell-3');
+      const c4 = document.getElementById('dk-st-cell-4');
+
+      const t = K.t;
+      if (c1 && c2 && c3 && c4) {
+        c1.classList.toggle('star', t < 0.25);
+        c2.classList.toggle('star', t >= 0.25 && t < 0.46);
+        c3.classList.toggle('star', t >= 0.46 && t < 0.83);
+        c4.classList.toggle('star', t >= 0.83);
+      }
+
+      if (!pill || !txt) return;
+      if (t < 0.03) {
+        pill.setAttribute('data-phase', 'rest');
+        txt.textContent = 'Click MacBook to Open & Complete a Purchase';
+      } else if (t < 0.25) {
+        pill.setAttribute('data-phase', 'storefront');
+        txt.textContent = 'Beat 1 · playground.dinkuskit.com · Scrolling to Catalog & Clicking Shirt ($32.00)';
+      } else if (t < 0.46) {
+        pill.setAttribute('data-phase', 'storefront');
+        txt.textContent = K.isAddedToCart
+          ? 'Beat 2 · /products/demo-shirt · ✓ Added to cart. · Cart 1 ($32.00)'
+          : 'Beat 2 · /products/demo-shirt · Clicking Add to cart ($32.00)';
+      } else if (t < 0.64) {
+        pill.setAttribute('data-phase', 'cart');
+        txt.textContent = 'Beat 3 · /cart · Subtotal $32.00 → Proceed to Checkout';
+      } else if (t < 0.83) {
+        pill.setAttribute('data-phase', 'cart');
+        txt.textContent = 'Beat 4A · Stripe Sandbox Checkout · Visa •••• 4242 · Pay $37.00';
+      } else {
+        pill.setAttribute('data-phase', 'paid');
+        txt.textContent = '$$$ · CHA-CHING! · ORDER #A026B032 PAID ($37.00) · Click to Replay';
+      }
+    }
+
+    // Apply ?vw=390 constraint BEFORE measuring stage bounding rect so headless Chrome mobile probe fits 390px
+    const q = new URLSearchParams(window.location.search);
+    if (q.has('vw')) {
+      const vwNum = parseInt(q.get('vw'), 10);
+      if (vwNum > 0) {
+        document.documentElement.style.maxWidth = vwNum + 'px';
+        document.body.style.maxWidth = vwNum + 'px';
+        if (vwNum <= 640) {
+          document.body.classList.add('is-mobile-vw');
+        }
+      }
+    }
+
+    let currentT = 0.0;
+    if (q.has('t')) {
+      currentT = clamp01(parseFloat(q.get('t')) || 0);
+    } else if (q.has('press')) {
+      const pressRaw = String(q.get('press') || '');
+      const tMatch = pressRaw.match(/t=([0-9.]+)/);
+      currentT = tMatch ? clamp01(parseFloat(tMatch[1]) || 0.92) : 0.92;
+    }
+    let animId = 0;
+    let orbitYaw = 0.0;
+    let orbitPitch = 0.0;
+    if (q.has('yaw')) {
+      const yVal = parseFloat(q.get('yaw')) || 0;
+      orbitYaw = clamp(Math.abs(yVal) > 1.5 ? (yVal * Math.PI) / 180 : yVal, -0.85, 0.85);
+    }
+    if (q.has('pitch')) {
+      const pVal = parseFloat(q.get('pitch')) || 0;
+      orbitPitch = clamp(Math.abs(pVal) > 1.5 ? (pVal * Math.PI) / 180 : pVal, -0.45, 0.65);
+    }
+
+    function renderCurrentFrame() {
+      const rect = stageEl.getBoundingClientRect();
+      const w = Math.max(300, Math.round(rect.width || 1080));
+      const h = Math.max(300, Math.round(rect.height || 555));
+      if (canvas.width !== w * 2 || canvas.height !== h * 2) {
+        renderer.setSize(w, h, false);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+      }
+      const K = deriveKinematics(currentT);
+      updateSceneAtTime(K, orbitYaw, orbitPitch, w, h);
+      syncDomStatus(K);
+      renderer.render(scene, camera);
+    }
+
+    function playFullAnimation() {
+      unlockAudio();
+      chaChingPlayedInRun = false;
+      const runId = ++animId;
+      const durationMs = 7500;
+      const startTime = performance.now();
+      currentT = 0.0;
+      orbitYaw = 0.0;
+      orbitPitch = 0.0;
+      renderCurrentFrame();
+
+      function tick(now) {
+        if (runId !== animId) return;
+        const elapsed = now - startTime;
+        currentT = clamp01(elapsed / durationMs);
+        if (!chaChingPlayedInRun && currentT >= 0.83) {
+          chaChingPlayedInRun = true;
+          playChaChing();
+        }
+        renderCurrentFrame();
+        if (currentT < 1.0) {
+          requestAnimationFrame(tick);
+        }
+      }
+      requestAnimationFrame(tick);
+    }
+
+    // Pointer Drag Orbit + 1-Click Trigger
+    let isDragging = false;
+    let downX = 0, downY = 0;
+    let movedDist = 0;
+
+    stageEl.addEventListener('pointerdown', e => {
+      isDragging = true;
+      downX = e.clientX;
+      downY = e.clientY;
+      movedDist = 0;
+      try {
+        stageEl.setPointerCapture(e.pointerId);
+      } catch (_) {}
+    });
+
+    stageEl.addEventListener('pointermove', e => {
+      if (!isDragging) return;
+      const dx = e.clientX - downX;
+      const dy = e.clientY - downY;
+      movedDist += Math.hypot(dx, dy);
+      downX = e.clientX;
+      downY = e.clientY;
+      if (movedDist > 6) {
+        orbitYaw = clamp(orbitYaw - dx * 0.0055, -0.85, 0.85);
+        orbitPitch = clamp(orbitPitch + dy * 0.004, -0.45, 0.65);
+        renderCurrentFrame();
+      }
+    });
+
+    const endDrag = e => {
+      if (!isDragging) return;
+      isDragging = false;
+      if (e && e.pointerId != null) {
+        try {
+          stageEl.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+      }
+      if (movedDist <= 6) {
+        playFullAnimation();
+      }
+    };
+    stageEl.addEventListener('pointerup', endDrag);
+    stageEl.addEventListener('pointercancel', () => { isDragging = false; });
+
+    const statusPill = document.getElementById('dk-hero-status');
+    if (statusPill) {
+      statusPill.addEventListener('click', () => playFullAnimation());
+    }
+
+    document.querySelectorAll('.dk-station-cell[data-jump-t]').forEach(cell => {
+      cell.addEventListener('click', () => {
+        animId++;
+        orbitYaw = 0.0;
+        orbitPitch = 0.0;
+        const targetT = parseFloat(cell.getAttribute('data-jump-t')) || 0;
+        currentT = clamp01(targetT);
+        if (currentT >= 0.83) {
+          playChaChing();
+        }
+        renderCurrentFrame();
+      });
+    });
+
+    window.addEventListener('resize', () => renderCurrentFrame());
+    initPlaygroundScreens(() => {
+      screenSurface.lastT = -1;
+      renderCurrentFrame();
+    });
+    renderCurrentFrame();
+    loadMacBookGlb();
+  })();
+  </script>
+</body>
+</html>
