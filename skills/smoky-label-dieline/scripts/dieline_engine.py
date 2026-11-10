@@ -303,11 +303,26 @@ def normalize_and_encode_upca(code: str) -> tuple[str, str]:
     return digits, bits
 
 
-GS1_UPCA_MIN_X_IN = 0.0104
+GS1_UPCA_NOMINAL_X_IN = 0.0130
+GS1_UPCA_NOMINAL_BAR_HEIGHT_IN = 0.90
+GS1_UPCA_BAR_HEIGHT_MODULES = GS1_UPCA_NOMINAL_BAR_HEIGHT_IN / GS1_UPCA_NOMINAL_X_IN  # 69.23077X fixed aspect ratio
+GS1_UPCA_MIN_X_IN = 0.0104  # 80% magnification X-dimension
+GS1_UPCA_MAX_X_IN = 0.0260  # 200% magnification X-dimension
 GS1_UPCA_MODULES_TOTAL = 113  # 9X left quiet + 95X symbol + 9X right quiet
 GS1_UPCA_MIN_WIDTH_IN = GS1_UPCA_MODULES_TOTAL * GS1_UPCA_MIN_X_IN  # 1.1752 in (84.6144 pt)
+GS1_UPCA_MAX_WIDTH_IN = GS1_UPCA_MODULES_TOTAL * GS1_UPCA_MAX_X_IN  # 2.9380 in (211.536 pt)
 GS1_UPCA_MIN_BAR_HEIGHT_IN = 0.72  # GS1 80% minimum retail bar height (51.84 pt)
 QR_MIN_QUIET_MODULES = 4.0  # ISO/IEC 18004 / DENSO Wave 4-module quiet zone
+
+
+def min_retail_upca_box_height_pt(w_pt: float, bg_pad: float = 2.0) -> float:
+    """Computes the exact minimum outer box height (in points) needed for GS1 non-truncated bar height at width `w_pt`."""
+    mod_w = w_pt / float(GS1_UPCA_MODULES_TOTAL)
+    req_bar_pt = max(inch(GS1_UPCA_MIN_BAR_HEIGHT_IN), mod_w * GS1_UPCA_BAR_HEIGHT_MODULES)
+    base_pt = req_bar_pt + 2.0 * bg_pad
+    # Account for `text_h = min(5.2, max(4.2, h_pt * 0.09))` in `validate_upca_box`:
+    h_pt = max(base_pt + 4.2, min(base_pt + 5.2, base_pt / 0.91))
+    return h_pt + 0.05
 
 
 def develop_conical_wrap(
@@ -705,13 +720,14 @@ def validate_upca_box(
     short_bar_h = bar_top_off - bar_bottom_short_off
     if not allow_non_retail_truncation:
         min_mod_pt = inch(GS1_UPCA_MIN_X_IN)
-        min_bar_pt = inch(GS1_UPCA_MIN_BAR_HEIGHT_IN)
-        if mod_w + 1e-6 < min_mod_pt or short_bar_h + 1e-6 < min_bar_pt:
+        max_mod_pt = inch(GS1_UPCA_MAX_X_IN)
+        req_bar_pt = max(inch(GS1_UPCA_MIN_BAR_HEIGHT_IN), mod_w * GS1_UPCA_BAR_HEIGHT_MODULES)
+        if mod_w + 1e-6 < min_mod_pt or mod_w - 1e-6 > max_mod_pt or short_bar_h + 1e-6 < req_bar_pt:
             raise ValueError(
-                f"Retail UPC-A box ({w_pt / PT_PER_INCH:.3f}\" x {h_pt / PT_PER_INCH:.3f}\") violates GS1 80% minimums: "
-                f"got X={mod_w / PT_PER_INCH:.4f}\" (min {GS1_UPCA_MIN_X_IN:.4f}\", total width >= {GS1_UPCA_MIN_WIDTH_IN:.4f}\") "
-                f"and bar_height={short_bar_h / PT_PER_INCH:.3f}\" (min {GS1_UPCA_MIN_BAR_HEIGHT_IN:.2f}\"). "
-                "Enlarge the barcode/panel, omit 'upc', or explicitly set allow_non_retail_truncation=True."
+                f"Retail UPC-A box ({w_pt / PT_PER_INCH:.3f}\" x {h_pt / PT_PER_INCH:.3f}\") violates GS1 fixed aspect-ratio sizing: "
+                f"got X={mod_w / PT_PER_INCH:.4f}\" (allowed {GS1_UPCA_MIN_X_IN:.4f}\"..{GS1_UPCA_MAX_X_IN:.4f}\") "
+                f"and bar_height={short_bar_h / PT_PER_INCH:.3f}\" (required >= {req_bar_pt / PT_PER_INCH:.3f}\" at this magnification). "
+                "Enlarge/adjust the barcode box, omit 'upc', or explicitly set allow_non_retail_truncation=True."
             )
     if mod_w <= 0 or short_bar_h <= 2.0:
         raise ValueError("UPC-A box dimensions are non-positive or degenerate")
@@ -2698,8 +2714,8 @@ def _plan_directions_upc_zone(
     allow_upc_trunc: bool,
     allow_side_by_side: bool = True,
 ) -> dict[str, Any]:
-    min_gs1_w = inch(GS1_UPCA_MIN_WIDTH_IN) + 1.4
-    min_gs1_h = inch(GS1_UPCA_MIN_BAR_HEIGHT_IN) + 10.2
+    min_gs1_w = inch(GS1_UPCA_MIN_WIDTH_IN) + 0.5
+    min_gs1_h = min_retail_upca_box_height_pt(min_gs1_w, bg_pad=2.0)
     copy_parts: list[str] = []
     if directions and directions.strip():
         copy_parts.append(directions.strip())
@@ -2757,11 +2773,23 @@ def _plan_directions_upc_zone(
                 f"cannot fit a GS1 80% retail UPC-A (>={GS1_UPCA_MIN_WIDTH_IN:.3f}\" W, >={GS1_UPCA_MIN_BAR_HEIGHT_IN:.2f}\" bar H) "
                 "without crossing safety or fold boundaries; enlarge panel, omit 'upc', or set allow_non_retail_upc_truncation=True."
             )
-        pref_w = min(104.0, max(min_gs1_w, w * 0.82), w)
-        pref_h = min(70.0, max(min_gs1_h, h * 0.30), h)
+        # Scale UPC-A width with available height so GS1 fixed aspect-ratio bar height never truncates!
+        max_w_by_h = float(GS1_UPCA_MODULES_TOTAL) * (
+            max(inch(GS1_UPCA_MIN_BAR_HEIGHT_IN), h - 4.0 - min(5.2, max(4.2, h * 0.09)) - 0.1)
+            / GS1_UPCA_BAR_HEIGHT_MODULES
+        )
+        max_retail_w = min(106.0, inch(GS1_UPCA_MAX_WIDTH_IN), w, max_w_by_h)
+        pref_w = max(min_gs1_w, min(w * 0.82, max_retail_w))
+        req_pref_h = min_retail_upca_box_height_pt(pref_w, bg_pad=2.0)
+        if req_pref_h > h + 1e-6:
+            pref_w = min_gs1_w
+            req_pref_h = min_gs1_h
+        pref_h = min(h, max(req_pref_h, min(76.0, h * 0.34)))
         stacked_cands = [(pref_w, pref_h)]
-        if pref_h > min_gs1_h + 0.5:
-            stacked_cands.append((pref_w, min_gs1_h))
+        if pref_h > req_pref_h + 0.5:
+            stacked_cands.append((pref_w, req_pref_h))
+        if pref_w > min_gs1_w + 0.5:
+            stacked_cands.append((min_gs1_w, min_gs1_h))
     else:
         tw = min(min_gs1_w, w * 0.92)
         th = min(min_gs1_h, max(22.0, h * 0.42))
@@ -2862,7 +2890,7 @@ def plan_panel_artwork_layout(
     use_smcbd_vec = _should_use_smcbd_vector(spec, has_smcbd_vec)
     allow_upc_trunc = bool(spec.get("allow_non_retail_upc_truncation", False))
     fda_text = _resolve_spec_disclaimer(spec)
-    min_gs1_w = inch(GS1_UPCA_MIN_WIDTH_IN) + 1.4
+    min_gs1_w = inch(GS1_UPCA_MIN_WIDTH_IN) + 0.5
 
     has_left_content = bool(has_qr or fda_text.strip())
     has_right_content = bool(upc or directions.strip() or ingredients.strip())

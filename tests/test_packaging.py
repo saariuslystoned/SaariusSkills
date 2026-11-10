@@ -1417,12 +1417,20 @@ exit "$1"
         mod = importlib.util.module_from_spec(spec_mod)
         spec_mod.loader.exec_module(mod)
 
-        # GS1 80% retail UPC-A minimum enforcement
+        # GS1 retail UPC-A minimum & fixed aspect-ratio bar-height enforcement (bar_h >= 69.23X)
         valid_upc = mod.validate_upca_box(86.0, 62.0, bg_pad=2.0)
         self.assertGreaterEqual(valid_upc["mod_w_pt"] / 72.0, 0.0104)
-        self.assertGreaterEqual(valid_upc["short_bar_h_pt"] / 72.0, 0.72)
+        self.assertGreaterEqual(valid_upc["short_bar_h_pt"], valid_upc["mod_w_pt"] * mod.GS1_UPCA_BAR_HEIGHT_MODULES - 1e-6)
         with self.assertRaises(ValueError):
             mod.validate_upca_box(70.0, 36.25, bg_pad=2.0)
+        with self.assertRaises(ValueError):
+            # 104pt width (X=0.01278") requires >= 0.885" (63.7pt) bars, so 62pt outer box is truncated and rejected!
+            mod.validate_upca_box(104.0, 62.0, bg_pad=2.0)
+        wide_upc_panel = mod.DielinePanel("wide_upc", "rect", cx=400.0, cy=300.0, width_in=7.5, height_in=3.0)
+        wide_upc_plan = mod.plan_panel_artwork_layout(wide_upc_panel, {"product_name": "WIDE WRAP", "upc": "850043413028"})
+        w_ux, w_uy, w_uw, w_uh = wide_upc_plan["upc_rect"]
+        wide_upc_metrics = mod.validate_upca_box(w_uw, w_uh, bg_pad=2.0)
+        self.assertGreaterEqual(wide_upc_metrics["short_bar_h_pt"], wide_upc_metrics["mod_w_pt"] * mod.GS1_UPCA_BAR_HEIGHT_MODULES - 1e-6)
 
         # ISO/IEC 18004 4-module QR quiet zone
         qr_layout = mod.compute_qr_layout(40.0, 25, quiet_modules=4.0)
