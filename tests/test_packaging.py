@@ -1448,6 +1448,13 @@ exit "$1"
         # Midpoint of outer arc is at index 32; midpoint of inner arc is at index 65 + 32 = 97
         self.assertAlmostEqual(pts_b[32][1] - pts_0[32][1], 9.0, places=5)
         self.assertAlmostEqual(pts_0[97][1] - pts_b[97][1], 9.0, places=5)
+        cbx0, cby0, cbw, cbh = cp.offset_bbox(9.0)
+        self.assertGreater(cbw, cp.w + 18.0 + 2.0)  # acute radial miter corners protrude past trim_w + 2*bleed
+        for px, py in pts_b:
+            self.assertGreaterEqual(px, cbx0 - 1e-6)
+            self.assertLessEqual(px, cbx0 + cbw + 1e-6)
+            self.assertGreaterEqual(py, cby0 - 1e-6)
+            self.assertLessEqual(py, cby0 + cbh + 1e-6)
 
         # Flat prism trapezoid normal offset
         tp = mod.DielinePanel(
@@ -1466,6 +1473,13 @@ exit "$1"
         nx, ny = dy / edge_len, -dx / edge_len
         perp_dist = (vb[1][0] - v0[1][0]) * nx + (vb[1][1] - v0[1][1]) * ny
         self.assertAlmostEqual(perp_dist, 9.0, places=5)
+        tbx0, tby0, tbw, tbh = tp.offset_bbox(9.0)
+        self.assertGreater(tbw, max(tp.w, tp.top_w) + 18.0 + 1.0)
+        for px, py in vb:
+            self.assertGreaterEqual(px, tbx0 - 1e-6)
+            self.assertLessEqual(px, tbx0 + tbw + 1e-6)
+            self.assertGreaterEqual(py, tby0 - 1e-6)
+            self.assertLessEqual(py, tby0 + tbh + 1e-6)
 
         # Square `rect` vs `rounded_rect` corner defaults
         sq_rect = mod.DielinePanel("sq", "rect", cx=200.0, cy=200.0, width_in=4.0, height_in=2.0)
@@ -1620,6 +1634,39 @@ exit "$1"
                 bad_rep = mod.verify_dieline_pdf(rgb_pdf)
                 self.assertFalse(bad_rep["preflight_pass"])
                 self.assertFalse(bad_rep["cmyk_only_no_rgb"])
+
+                # Uncompressed (unfiltered) page streams must still be inspected for RGB and >300% CMYK TAC
+                uncompressed_rgb_pdf = tmp_root / "uncompressed_rgb.pdf"
+                uncompressed_rgb_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"12 0 obj << /Filter /FlateDecode >>\nstream\n" + stream_body + b"\nendstream",
+                        b"12 0 obj << /Length 58 >>\nstream\nq /OC /LayerArtwork BDC 0.2 0.4 0.8 rg /GSOverprint gs EMC Q\nendstream",
+                    )
+                )
+                unc_rgb_rep = mod.verify_dieline_pdf(uncompressed_rgb_pdf)
+                self.assertFalse(unc_rgb_rep["preflight_pass"])
+                self.assertFalse(unc_rgb_rep["cmyk_only_no_rgb"])
+
+                uncompressed_tac_pdf = tmp_root / "uncompressed_tac.pdf"
+                uncompressed_tac_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"12 0 obj << /Filter /FlateDecode >>\nstream\n" + stream_body + b"\nendstream",
+                        b"12 0 obj << /Length 63 >>\nstream\nq /OC /LayerArtwork BDC 1.0 1.0 1.0 1.0 k /GSOverprint gs EMC Q\nendstream",
+                    )
+                )
+                unc_tac_rep = mod.verify_dieline_pdf(uncompressed_tac_pdf)
+                self.assertFalse(unc_tac_rep["preflight_pass"])
+                self.assertFalse(unc_tac_rep["tac_within_limit"])
+                self.assertAlmostEqual(unc_tac_rep["max_tac_pct"], 400.0, places=2)
+
+                # Unknown or corrupt stream filters must fail closed rather than silently passing preflight
+                unknown_filter_pdf = tmp_root / "unknown_filter.pdf"
+                unknown_filter_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(b"/Filter /FlateDecode", b"/Filter /LZWDecode")
+                )
+                unk_rep = mod.verify_dieline_pdf(unknown_filter_pdf)
+                self.assertFalse(unk_rep["preflight_pass"])
+                self.assertFalse(unk_rep["streams_decoded_ok"])
             finally:
                 builtins.__import__ = old_imp
 

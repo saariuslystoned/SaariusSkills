@@ -13,6 +13,8 @@ Generates press-ready CMYK vector PDFs and runs stdlib container/barcode/preflig
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import json
 import math
 import os
@@ -1179,6 +1181,25 @@ class DielinePanel:
             (self.cx - half_top, y_top),
         ]
 
+    def offset_bbox(self, offset: float = 0.0) -> tuple[float, float, float, float]:
+        """Returns exact axis-aligned `(min_x, min_y, width, height)` of the perpendicular `offset` contour."""
+        if self.shape in ("conical_wrap", "tapered_wrap"):
+            pts = self.annular_sector_points(offset)
+        elif self.shape in ("tuck_box", "carton_flat") and self.carton_net is not None:
+            pts = self.carton_outline_points(offset)
+        elif self.shape == "flat_trapezoid":
+            pts = self.trapezoid_vertices(offset)
+        else:
+            span_w = max(self.w, self.top_w)
+            bw = max(2.0, span_w + 2.0 * offset)
+            bh = max(2.0, self.h + 2.0 * offset)
+            return (self.cx - bw / 2.0, self.cy - bh / 2.0, bw, bh)
+        xs = [pt[0] for pt in pts]
+        ys = [pt[1] for pt in pts]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        return (min_x, min_y, max(2.0, max_x - min_x), max(2.0, max_y - min_y))
+
     def make_path(self, c: canvas.Canvas, offset: float = 0.0):
         """Builds a ReportLab Path for perpendicular `offset` (`+bleed`, `0.0=diecut`, `-safety`)."""
         p = c.beginPath()
@@ -1297,19 +1318,20 @@ class SmokyDielineSheet:
         c.saveState()
         c.setStrokeColor(CMYK_100K)
         c.setLineWidth(0.5)
-        gap = p.bleed + 4.0
         mark_len = 9.0
         span_w = max(p.w, p.top_w)
         x0, y0 = p.cx - span_w / 2.0, p.cy - p.h / 2.0
         x1, y1 = p.cx + span_w / 2.0, p.cy + p.h / 2.0
-        c.line(x0 - gap - mark_len, y0, x0 - gap, y0)
-        c.line(x1 + gap, y0, x1 + gap + mark_len, y0)
-        c.line(x0 - gap - mark_len, y1, x0 - gap, y1)
-        c.line(x1 + gap, y1, x1 + gap + mark_len, y1)
-        c.line(x0, y0 - gap - mark_len, x0, y0 - gap)
-        c.line(x0, y1 + gap, x0, y1 + gap + mark_len)
-        c.line(x1, y0 - gap - mark_len, x1, y0 - gap)
-        c.line(x1, y1 + gap, x1, y1 + gap + mark_len)
+        bx0, by0, bw, bh = p.offset_bbox(+p.bleed)
+        bx1, by1 = bx0 + bw, by0 + bh
+        c.line(bx0 - 4.0 - mark_len, y0, bx0 - 4.0, y0)
+        c.line(bx1 + 4.0, y0, bx1 + 4.0 + mark_len, y0)
+        c.line(bx0 - 4.0 - mark_len, y1, bx0 - 4.0, y1)
+        c.line(bx1 + 4.0, y1, bx1 + 4.0 + mark_len, y1)
+        c.line(x0, by0 - 4.0 - mark_len, x0, by0 - 4.0)
+        c.line(x0, by1 + 4.0, x0, by1 + 4.0 + mark_len)
+        c.line(x1, by0 - 4.0 - mark_len, x1, by0 - 4.0)
+        c.line(x1, by1 + 4.0, x1, by1 + 4.0 + mark_len)
         c.restoreState()
 
     def draw_technical_overlays(self) -> None:
@@ -1364,7 +1386,9 @@ class SmokyDielineSheet:
             span_w = max(p.w, p.top_w)
             x0, y0 = p.cx - span_w / 2.0, p.cy - p.h / 2.0
             x1, y1 = p.cx + span_w / 2.0, p.cy + p.h / 2.0
-            wy = y1 + p.bleed + 18.0
+            bx0, by0, bw, bh = p.offset_bbox(+p.bleed)
+            bx1, by1 = bx0 + bw, by0 + bh
+            wy = by1 + 18.0
             c.line(x0, wy - 7, x0, wy + 7)
             c.line(x1, wy - 7, x1, wy + 7)
             c.line(x0, wy, x1, wy)
@@ -1372,7 +1396,7 @@ class SmokyDielineSheet:
             c.drawCentredString(p.cx, wy + 8.5, f'{p.width_in:.2f}"')
 
             is_left = p.cx < self.page_w * 0.42
-            hx = (x0 - p.bleed - 18.0) if is_left else (x1 + p.bleed + 18.0)
+            hx = (bx0 - 18.0) if is_left else (bx1 + 18.0)
             c.line(hx - 7, y0, hx + 7, y0)
             c.line(hx - 7, y1, hx + 7, y1)
             c.line(hx, y0, hx, y1)
@@ -1723,33 +1747,147 @@ class SmokyDielineSheet:
 
 
 # ---------------------------------------------------------------------------
-# Automated Pre-Flight Inspector (Full PyMuPDF + Stdlib Zlib Fallback)
+# Automated Pre-Flight Inspector (Full PyMuPDF + Pikepdf + Fail-Closed Stdlib Stream Decoder)
 # ---------------------------------------------------------------------------
-def _extract_pdf_text_and_content_streams(raw: bytes) -> bytes:
-    """Extracts PDF object headers + decompressed non-font FlateDecode content streams."""
-    parts = bytearray()
+_FILTER_TOKENS_RE = re.compile(rb"/Filter\s*(?:\[\s*([^\]]*)\]|(/[A-Za-z0-9#._+-]+))")
+_FILTER_INDIRECT_RE = re.compile(rb"/Filter\s+\d+\s+\d+\s+R\b")
+_NAME_TOKEN_RE = re.compile(rb"/[A-Za-z0-9#._+-]+")
+
+
+def _extract_stream_dict_bytes(prefix: bytes) -> bytes:
+    """Extracts the PDF stream dictionary (`<< ... >>`) immediately preceding a `stream` keyword."""
+    obj_idx = prefix.rfind(b"obj")
+    window = prefix[obj_idx:] if obj_idx != -1 else prefix[-1024:]
+    start = window.find(b"<<")
+    end = window.rfind(b">>")
+    if start != -1 and end != -1 and end >= start:
+        return window[start : end + 2]
+    return window
+
+
+def _decode_single_pdf_stream(chunk: bytes, stream_dict: bytes) -> tuple[bytes | None, bool]:
+    """
+    Decodes a raw PDF stream body according to `/Filter` in `stream_dict`.
+    Preserves unfiltered (uncompressed) streams and fails closed (`ok=False`) on corrupt,
+    indirect, or unsupported filter chains.
+    """
+    if _FILTER_INDIRECT_RE.search(stream_dict):
+        return None, False
+
+    m = _FILTER_TOKENS_RE.search(stream_dict)
+    if m is None:
+        return chunk, True
+
+    raw_filters = m.group(1) if m.group(1) is not None else m.group(2)
+    filters = _NAME_TOKEN_RE.findall(raw_filters or b"")
+    if not filters:
+        return chunk, True
+
+    data = chunk
+    for flt in filters:
+        if flt in (b"/FlateDecode", b"/Fl"):
+            decoded: bytes | None = None
+            for cand in (data, data.rstrip(b"\r\n")):
+                for wbits in (zlib.MAX_WBITS, -zlib.MAX_WBITS):
+                    try:
+                        decoded = zlib.decompress(cand, wbits)
+                        break
+                    except Exception:
+                        continue
+                if decoded is not None:
+                    break
+            if decoded is None:
+                return None, False
+            data = decoded
+        elif flt in (b"/ASCIIHexDecode", b"/AHx"):
+            try:
+                hex_body = re.sub(rb"\s+", b"", data)
+                eod = hex_body.find(b">")
+                if eod != -1:
+                    hex_body = hex_body[:eod]
+                if len(hex_body) % 2 == 1:
+                    hex_body += b"0"
+                data = binascii.unhexlify(hex_body)
+            except Exception:
+                return None, False
+        elif flt in (b"/ASCII85Decode", b"/A85"):
+            try:
+                s = data.lstrip()
+                if not s.startswith(b"<~"):
+                    s = b"<~" + s
+                eod = s.find(b"~>")
+                s = s[: eod + 2] if eod != -1 else (s + b"~>")
+                data = base64.a85decode(s, adobe=True)
+            except Exception:
+                return None, False
+        elif flt == b"/Crypt":
+            continue
+        else:
+            return None, False
+    return data, True
+
+
+def _decode_pdf_streams_stdlib(raw: bytes) -> tuple[bytes, bytes, bool]:
+    """
+    Extracts `(corpus, content_streams_only, all_streams_decoded_ok)` from raw PDF bytes.
+    Uncompressed streams (no `/Filter`), `/FlateDecode`, `/ASCIIHexDecode`, and `/ASCII85Decode`
+    are decoded and inspected; corrupt or unsupported filters mark `all_streams_decoded_ok=False`.
+    """
+    corpus_parts = bytearray()
+    stream_parts = bytearray()
+    all_ok = True
     pos = 0
-    for m in re.finditer(rb"(?<!end)stream\r?\n", raw):
+
+    for m in re.finditer(rb"(?<!end)stream(?:\r\n|\n)", raw):
         hdr = raw[pos : m.start()]
-        parts.extend(hdr)
+        corpus_parts.extend(hdr)
         start = m.end()
         end = raw.find(b"endstream", start)
         if end == -1:
+            all_ok = False
             break
         pos = end + len(b"endstream")
-        hdr_tail = hdr[-320:]
-        if b"/Length1" in hdr_tail or b"/Subtype /Image" in hdr_tail or b"/Subtype/Image" in hdr_tail:
+        sdict = _extract_stream_dict_bytes(hdr)
+
+        # Skip binary font programs and raster image payloads (image color spaces live in `sdict` / `hdr`).
+        if (
+            b"/Length1" in sdict
+            or re.search(rb"/Subtype\s*/(?:Image|Type1C|CIDFontType0C|OpenType)\b", sdict)
+        ):
             continue
-        chunk = raw[start:end].rstrip(b"\r\n")
-        for wbits in (zlib.MAX_WBITS, -zlib.MAX_WBITS):
-            try:
-                parts.extend(b"\n")
-                parts.extend(zlib.decompress(chunk, wbits))
-                break
-            except Exception:
-                continue
-    parts.extend(raw[pos:])
-    return bytes(parts)
+        # Skip cross-reference tables and metadata XML streams (not graphics content).
+        if re.search(rb"/Type\s*/(?:XRef|Metadata)\b", sdict):
+            continue
+
+        raw_body = raw[start:end]
+        if raw_body.endswith(b"\r\n"):
+            raw_body = raw_body[:-2]
+        elif raw_body.endswith((b"\n", b"\r")):
+            raw_body = raw_body[:-1]
+
+        decoded, ok = _decode_single_pdf_stream(raw_body, sdict)
+        if not ok or decoded is None:
+            all_ok = False
+            continue
+
+        corpus_parts.extend(b"\n")
+        corpus_parts.extend(decoded)
+        if not (
+            b"/FunctionType" in sdict
+            or re.search(rb"/Type\s*/ObjStm\b", sdict)
+            or b"/N " in sdict and b"/Alternate" in sdict  # ICC profile stream
+        ):
+            stream_parts.extend(b"\n")
+            stream_parts.extend(decoded)
+
+    corpus_parts.extend(raw[pos:])
+    return bytes(corpus_parts), bytes(stream_parts), all_ok
+
+
+def _extract_pdf_text_and_content_streams(raw: bytes) -> bytes:
+    """Extracts PDF object headers + decoded non-font content streams (including uncompressed streams)."""
+    corpus, _, _ = _decode_pdf_streams_stdlib(raw)
+    return corpus
 
 
 _RGB_OP_RE = re.compile(
@@ -1761,36 +1899,125 @@ _CMYK_OP_RE = re.compile(
 
 
 def _extract_pdf_content_streams_only(raw: bytes) -> bytes:
-    """Extracts decompressed non-font, non-image FlateDecode page content streams (excluding object headers/tint functions)."""
-    parts = bytearray()
-    for m in re.finditer(rb"(?<!end)stream\r?\n", raw):
-        hdr_tail = raw[max(0, m.start() - 320) : m.start()]
-        end = raw.find(b"endstream", m.end())
-        if end == -1:
-            break
-        if (
-            b"/Length1" in hdr_tail
-            or b"/Subtype /Image" in hdr_tail
-            or b"/Subtype/Image" in hdr_tail
-            or b"/FunctionType" in hdr_tail
-        ):
-            continue
-        chunk = raw[m.end() : end].rstrip(b"\r\n")
-        for wbits in (zlib.MAX_WBITS, -zlib.MAX_WBITS):
-            try:
-                parts.extend(b"\n")
-                parts.extend(zlib.decompress(chunk, wbits))
-                break
-            except Exception:
+    """Extracts decoded non-font, non-image page content streams (including uncompressed streams)."""
+    _, streams_only, _ = _decode_pdf_streams_stdlib(raw)
+    return streams_only
+
+
+def _collect_pikepdf_drawable_streams(pk_doc: Any) -> tuple[bytes, bytes, bool]:
+    """Extracts decoded page content streams, Form XObjects, Tiling Patterns, and resource dicts via pikepdf."""
+    stream_buf = bytearray()
+    meta_buf = bytearray()
+    visited: set[tuple[int, int]] = set()
+    ok = True
+
+    def _visit_resources(res_obj: Any) -> None:
+        nonlocal ok
+        if res_obj is None:
+            return
+        try:
+            if "/ColorSpace" in res_obj:
+                meta_buf.extend(repr(res_obj["/ColorSpace"]).encode("utf-8", errors="ignore"))
+                meta_buf.extend(b"\n")
+        except Exception:
+            ok = False
+
+        for group_key, req_subtype in (("/XObject", "/Form"), ("/Pattern", None)):
+            if group_key not in res_obj:
                 continue
-    return bytes(parts)
+            try:
+                grp = res_obj[group_key]
+                items = list(grp.values())
+            except Exception:
+                ok = False
+                continue
+            for item in items:
+                try:
+                    og = getattr(item, "objgen", (0, 0))
+                    if og != (0, 0):
+                        if og in visited:
+                            continue
+                        visited.add(og)
+                    subtype = str(item.get("/Subtype", ""))
+                    if subtype == "/Image":
+                        meta_buf.extend(str(item.get("/ColorSpace", "")).encode("utf-8", errors="ignore"))
+                        meta_buf.extend(b"\n")
+                        continue
+                    if req_subtype and subtype != req_subtype:
+                        continue
+                    if hasattr(item, "read_bytes"):
+                        stream_buf.extend(b"\n")
+                        stream_buf.extend(item.read_bytes())
+                    if "/Resources" in item:
+                        _visit_resources(item["/Resources"])
+                except Exception:
+                    ok = False
+
+    for page in pk_doc.pages:
+        try:
+            contents = page.get("/Contents")
+            if contents is not None:
+                if hasattr(contents, "read_bytes"):
+                    stream_buf.extend(b"\n")
+                    stream_buf.extend(contents.read_bytes())
+                else:
+                    for c_stream in contents:
+                        stream_buf.extend(b"\n")
+                        stream_buf.extend(c_stream.read_bytes())
+            _visit_resources(page.get("/Resources"))
+        except Exception:
+            ok = False
+
+    return bytes(stream_buf), bytes(meta_buf), ok
 
 
 def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | None = None) -> dict[str, Any]:
     """Verifies OCG layers, non-printing technical PrintState, spot separations, overprint, zero RGB leaks, TAC <= 300%, and exact trim dimensions."""
     raw = Path(pdf_path).read_bytes()
-    corpus = _extract_pdf_text_and_content_streams(raw)
-    streams_only = _extract_pdf_content_streams_only(raw)
+    corpus, stdlib_streams_only, stdlib_streams_ok = _decode_pdf_streams_stdlib(raw)
+    streams_only = stdlib_streams_only
+    streams_decoded_ok = stdlib_streams_ok
+
+    has_nonprinting_tech = (
+        ((b"/PrintState /OFF" in corpus) or (b"/PrintState/OFF" in corpus))
+        and ((b"/PrintState /ON" in corpus) or (b"/PrintState/ON" in corpus))
+        and ((b"/Event /Print" in corpus) or (b"/Event/Print" in corpus))
+    )
+
+    try:
+        import pikepdf
+
+        try:
+            with pikepdf.open(pdf_path) as pk:
+                pk_streams, pk_meta, pk_streams_ok = _collect_pikepdf_drawable_streams(pk)
+                if pk_streams:
+                    streams_only = stdlib_streams_only + b"\n" + pk_streams
+                    corpus = corpus + b"\n" + pk_streams + b"\n" + pk_meta
+                else:
+                    corpus = corpus + b"\n" + pk_meta
+                streams_decoded_ok = bool(pk_streams_ok and (stdlib_streams_ok or bool(pk_streams)))
+
+                oc_props = pk.Root.get("/OCProperties")
+                if oc_props is not None:
+                    ocg_objs = list(oc_props.get("/OCGs", []))
+                    as_list = list(oc_props.get("/D", {}).get("/AS", []))
+                    has_print_event = any(
+                        str(item.get("/Event", "")) == "/Print"
+                        and "/Print" in [str(cat) for cat in item.get("/Category", [])]
+                        for item in as_list
+                    )
+                    states_ok = bool(ocg_objs) and all(
+                        str(ocg.get("/Usage", {}).get("/Print", {}).get("/PrintState", ""))
+                        == ("/ON" if str(ocg.get("/Name", "")) == "Artwork" else "/OFF")
+                        for ocg in ocg_objs
+                    )
+                    has_nonprinting_tech = bool(has_print_event and states_ok)
+                else:
+                    has_nonprinting_tech = False
+        except Exception:
+            streams_decoded_ok = False
+    except ImportError:
+        pass
 
     cmyk_ops = [
         (float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4)))
@@ -1806,34 +2033,13 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
     has_safety_spot = (b"Safety#20Line" in corpus) or (b"Safety Line" in corpus)
     has_bleed_spot = (b"Bleed#20Line" in corpus) or (b"Bleed Line" in corpus)
     has_overprint = (b"/GSOverprint" in corpus) and (b"/OP true" in corpus or b"/OPM 1" in corpus)
-    has_rgb = (b"/DeviceRGB" in corpus) or bool(_RGB_OP_RE.search(corpus))
-    has_cmyk = (b"/DeviceCMYK" in corpus) or bool(cmyk_ops)
-    has_nonprinting_tech = (
-        ((b"/PrintState /OFF" in corpus) or (b"/PrintState/OFF" in corpus))
-        and ((b"/PrintState /ON" in corpus) or (b"/PrintState/ON" in corpus))
-        and ((b"/Event /Print" in corpus) or (b"/Event/Print" in corpus))
+    has_rgb = (
+        (b"/DeviceRGB" in corpus)
+        or (b"/CalRGB" in corpus)
+        or bool(_RGB_OP_RE.search(corpus))
+        or bool(_RGB_OP_RE.search(streams_only))
     )
-
-    try:
-        import pikepdf
-
-        with pikepdf.open(pdf_path) as pk:
-            oc_props = pk.Root.get("/OCProperties")
-            if oc_props is not None:
-                ocg_objs = list(oc_props.get("/OCGs", []))
-                as_list = list(oc_props.get("/D", {}).get("/AS", []))
-                has_print_event = any(
-                    str(item.get("/Event", "")) == "/Print" and "/Print" in [str(cat) for cat in item.get("/Category", [])]
-                    for item in as_list
-                )
-                states_ok = bool(ocg_objs) and all(
-                    str(ocg.get("/Usage", {}).get("/Print", {}).get("/PrintState", ""))
-                    == ("/ON" if str(ocg.get("/Name", "")) == "Artwork" else "/OFF")
-                    for ocg in ocg_objs
-                )
-                has_nonprinting_tech = bool(has_print_event and states_ok)
-    except ImportError:
-        pass
+    has_cmyk = (b"/DeviceCMYK" in corpus) or bool(cmyk_ops)
 
     panel_checks: list[dict[str, Any]] = []
     ocgs: list[str] = []
@@ -1874,7 +2080,8 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
                 ocgs.append(human_name)
 
     ok = (
-        has_dieline_spot
+        streams_decoded_ok
+        and has_dieline_spot
         and has_safety_spot
         and has_bleed_spot
         and has_overprint
@@ -1889,6 +2096,7 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
         "file": str(pdf_path),
         "size_kb": round(len(raw) / 1024.0, 1),
         "preflight_pass": ok,
+        "streams_decoded_ok": streams_decoded_ok,
         "cmyk_only_no_rgb": (has_cmyk and not has_rgb),
         "tac_within_limit": tac_within_limit,
         "max_tac_pct": max_tac_pct,
@@ -3187,11 +3395,11 @@ def build_generic_spec_artwork(spec: dict[str, Any]) -> Callable[[canvas.Canvas,
             smcbd_vec = raw_smcbd_vec if plan.get("use_smcbd_vec") else None
             c.saveState()
             c.clipPath(p.make_path(c, +p.bleed), stroke=0, fill=0)
-            span_w = max(p.w, p.top_w)
-            bx0, by0 = p.cx - span_w / 2.0 - p.bleed, p.cy - p.h / 2.0 - p.bleed
-            bw, bh = span_w + 2 * p.bleed, p.h + 2 * p.bleed
+            raw_bx0, raw_by0, raw_bw, raw_bh = p.offset_bbox(+p.bleed)
+            bx0, by0 = raw_bx0 - 1.0, raw_by0 - 1.0
+            bw, bh = raw_bw + 2.0, raw_bh + 2.0
             c.setFillColor(bg_col)
-            c.rect(bx0, by0, bw, bh, stroke=0, fill=1)
+            c.drawPath(p.make_path(c, +p.bleed), stroke=0, fill=1)
 
             mode = plan["mode"]
             if mode == "circle_cap":
@@ -3355,16 +3563,20 @@ def main() -> None:
         )
 
     gap_in = 1.45
-    total_span_in = sum(max(p.width_in, p.top_w / PT_PER_INCH) for p in panels) + gap_in * max(0, len(panels) - 1)
+    panel_bleed_boxes_pt = [p.offset_bbox(+p.bleed) for p in panels]
+    panel_bleed_spans_in = [b[2] / PT_PER_INCH for b in panel_bleed_boxes_pt]
+    panel_bleed_heights_in = [b[3] / PT_PER_INCH for b in panel_bleed_boxes_pt]
+    total_span_in = sum(panel_bleed_spans_in) + gap_in * max(0, len(panels) - 1)
     sheet_w_in = float(spec.get("page_w_in") or max(18.5685, total_span_in + 5.0))
-    sheet_h_in = float(spec.get("page_h_in") or max(9.6715, max(p.height_in for p in panels) + 5.8))
+    sheet_h_in = float(spec.get("page_h_in") or max(9.6715, max(panel_bleed_heights_in) + 5.8))
     cur_left_in = (sheet_w_in - total_span_in) / 2.0
     default_cy_in = (sheet_h_in - 1.925) * 0.54 + 1.925
 
-    for p, (cx_exp, cy_exp) in zip(panels, explicit_positions):
-        span_in = max(p.width_in, p.top_w / PT_PER_INCH)
-        cx_in = cx_exp if cx_exp is not None else (cur_left_in + span_in / 2.0)
-        cy_in = cy_exp if cy_exp is not None else default_cy_in
+    for p, bbox_pt, span_in, (cx_exp, cy_exp) in zip(panels, panel_bleed_boxes_pt, panel_bleed_spans_in, explicit_positions):
+        cx_offset_in = -(bbox_pt[0] + bbox_pt[2] / 2.0) / PT_PER_INCH
+        cy_offset_in = -(bbox_pt[1] + bbox_pt[3] / 2.0) / PT_PER_INCH
+        cx_in = cx_exp if cx_exp is not None else (cur_left_in + span_in / 2.0 + cx_offset_in)
+        cy_in = cy_exp if cy_exp is not None else (default_cy_in + cy_offset_in)
         p.cx = inch(cx_in)
         p.cy = inch(cy_in)
         cur_left_in += span_in + gap_in
