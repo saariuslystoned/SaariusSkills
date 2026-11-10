@@ -648,15 +648,19 @@ def draw_normalized_vector(
     target_w: float,
     text_color: PCMYKColor,
     smoke_color: PCMYKColor | None = None,
+    max_h: float | None = None,
 ) -> tuple[float, float]:
     """Draws normalized top-down vector paths centered at (cx, cy) in bottom-up PDF space."""
     if not vec:
         return (0.0, 0.0)
-    vw = vec["width"]
-    vh = vec["height"]
+    vw = float(vec["width"])
+    vh = float(vec["height"])
     scale = target_w / vw
+    if max_h is not None and vh > 0.0:
+        scale = min(scale, float(max_h) / vh)
+    eff_w = vw * scale
     target_h = vh * scale
-    x0 = cx - target_w / 2.0
+    x0 = cx - eff_w / 2.0
     y_top = cy + target_h / 2.0
 
     for p_info in vec["paths"]:
@@ -693,7 +697,7 @@ def draw_normalized_vector(
                 last_pt = (x4, y4)
         mode = 0 if p_info.get("even_odd") else 1
         c.drawPath(path, stroke=0, fill=1, fillMode=mode)
-    return (target_w, target_h)
+    return (eff_w, target_h)
 
 
 # ---------------------------------------------------------------------------
@@ -1939,21 +1943,93 @@ def _extract_pdf_content_streams_only(raw: bytes) -> bytes:
     return streams_only
 
 
-def _collect_pikepdf_drawable_streams(pk_doc: Any) -> tuple[bytes, bytes, bool]:
-    """Extracts decoded page content streams, Form XObjects, Tiling Patterns, and resource dicts via pikepdf."""
+def _inspect_cs_pikepdf(cs_obj: Any, visited_cs: set[tuple[int, int]] | None = None) -> tuple[bool, bool]:
+    """Returns `(has_rgb_colorspace, has_cmyk_colorspace)` for a pikepdf `/ColorSpace` entry or array."""
+    if cs_obj is None:
+        return (False, False)
+    seen = visited_cs if visited_cs is not None else set()
+    og = getattr(cs_obj, "objgen", (0, 0))
+    if og != (0, 0):
+        if og in seen:
+            return (False, False)
+        seen.add(og)
+
+    s = str(cs_obj)
+    if s in ("/DeviceRGB", "/CalRGB", "/RGB"):
+        return (True, False)
+    if s in ("/DeviceCMYK", "/CMYK"):
+        return (False, True)
+    if s in ("/DeviceGray", "/CalGray", "/G"):
+        return (False, False)
+
+    try:
+        if hasattr(cs_obj, "__len__") and not isinstance(cs_obj, (str, bytes)) and not hasattr(cs_obj, "keys"):
+            items = list(cs_obj)
+            if not items:
+                return (False, False)
+            head = str(items[0])
+            if head == "/ICCBased" and len(items) >= 2:
+                prof = items[1]
+                n_comp = int(prof.get("/N", 0))
+                alt_rgb, alt_cmyk = _inspect_cs_pikepdf(prof.get("/Alternate"), seen)
+                return (n_comp == 3 or alt_rgb, n_comp == 4 or alt_cmyk)
+            if head in ("/Indexed", "/Separation", "/DeviceN") and len(items) >= 3:
+                idx = 1 if head == "/Indexed" else 2
+                return _inspect_cs_pikepdf(items[idx], seen)
+            if head == "/Pattern" and len(items) >= 2:
+                return _inspect_cs_pikepdf(items[1], seen)
+    except Exception:
+        pass
+    return (False, False)
+
+
+def _collect_pikepdf_drawable_streams(pk_doc: Any) -> tuple[bytes, bytes, bool, bool, bool, bool | None]:
+    """
+    Extracts `(stream_bytes, meta_bytes, streams_ok, cs_has_rgb, cs_has_cmyk, gs_overprint_ok)`
+    across page content streams, Form/Image XObjects, Tiling/Shading Patterns, and Resources via pikepdf.
+    """
     stream_buf = bytearray()
     meta_buf = bytearray()
     visited: set[tuple[int, int]] = set()
     ok = True
+    cs_has_rgb = False
+    cs_has_cmyk = False
+    gs_seen = False
+    gs_all_ok = True
 
     def _visit_resources(res_obj: Any) -> None:
-        nonlocal ok
+        nonlocal ok, cs_has_rgb, cs_has_cmyk, gs_seen, gs_all_ok
         if res_obj is None:
             return
         try:
             if "/ColorSpace" in res_obj:
-                meta_buf.extend(repr(res_obj["/ColorSpace"]).encode("utf-8", errors="ignore"))
+                cs_dict = res_obj["/ColorSpace"]
+                meta_buf.extend(repr(cs_dict).encode("utf-8", errors="ignore"))
                 meta_buf.extend(b"\n")
+                for cs_val in cs_dict.values():
+                    r_flag, c_flag = _inspect_cs_pikepdf(cs_val)
+                    cs_has_rgb = cs_has_rgb or r_flag
+                    cs_has_cmyk = cs_has_cmyk or c_flag
+        except Exception:
+            ok = False
+
+        try:
+            if "/ExtGState" in res_obj:
+                gs_dict = res_obj["/ExtGState"]
+                if "/GSOverprint" in gs_dict:
+                    gs_seen = True
+                    gso = gs_dict["/GSOverprint"]
+                    if bool(gso.get("/OP", False)) is not True:
+                        gs_all_ok = False
+        except Exception:
+            ok = False
+
+        try:
+            if "/Shading" in res_obj:
+                for sh_val in res_obj["/Shading"].values():
+                    r_flag, c_flag = _inspect_cs_pikepdf(sh_val.get("/ColorSpace"))
+                    cs_has_rgb = cs_has_rgb or r_flag
+                    cs_has_cmyk = cs_has_cmyk or c_flag
         except Exception:
             ok = False
 
@@ -1975,9 +2051,17 @@ def _collect_pikepdf_drawable_streams(pk_doc: Any) -> tuple[bytes, bytes, bool]:
                         visited.add(og)
                     subtype = str(item.get("/Subtype", ""))
                     if subtype == "/Image":
-                        meta_buf.extend(str(item.get("/ColorSpace", "")).encode("utf-8", errors="ignore"))
+                        cs_val = item.get("/ColorSpace")
+                        meta_buf.extend(str(cs_val or "").encode("utf-8", errors="ignore"))
                         meta_buf.extend(b"\n")
+                        r_flag, c_flag = _inspect_cs_pikepdf(cs_val)
+                        cs_has_rgb = cs_has_rgb or r_flag
+                        cs_has_cmyk = cs_has_cmyk or c_flag
                         continue
+                    if "/Shading" in item:
+                        r_flag, c_flag = _inspect_cs_pikepdf(item["/Shading"].get("/ColorSpace"))
+                        cs_has_rgb = cs_has_rgb or r_flag
+                        cs_has_cmyk = cs_has_cmyk or c_flag
                     if req_subtype and subtype != req_subtype:
                         continue
                     if hasattr(item, "read_bytes"):
@@ -2003,7 +2087,47 @@ def _collect_pikepdf_drawable_streams(pk_doc: Any) -> tuple[bytes, bytes, bool]:
         except Exception:
             ok = False
 
-    return bytes(stream_buf), bytes(meta_buf), ok
+    gs_overprint_ok: bool | None = (gs_seen and gs_all_ok) if gs_seen else False
+    return bytes(stream_buf), bytes(meta_buf), ok, cs_has_rgb, cs_has_cmyk, gs_overprint_ok
+
+
+def _verify_gsoverprint_stdlib(corpus: bytes, streams_only: bytes) -> bool:
+    """Requires `/GSOverprint gs` invocation in content streams AND stroke overprint `/OP true` on `/GSOverprint`."""
+    if not re.search(rb"/GSOverprint\s+gs\b", streams_only or corpus):
+        return False
+    objs: dict[tuple[int, int], bytes] = {}
+    for m_obj in re.finditer(rb"(\d+)\s+(\d+)\s+obj\b(.*?)endobj", corpus, flags=re.DOTALL):
+        objs[(int(m_obj.group(1)), int(m_obj.group(2)))] = m_obj.group(3)
+
+    found_gs = False
+    for m_gs in re.finditer(rb"/GSOverprint\s*(?:<<(.*?)>>|(\d+)\s+(\d+)\s+R\b)", corpus, flags=re.DOTALL):
+        dict_body = m_gs.group(1)
+        if dict_body is None:
+            ref = (int(m_gs.group(2)), int(m_gs.group(3)))
+            dict_body = objs.get(ref, b"")
+        if not dict_body:
+            return False
+        found_gs = True
+        if re.search(rb"/OP\s+false\b", dict_body):
+            return False
+        if not re.search(rb"/OP\s+true\b", dict_body):
+            return False
+    return found_gs
+
+
+def _has_rgb_icc_stdlib(raw: bytes, corpus: bytes) -> bool:
+    """Detects 3-component `/ICCBased` color-space streams (`/N 3`) in raw PDF objects."""
+    objs: dict[tuple[int, int], bytes] = {}
+    for m_obj in re.finditer(rb"(\d+)\s+(\d+)\s+obj\b(.*?)(?:stream\r?\n|endobj)", raw, flags=re.DOTALL):
+        objs[(int(m_obj.group(1)), int(m_obj.group(2)))] = m_obj.group(3)
+    for m_icc in re.finditer(rb"/ICCBased\s+(\d+)\s+(\d+)\s+R\b", corpus):
+        hdr = objs.get((int(m_icc.group(1)), int(m_icc.group(2))), b"")
+        if re.search(rb"/N\s+3\b", hdr):
+            return True
+    for m_hdr in re.finditer(rb"<<[^>]*?/N\s+3\b[^>]*?>>\s*stream\b", raw, flags=re.DOTALL):
+        if b"/ObjStm" not in m_hdr.group(0) and b"/Type /XRef" not in m_hdr.group(0):
+            return True
+    return False
 
 
 def _verify_ocg_print_states_stdlib(corpus: bytes) -> bool:
@@ -2071,13 +2195,18 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
     streams_decoded_ok = stdlib_streams_ok
 
     has_nonprinting_tech = _verify_ocg_print_states_stdlib(corpus)
+    pk_cs_rgb = False
+    pk_cs_cmyk = False
+    pk_gs_overprint_ok: bool | None = None
 
     try:
         import pikepdf
 
         try:
             with pikepdf.open(pdf_path) as pk:
-                pk_streams, pk_meta, pk_streams_ok = _collect_pikepdf_drawable_streams(pk)
+                pk_streams, pk_meta, pk_streams_ok, pk_cs_rgb, pk_cs_cmyk, pk_gs_overprint_ok = (
+                    _collect_pikepdf_drawable_streams(pk)
+                )
                 if pk_streams:
                     streams_only = stdlib_streams_only + b"\n" + pk_streams
                     corpus = corpus + b"\n" + pk_streams + b"\n" + pk_meta
@@ -2136,14 +2265,21 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
     has_dieline_spot = (b"Die#20Line" in corpus) or (b"Die Line" in corpus)
     has_safety_spot = (b"Safety#20Line" in corpus) or (b"Safety Line" in corpus)
     has_bleed_spot = (b"Bleed#20Line" in corpus) or (b"Bleed Line" in corpus)
-    has_overprint = (b"/GSOverprint" in corpus) and (b"/OP true" in corpus or b"/OPM 1" in corpus)
+    stdlib_gs_ok = _verify_gsoverprint_stdlib(corpus, streams_only)
+    has_overprint = (
+        bool(pk_gs_overprint_ok and re.search(rb"/GSOverprint\s+gs\b", streams_only or corpus))
+        if pk_gs_overprint_ok is not None
+        else stdlib_gs_ok
+    )
     has_rgb = (
-        (b"/DeviceRGB" in corpus)
+        pk_cs_rgb
+        or _has_rgb_icc_stdlib(raw, corpus)
+        or (b"/DeviceRGB" in corpus)
         or (b"/CalRGB" in corpus)
         or bool(_RGB_OP_RE.search(corpus))
         or bool(_RGB_OP_RE.search(streams_only))
     )
-    has_cmyk = (b"/DeviceCMYK" in corpus) or bool(cmyk_ops)
+    has_cmyk = pk_cs_cmyk or (b"/DeviceCMYK" in corpus) or bool(cmyk_ops)
 
     panel_checks: list[dict[str, Any]] = []
     ocgs: list[str] = []
@@ -2627,7 +2763,13 @@ def _plan_hero_zone(
     if show_brand_header and (has_smcbd_vec or brand.strip()):
         if has_smcbd_vec and rem_h >= 42.0:
             bh_alloc = min(32.0, rem_h * 0.28)
-            brand_header = {"kind": "vector", "cx": cx, "cy": y0 + h - bh_alloc / 2.0, "w": min(w * 0.56, bh_alloc * 1.65)}
+            brand_header = {
+                "kind": "vector",
+                "cx": cx,
+                "cy": y0 + h - bh_alloc / 2.0,
+                "w": min(w * 0.56, bh_alloc * 1.65),
+                "max_h": bh_alloc * 0.92,
+            }
             rem_h -= bh_alloc + 2.5
         elif rem_h >= 22.0:
             bh_alloc = min(28.0, max(6.0, rem_h * 0.24))
@@ -2949,6 +3091,7 @@ def plan_panel_artwork_layout(
             "arch_sub": arch_sub,
             "brand_y": brand_y,
             "brand_vec_w": min(p.w * (0.36 if r_safe >= 42.0 else 0.52), 2.0 * r_safe * 0.76),
+            "brand_vec_max_h": (r_safe * 0.48) if r_safe >= 42.0 else (2.0 * r_safe * 0.65),
             "brand_line": brand_line,
             "hero_lines": hero_lines,
             "upc_rect": None,
@@ -3431,7 +3574,9 @@ def _draw_planned_qr_fda(
         draw_vector_qr(c, coa_url, qx, qy, qw, quiet_modules=QR_MIN_QUIET_MODULES)
     if qr_plan.get("vec_box") and smcbd_vec:
         vx, vy, vw, vh = qr_plan["vec_box"]
-        draw_normalized_vector(c, smcbd_vec, vx + vw / 2.0, vy + vh / 2.0, min(46.0, vw * 0.92), CMYK_WHITE)
+        draw_normalized_vector(
+            c, smcbd_vec, vx + vw / 2.0, vy + vh / 2.0, min(46.0, vw * 0.92), CMYK_WHITE, max_h=vh * 0.92
+        )
     elif qr_plan.get("brand_line"):
         bl = qr_plan["brand_line"]
         draw_tracked_text(c, bl["text"], bl["cx"], bl["y"], bl["font_name"], bl["font_size"], accent_col, bl["tracking_pt"])
@@ -3449,7 +3594,7 @@ def _draw_planned_hero(
     bh = hero_plan.get("brand_header")
     if bh:
         if bh["kind"] == "vector" and smcbd_vec:
-            draw_normalized_vector(c, smcbd_vec, bh["cx"], bh["cy"], bh["w"], CMYK_WHITE)
+            draw_normalized_vector(c, smcbd_vec, bh["cx"], bh["cy"], bh["w"], CMYK_WHITE, max_h=bh.get("max_h"))
         elif bh["kind"] == "text":
             ln = bh["line"]
             draw_tracked_text(c, ln["text"], bh["cx"], bh["y"], ln["font_name"], ln["font_size"], CMYK_WHITE, ln["tracking_pt"])
@@ -3549,7 +3694,9 @@ def build_generic_spec_artwork(spec: dict[str, Any]) -> Callable[[canvas.Canvas,
                     ln = asub["line"]
                     draw_arched_text(c, ln["text"], p.cx, p.cy, asub["radius"], ln["font_name"], ln["font_size"], accent_col, ln["tracking_pt"], top_arc=True)
                 if smcbd_vec:
-                    draw_normalized_vector(c, smcbd_vec, p.cx, plan["brand_y"], plan["brand_vec_w"], CMYK_WHITE)
+                    draw_normalized_vector(
+                        c, smcbd_vec, p.cx, plan["brand_y"], plan["brand_vec_w"], CMYK_WHITE, max_h=plan.get("brand_vec_max_h")
+                    )
                 elif plan["brand_line"]:
                     bl = plan["brand_line"]
                     draw_tracked_text(c, bl["text"], p.cx, plan["brand_y"], bl["font_name"], bl["font_size"], CMYK_WHITE, bl["tracking_pt"])

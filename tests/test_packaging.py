@@ -1743,6 +1743,31 @@ exit "$1"
                 unk_rep = mod.verify_dieline_pdf(unknown_filter_pdf)
                 self.assertFalse(unk_rep["preflight_pass"])
                 self.assertFalse(unk_rep["streams_decoded_ok"])
+
+                # Overprint check must require `/OP true` (not just `/OPM 1` with `/OP false`)
+                op_false_pdf = tmp_root / "op_false.pdf"
+                op_false_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"/OP true /op true /OPM 1",
+                        b"/OP false /op false /OPM 1",
+                    )
+                )
+                op_false_rep = mod.verify_dieline_pdf(op_false_pdf)
+                self.assertFalse(op_false_rep["preflight_pass"])
+                self.assertFalse(op_false_rep["overprint_enabled"])
+
+                # 3-component `/ICCBased` RGB profile (without `/DeviceRGB` or `rg`) must fail RGB check!
+                icc_rgb_pdf = tmp_root / "icc_rgb.pdf"
+                icc_rgb_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"%%EOF\n",
+                        b"13 0 obj [ /ICCBased 14 0 R ] endobj\n"
+                        b"14 0 obj << /N 3 /Length 4 >>\nstream\nICCP\nendstream\nendobj\n%%EOF\n",
+                    )
+                )
+                icc_rgb_rep = mod.verify_dieline_pdf(icc_rgb_pdf)
+                self.assertFalse(icc_rgb_rep["preflight_pass"])
+                self.assertFalse(icc_rgb_rep["cmyk_only_no_rgb"])
             finally:
                 builtins.__import__ = old_imp
 
