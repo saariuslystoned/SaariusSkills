@@ -19,6 +19,10 @@ Every motion request maps to one of four selectable zero-dependency modes (or a 
 | **Mode C — Choreographed Timeline / Scroll Stage** | `assets/choreo.js` (`mountChoreo`) | Technical showcases, orbital/spatial diagrams, multi-step process choreography, scroll-linked or scrubbed data stages | Normalized timeline (`t` in `0..1`) with named `cues`, camera keyframe interpolation (`lerpCam`), live telemetry HUD (`hud`), and `'autoplay' \| 'scroll' \| 'scrub'` playback |
 | **Mode D — Tactile Paper, Holographic Foil & Tear-Off Pass** *(Subject-Specific Option)* | `assets/tactile-audio.js` (`mountReceipt`, `mountRubberStamp`, `renderBarcodeSvg`, `mountFoilTicket`) + [references/tactile-foil-and-web-audio.md](references/tactile-foil-and-web-audio.md) | Promotional coupons (`SAVE20`), golden/event tickets, gift cards, thermal order receipts, dry-ink rubber stamps (`[PAID · STRIPE TEST]`, `[SHIPPED · PB SANDBOX]`), COA badges | **Select only when the subject is a ticket, coupon, receipt, stamp, card, or badge — never force on Mode A/B/C scenes.** Includes `Ephemera` stationery primitives (`conic-gradient` serrated thermal receipt with `steps(28, end)` line-feed reveal & deterministic FNV-1a SVG barcode `renderBarcodeSvg(code)`, plus `<feTurbulence>` + `<feDisplacementMap>` dry-ink rubber stamp with `cubic-bezier(0.22, 1, 0.36, 1)` thud), 3D tilt-reactive holographic foil sheen, punched perforation line with `tearProgress` (`0..1`), and `See-through / X-Ray` security thread view (`?xr=1`) |
 
+### Hard Asset-Fidelity Rule (No Primitive Cylinder Mascots or Hand-Coded Bezier Creatures)
+- **Never build organic characters, creatures, claws, or mascots out of `core.js` cylinders/boxes (`cyl`, `box`) or hand-coded SVG Bezier `<path>` curves.** Primitive geometry and manual Bezier silhouettes look robotic and amateurish for organic subjects.
+- Route character and mascot art through [`$smoky-character-studio`](../smoky-character-studio/SKILL.md) (`sprite_version: 2` sheets) or high-craft generated 3D-vinyl / architectural RGBA plates (`Plane 01..03`) with chroma-safe despill, reserving procedural SVG/WebGL strictly for **mechanical rigging and lighting** (overhead trolleys, grooved pulleys, chains, structural girders, hinges, laser gates, and `mix-blend-mode: screen` light blooms).
+
 ### Optional Add-On: Procedural Web Audio Micro-Foley (Never Forced)
 - **Strictly Opt-In:** Not every animation needs sound. **Never force Web Audio onto an animation by default.** Include zero-file `AudioContext` micro-foley (`createMicroFoley()` in `assets/tactile-audio.js` or custom synthesized chimes like a `"Cha-Ching!"` cash-register bell, mechanical detent clicks, paper-tear bandpass noise bursts, stamp thuds, thermal print hums) **only when the user asks for sound or tactile audio feedback**, and unlock `AudioContext` on user interaction. See [references/tactile-foil-and-web-audio.md](references/tactile-foil-and-web-audio.md) and [references/grilltrack-progressive-workflow.md](references/grilltrack-progressive-workflow.md).
 
@@ -77,10 +81,10 @@ Once the user locks one of the 5 frameworks, build the animation **one core piec
   2. `src/styles/tokens.css` (`@layer base` CSS custom properties using `light-dark()`).
 - **Automatic token binding:** All engines (`core.js`, `three.min.js` stages, `multiplane.js`, `choreo.js`) read `--color-canvas`, `--color-surface`, `--color-ink`, `--color-muted`, `--color-border`, `--color-accent`, and `--color-shadow` from their host container when mounted in an EmDash site, falling back to warm paper (`#f2efe7`) and deep ink (`#231e16`) when standalone.
 - **Scoped container mounting (`target`):** Never wipe `document.body` inside an EmDash page. Pass `target: containerEl` (or build with `scripts/build.py input.html Out.astro --astro`) so the animation mounts cleanly inside a scoped `<div class="emdash-motion-stage">`.
-- **Storefront UI chrome (`chrome: 'storefront' | 'stage-only' | 'full'`):**
-  - `'full'` (standalone default): Title header, interactive action buttons, stats, wobble slider, palette swatch picker, view buttons, and footer.
-  - `'storefront'` (EmDash default): Interactive stage + action buttons + compact `See-through` / `Labels` / `Turntable` pills; hides debug wobble sliders, colour swatch pickers, standalone headers, and footers.
-  - `'stage-only'`: Pure interactive stage without control bars.
+- **Storefront UI chrome (`chrome: 'stage-only' | 'storefront' | 'full'`):**
+  - `'stage-only'` (**EmDash `--astro` & embedded default**): Pure ambient stage (`role="img"`, `aria-label`) with zero `01..04` stop bars, scrubbers, or `Layers` / `Pigment Drift` debug buttons in the DOM; `?t=0..1` and `?explode=1` remain URL-only proof hooks.
+  - `'storefront'` (explicit opt-in): Interactive stage + compact action/step pills; hides debug wobble sliders, colour swatch pickers, standalone headers, and footers.
+  - `'full'` (standalone HTML default): Title header, interactive action buttons, stats, wobble slider, palette swatch picker, view buttons, and footer.
 
 Read [references/astro-integration.md](references/astro-integration.md) for EmDash Astro component props, `defineBlockComponents` wiring, and `FEATURE_MAP.md` hooks.
 
@@ -126,16 +130,16 @@ Read [references/threejs-studio-pbr.md](references/threejs-studio-pbr.md) for th
 
 Use `mountMultiplane(cfg)` when building layered architectural/editorial scenes, transit/fulfillment route visualizers, or watercolor/ink-bleed hero canvases. Read [references/multiplane-and-pigment-drift.md](references/multiplane-and-pigment-drift.md) for full patterns.
 
-1. **Three-Layer Shadowbox Contract:**
-   - `background(st, t, ctx)`: Distant skyline, terrain, sky/water wash, timelapse lighting, and optional `renderPigmentDrift(...)` watercolor/ink bleed. No foreground occluders or moving midground vehicles.
-   - `midground(st, t, ctx)`: Moving actors (trains, delivery vans, ferries, gondolas, signal pulses) positioned deterministically from normalized progress `t` (`0..1`).
-   - `foreground(st, t, ctx)`: Occlusion masks registered to the background plate (bridge towers, truss spans, highway overpasses, glass conservatory arches, columns). Actors in `midground` naturally pass *behind* these structures.
-2. **Artwork-Led UI (`stops` & `stats`):**
-   - Let the artwork lead: the moving midground actor *is* the progress indicator, paired with a minimal top-left status header (`eyebrow`, `title`), top-right metric (`stats`), and bottom route/timeline stop bar (`stops: [{ label, status, at }]`).
-3. **Exploded 3D Multiplane Inspection (`?explode=1`):**
-   - `multiplane.js` includes a built-in `Layers` toggle (`?explode=1`) that tilts and separates the Background, Midground, and Foreground planes in 3D perspective (`rotateX`/`rotateY`/`translateZ`) like a physical shadowbox camera rig.
+1. **Three-Layer Shadowbox & Chroma-Safe Despill Contract:**
+   - `background(st, t, ctx)` (**Plane 01**): Distant skyline/bay architecture, sky/water wash, `renderPigmentDrift(...)`, and `mix-blend-mode: screen` reactive radial light blooms synced to active station phase.
+   - `midground(st, t, ctx)` (**Plane 02**): Despilled RGBA actor pose plates + articulated mechanical rigging positioned deterministically from normalized progress `t` (`0..1`). Never use `#FF00FF` magenta chroma key on crimson, red, or molten-orange subjects; use `#00FF00` lime (on green-free subjects) or two-pass black/white difference matting for zero color spill.
+   - `foreground(st, t, ctx)` (**Plane 03**): Healed foreground occlusion masks (`pointer-events: none` — steel gantry girders, bridge towers, truss spans, arches) that Plane 02 passes *behind*. Always clone/heal moving rig hardware *off* Plane 03 onto Plane 02 so no static duplicate freezes in front of the animation.
+2. **Physical Causality, `smooth7`, & Periodic Pendulum Kinematics:**
+   - Ban unmotivated floating `translateX` slides. Drive moving payloads with visible mechanical rigging (overhead trolley → grooved sheave pulley rotating by `(dx + dy) / R` → differential load/slack chain → hook latch → lift → carry → payout → unhook), `smooth7(a, b, x)` (`C³` zero-jerk septic smoothstep), and `preintegratePeriodicPendulum(xFn, opts)` (3-pass periodic damped harmonic ODE with zero seam at `t = 0 / 1`).
+3. **Ambient Default (`chrome: 'stage-only'`) vs. Artwork-Led HUD (`stops` & `stats`) & `?explode=1`:**
+   - Embedded EmDash builds default to `chrome: 'stage-only'` (omitting `.mp-hud-top` and `.mp-hud-bottom` from the DOM). Pass `chrome: 'storefront'` or `'full'` only when an explicit stop-bar HUD (`stops`, `stats`) is desired. Pass `?explode=1` in the URL to tilt and separate Planes 01–03 in 3D shadowbox perspective for GrillTrack depth proof.
 
-Inspect `assets/examples/harbor-transit-multiplane.html`.
+Inspect `assets/examples/foundry-hoist-multiplane.html` and `assets/examples/harbor-transit-multiplane.html`.
 
 ---
 
@@ -160,18 +164,20 @@ Never hand over an unverified framework or piece. Run the build and headless Chr
    # Standalone self-contained HTML artifact
    python3 "<skill-dir>/scripts/build.py" scene.html OUT.html
 
-   # Zero-dependency EmDash Astro component (scoped container + tokens.css bridge)
-   python3 "<skill-dir>/scripts/build.py" scene.html src/components/motion/HeroMotion.astro --astro --chrome storefront
+   # Zero-dependency EmDash Astro component (defaults to ambient chrome="stage-only" + tokens.css bridge)
+   python3 "<skill-dir>/scripts/build.py" scene.html src/components/motion/HeroMotion.astro --astro --strict-no-any
    ```
-3. **Run deterministic headless Chrome verification:**
+3. **Run deterministic headless Chrome verification + `24 fps` MP4/GIF loop proof:**
    ```bash
-   python3 "<skill-dir>/scripts/verify_motion.py" OUT.html --out-dir .grilltrack/proof/motion
+   python3 "<skill-dir>/scripts/verify_motion.py" OUT.html \
+     --out-dir .grilltrack/proof/motion \
+     --record-mp4 --record-gif --record-explode
    ```
-   `verify_motion.py` automatically captures retina PNG screenshots across:
+   `verify_motion.py` drives Chrome DevTools Protocol (`Emulation.setDeviceMetricsOverride`) and `ffmpeg` to capture:
    - Custom `<meta name="motion-probes" content="...">` probes (including `?candidate=1..5` for Round 0 framework explorers),
    - Camera angles (`yaw=45,135,225,315` closed + `xr=1&labels=1` cutaway) for Mode A,
-   - Timeline scrubs (`t=0.0,0.25,0.5,0.75,1.0` + `explode=1` multiplane check) for Modes B & C,
+   - Timeline scrubs (`t=0.0..1.0` + `explode=1` multiplane check) and **end-to-end `24 fps` `.mp4` + palette-optimized `.gif` motion loops** (`--record-mp4 --record-gif`) so jerk, velocity spikes, and loop seams are caught before grilling the user,
    - Interactive button sequences (`--press "Push the lever@200"`),
-   - Mobile viewport (`390x844`),
-   - DOM & geometry health audit: fails closed if `<html data-errors="...">` is non-empty, if `NaN` appears anywhere in the rendered DOM/SVG, or if the `<svg>` bounding box is empty.
-4. **Inspect the rendered PNGs** visually to confirm no depth-sorting inversions, no floating parts, no clipped labels, and clean mobile layout before grilling the user on the active piece.
+   - True `390x844` mobile viewport via CDP device emulation (`inner_width == 390`, `overflow_x == False` — defeating macOS `NSWindow`'s `500px` CLI `--window-size` clamp),
+   - DOM & geometry health audit: fails closed if `<html data-errors="...">` is non-empty, if `NaN` appears anywhere in the rendered DOM/SVG, if horizontal mobile overflow occurs, or if the `<svg>` bounding box is empty.
+4. **Inspect both the rendered PNGs and `24 fps` MP4/GIF loops** visually to confirm zero-jerk transitions, physical rigging causality, clean `t = 0 / 1` loop closure, no depth-sorting inversions, and unclipped `390x844` mobile framing before grilling the user on the active piece.

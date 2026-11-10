@@ -67,8 +67,9 @@ Lock Placement + 3D Engine (A1/A2) + Single Trigger + Framework (Round 0)
 2. **Cumulative Canvas Preservation:**
    - Never discard or regress previously locked pieces. Piece 2 builds directly on the locked Piece 1 canvas; Piece 3 builds directly on the locked Pieces 1 + 2 canvas.
    - If the user asks for an adjustment to Piece `k` during its grill checkpoint (e.g., "make the box flaps fold slower" or "change the angle of the thermal label"), refine Piece `k`, re-verify in headless Chrome, and confirm the lock before starting Piece `k + 1`.
-3. **Deterministic Proof at Every Checkpoint:**
-   - Run `scripts/verify_motion.py` for the active piece's keyframe range (`?t=...`) and show the rendered proof frames alongside focused GrillTrack questions on the piece's visual craft and motion feel.
+3. **Deterministic Proof at Every Checkpoint (Mandatory `24 fps` MP4 + GIF Motion Gate):**
+   - Static PNGs hide velocity spikes, frozen duplicate rigs on foreground plates, and unmotivated floating slides. Run `scripts/verify_motion.py --record-mp4 --record-gif` (plus `--record-explode` on Mode B multiplane stages) to capture **both retina PNG keyframes and end-to-end `24 fps` `.mp4` + `.gif` motion loops** before asking the user to lock a piece or final stage.
+   - Inspect the `24 fps` loop frame-by-frame to confirm zero-jerk transitions (`smooth7`), physical rigging causality, seamless `t = 0 / 1` loop wrap, and true `390×844` mobile layout (`inner_width == 390`, `overflow_x == False` via CDP `Emulation.setDeviceMetricsOverride`).
 
 ---
 

@@ -211,6 +211,7 @@ class PackagingTests(unittest.TestCase):
             "lamp.html",
             "claw.html",
             "harbor-transit-multiplane.html",
+            "foundry-hoist-multiplane.html",
             "argon-orbital-choreo.html",
             "dinkuskit-macbook-commerce.html",
             "dinkuskit-macbook-illustrated.html",
@@ -220,6 +221,9 @@ class PackagingTests(unittest.TestCase):
             "DinkusKitCommerceMacbook.astro",
         ):
             self.assertTrue((skill / "assets" / "examples" / ex).is_file(), ex)
+        self.assertIsNone(
+            re.search(r"\bany\b", (skill / "assets" / "examples" / "foundry-hoist-multiplane.html").read_text(encoding="utf-8"))
+        )
         self.assertIsNone(
             re.search(r"\bany\b", (skill / "assets" / "examples" / "dinkuskit-macbook-commerce.html").read_text(encoding="utf-8"))
         )
@@ -289,10 +293,40 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("Ryan's Anatomy", license_text)
 
         multiplane_js = (skill / "assets" / "multiplane.js").read_text(encoding="utf-8")
+        self.assertIn("function smooth7(", multiplane_js)
+        self.assertIn("function preintegratePeriodicPendulum(", multiplane_js)
         self.assertIn("function timelapse(", multiplane_js)
         self.assertIn("function renderTimelapse(", multiplane_js)
         self.assertIn("function renderPlate(", multiplane_js)
         self.assertIn("MutationObserver", multiplane_js)
+
+        verify_py = (skill / "scripts" / "verify_motion.py").read_text(encoding="utf-8")
+        self.assertIn("Emulation.setDeviceMetricsOverride", verify_py)
+        self.assertIn("--record-mp4", verify_py)
+        self.assertIn("--record-gif", verify_py)
+        verify_help = subprocess.run(
+            [sys.executable, str(skill / "scripts" / "verify_motion.py"), "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(verify_help.returncode, 0, verify_help.stderr)
+        self.assertIn("--record-mp4", verify_help.stdout)
+        self.assertIn("--record-gif", verify_help.stdout)
+
+        self.assertLessEqual(len(skill_text.splitlines()), 500)
+        self.assertIn("Hard Asset-Fidelity Rule", skill_text)
+        self.assertIn("smooth7", skill_text)
+        for doc in skill.rglob("*.md"):
+            doc_text = doc.read_text(encoding="utf-8")
+            self.assertNotIn("/Users/", doc_text, str(doc))
+            self.assertNotIn("/home/", doc_text, str(doc))
+            for target in re.findall(r"\]\(([^)]+)\)", doc_text):
+                if "://" not in target and not target.startswith("#"):
+                    self.assertTrue(
+                        (doc.parent / target.split("#")[0]).is_file(),
+                        f"{doc}: {target}",
+                    )
 
         choreo_js = (skill / "assets" / "choreo.js").read_text(encoding="utf-8")
         self.assertIn("ui.updateScroll", choreo_js)
@@ -304,6 +338,7 @@ class PackagingTests(unittest.TestCase):
             out_html = tmp_dir / "toaster.out.html"
             out_astro = tmp_dir / "ToasterCutaway.astro"
             out_mp_astro = tmp_dir / "HarborMultiplane.astro"
+            out_hoist_astro = tmp_dir / "FoundryHoistMultiplane.astro"
             out_ch_astro = tmp_dir / "ArgonChoreo.astro"
             out_dk_astro = tmp_dir / "DinkusKitCommerceMacbook.astro"
             out_fw_html = tmp_dir / "dinkuskit-macbook-frameworks.out.html"
@@ -321,6 +356,10 @@ class PackagingTests(unittest.TestCase):
             )
             subprocess.run(
                 ["python3", str(skill / "scripts" / "build.py"), str(skill / "assets" / "examples" / "harbor-transit-multiplane.html"), str(out_mp_astro), "--astro"],
+                check=True,
+            )
+            subprocess.run(
+                ["python3", str(skill / "scripts" / "build.py"), str(skill / "assets" / "examples" / "foundry-hoist-multiplane.html"), str(out_hoist_astro), "--astro", "--strict-no-any"],
                 check=True,
             )
             subprocess.run(
@@ -354,6 +393,12 @@ class PackagingTests(unittest.TestCase):
             html_body = out_html.read_text(encoding="utf-8")
             astro_body = out_astro.read_text(encoding="utf-8")
             mp_astro_body = out_mp_astro.read_text(encoding="utf-8")
+            hoist_astro_body = out_hoist_astro.read_text(encoding="utf-8")
+            self.assertIn('chrome = "stage-only"', astro_body)
+            self.assertIn('chrome = "stage-only"', hoist_astro_body)
+            self.assertIn("function smooth7(", hoist_astro_body)
+            self.assertIn("function preintegratePeriodicPendulum(", hoist_astro_body)
+            self.assertIsNone(re.search(r"\bany\b", hoist_astro_body))
             ch_astro_body = out_ch_astro.read_text(encoding="utf-8")
             dk_astro_body = out_dk_astro.read_text(encoding="utf-8")
             fw_html_body = out_fw_html.read_text(encoding="utf-8")

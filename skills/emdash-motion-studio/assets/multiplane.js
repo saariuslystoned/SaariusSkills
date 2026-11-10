@@ -69,6 +69,7 @@ const MP_CSS = `
     transition:transform .65s cubic-bezier(.22,1,.36,1), box-shadow .65s ease, background .65s ease, border-color .65s ease;
     border:1px solid transparent;border-radius:6px;
   }
+  .mp-plane-fg{pointer-events:none}
   .mp-plane-tag{
     position:absolute;top:10px;left:14px;z-index:6;
     font:700 10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;
@@ -82,13 +83,13 @@ const MP_CSS = `
     transform:rotateX(11deg) rotateY(-24deg) rotateZ(1.5deg) scale(.82);
   }
   .mp-frame[data-explode="1"] .mp-plane{
-    background:rgba(244,241,234,.52);
-    border-color:rgba(24,34,44,.26);
-    box-shadow:-18px 22px 34px rgba(18,26,36,.18);
+    background:rgba(128,138,150,.08);
+    border-color:rgba(128,138,150,.42);
+    box-shadow:-18px 22px 34px rgba(12,18,26,.24);
   }
-  .mp-frame[data-explode="1"] .mp-plane-bg{transform:translateZ(-110px) translateX(-36px) translateY(-14px);background:rgba(244,241,234,.92)}
+  .mp-frame[data-explode="1"] .mp-plane-bg{transform:translateZ(-110px) translateX(-36px) translateY(-14px)}
   .mp-frame[data-explode="1"] .mp-plane-mid{transform:translateZ(0px)}
-  .mp-frame[data-explode="1"] .mp-plane-fg{transform:translateZ(110px) translateX(36px) translateY(14px);background:rgba(244,241,234,.22)}
+  .mp-frame[data-explode="1"] .mp-plane-fg{transform:translateZ(110px) translateX(36px) translateY(14px);background:rgba(128,138,150,.05)}
   .mp-frame[data-explode="1"] .mp-plane-tag{opacity:1}
 
   .mp-hud-bottom{
@@ -144,6 +145,7 @@ const MP_CSS = `
     font:600 11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;
     letter-spacing:.06em;text-transform:uppercase;color:var(--mp-muted);
   }
+  [data-chrome="stage-only"].mp-root{padding:0}
   [data-chrome="stage-only"] .mp-hud-top,
   [data-chrome="stage-only"] .mp-hud-bottom{display:none!important}
   [data-chrome="storefront"] .mp-toolbar{display:none}
@@ -162,6 +164,70 @@ function _mpHexMix(a, b, k){
   const p = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
   const [A, B] = [p(a), p(b)];
   return '#' + [0, 1, 2].map(i => Math.round(A[i] + (B[i] - A[i]) * k).toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * C3-continuous septic smoothstep: zero velocity, zero acceleration, and zero jerk at endpoints a and b.
+ */
+function smooth7(a, b, x){
+  if (b === a) return x < a ? 0 : 1;
+  const u = Math.max(0, Math.min(1, (x - a) / (b - a)));
+  const u2 = u * u;
+  const u4 = u2 * u2;
+  return u4 * (35 - 84 * u + 70 * u2 - 20 * u2 * u);
+}
+
+/**
+ * Pre-integrates a periodic damped harmonic pendulum driven by horizontal trolley acceleration x''(t)
+ * across 3 loop passes so t = 0 and t = 1 meet with zero seam discontinuity.
+ */
+function preintegratePeriodicPendulum(xFn, opts = {}){
+  const steps = Math.max(120, opts.steps || 720);
+  const duration = Math.max(0.5, opts.duration || 12);
+  const wn = opts.wn || 5.2;
+  const zeta = opts.zeta || 0.34;
+  const driveScale = opts.driveScale != null ? opts.driveScale : 0.0018;
+  const maxDeg = opts.maxDeg || 24;
+  const passes = Math.max(3, opts.passes || 3);
+  const dt = duration / steps;
+  const xs = new Float64Array(steps);
+  for (let i = 0; i < steps; i++) xs[i] = +xFn(i / steps) || 0;
+  const acc = new Float64Array(steps);
+  const invDt2 = 1 / (dt * dt);
+  for (let i = 0; i < steps; i++){
+    const prev = xs[(i - 1 + steps) % steps];
+    const curr = xs[i];
+    const next = xs[(i + 1) % steps];
+    acc[i] = (next - 2 * curr + prev) * invDt2;
+  }
+  let theta = 0;
+  let omega = 0;
+  const thetas = new Float64Array(steps);
+  const omegas = new Float64Array(steps);
+  for (let p = 0; p < passes; p++){
+    for (let i = 0; i < steps; i++){
+      const alpha = -wn * wn * theta - 2 * zeta * wn * omega - acc[i] * driveScale;
+      omega += alpha * dt;
+      theta += omega * dt;
+      if (p === passes - 1){
+        thetas[i] = theta;
+        omegas[i] = omega;
+      }
+    }
+  }
+  const radToDeg = 180 / Math.PI;
+  return function samplePendulum(t = 0){
+    const u = ((t % 1) + 1) % 1;
+    const pos = u * steps;
+    const i0 = Math.floor(pos) % steps;
+    const i1 = (i0 + 1) % steps;
+    const frac = pos - Math.floor(pos);
+    const th = thetas[i0] + (thetas[i1] - thetas[i0]) * frac;
+    const om = omegas[i0] + (omegas[i1] - omegas[i0]) * frac;
+    const xx = xs[i0] + (xs[i1] - xs[i0]) * frac;
+    const deg = Math.max(-maxDeg, Math.min(maxDeg, th * radToDeg));
+    return { thetaRad: th, thetaDeg: deg, omega: om, x: xx };
+  };
 }
 
 /**
@@ -313,7 +379,8 @@ function mountMultiplane(cfg){
   const rootEl = typeof rawTarget === 'string' ? document.querySelector(rawTarget) : (rawTarget || document.body);
   const isStandalone = rootEl === document.body;
   const instPfx = `mp${++_mpSeq}`;
-  const chrome = q.get('chrome') || cfg.chrome || (rootEl && rootEl.dataset && rootEl.dataset.chrome) || window.__EMDASH_MOTION_CHROME || (isStandalone ? 'full' : 'storefront');
+  const chrome = q.get('chrome') || cfg.chrome || (rootEl && rootEl.dataset && rootEl.dataset.chrome) || window.__EMDASH_MOTION_CHROME || (isStandalone ? 'full' : 'stage-only');
+  const isStageOnly = chrome === 'stage-only';
   const [vbW, vbH] = cfg.viewBox || [1200, 520];
   const duration = cfg.duration || 14;
   const stops = cfg.stops || [
@@ -355,8 +422,8 @@ function mountMultiplane(cfg){
     st.playing = false;
   }
 
-  rootEl.innerHTML = `
-    <div class="mp-frame" id="mp-frame" data-explode="${st.explode ? '1' : '0'}">
+  const stageLabel = cfg.ariaLabel || cfg.title || 'Multiplane Stage';
+  const topHudHtml = isStageOnly ? '' : `
       <div class="mp-hud-top">
         <div>
           <p class="mp-eyebrow" id="mp-eyebrow">${cfg.eyebrow || 'NEXT STOP'}</p>
@@ -366,29 +433,8 @@ function mountMultiplane(cfg){
           <div class="mp-metric-val" id="mp-metric-val">1</div>
           <div class="mp-metric-unit" id="mp-metric-unit">MIN</div>
         </div>
-      </div>
-      <div class="mp-stage-wrap">
-        <div class="mp-shadowbox" id="mp-shadowbox">
-          <div class="mp-plane mp-plane-bg">
-            <span class="mp-plane-tag">Plane 01 · Background Stage + Pigment Drift</span>
-            <svg id="fig" viewBox="0 0 ${vbW} ${vbH}" width="100%" height="100%" role="img" aria-label="${cfg.title || 'Multiplane Stage'}">
-              <g id="mp-bg-layer"></g>
-            </svg>
-          </div>
-          <div class="mp-plane mp-plane-mid">
-            <span class="mp-plane-tag">Plane 02 · Animated Midground</span>
-            <svg viewBox="0 0 ${vbW} ${vbH}" width="100%" height="100%" aria-hidden="true">
-              <g id="mp-mid-layer"></g>
-            </svg>
-          </div>
-          <div class="mp-plane mp-plane-fg">
-            <span class="mp-plane-tag">Plane 03 · Foreground Occlusion Mask</span>
-            <svg viewBox="0 0 ${vbW} ${vbH}" width="100%" height="100%" aria-hidden="true">
-              <g id="mp-fg-layer"></g>
-            </svg>
-          </div>
-        </div>
-      </div>
+      </div>`;
+  const bottomHudHtml = isStageOnly ? '' : `
       <div class="mp-hud-bottom">
         <div class="mp-timeline">
           <div class="mp-track">
@@ -405,11 +451,36 @@ function mountMultiplane(cfg){
           </div>
           <div class="mp-readout" id="mp-readout"></div>
         </div>
-      </div>
+      </div>`;
+
+  rootEl.innerHTML = `
+    <div class="mp-frame" id="mp-frame" data-explode="${st.explode ? '1' : '0'}"${isStageOnly ? ` role="img" aria-label="${stageLabel}"` : ''}>${topHudHtml}
+      <div class="mp-stage-wrap">
+        <div class="mp-shadowbox" id="mp-shadowbox">
+          <div class="mp-plane mp-plane-bg">
+            <span class="mp-plane-tag">Plane 01 · Background Stage + Pigment Drift</span>
+            <svg id="fig" viewBox="0 0 ${vbW} ${vbH}" width="100%" height="100%" role="img" aria-label="${stageLabel}">
+              <g id="mp-bg-layer"></g>
+            </svg>
+          </div>
+          <div class="mp-plane mp-plane-mid">
+            <span class="mp-plane-tag">Plane 02 · Animated Midground</span>
+            <svg viewBox="0 0 ${vbW} ${vbH}" width="100%" height="100%" aria-hidden="true">
+              <g id="mp-mid-layer"></g>
+            </svg>
+          </div>
+          <div class="mp-plane mp-plane-fg">
+            <span class="mp-plane-tag">Plane 03 · Foreground Occlusion Mask</span>
+            <svg viewBox="0 0 ${vbW} ${vbH}" width="100%" height="100%" aria-hidden="true">
+              <g id="mp-fg-layer"></g>
+            </svg>
+          </div>
+        </div>
+      </div>${bottomHudHtml}
     </div>
   `;
 
-  const byId = id => rootEl.querySelector('#' + id) || document.getElementById(id);
+  const byId = id => rootEl.querySelector('#' + id) || (!isStageOnly ? document.getElementById(id) : null);
   const frameEl = byId('mp-frame');
   const bgLayer = byId('mp-bg-layer');
   const midLayer = byId('mp-mid-layer');
@@ -425,26 +496,30 @@ function mountMultiplane(cfg){
   const explodeBtn = byId('mp-explode-btn');
   const pigmentBtn = byId('mp-pigment-btn');
 
-  // Build stop buttons
-  const stopEls = stops.map((s, idx) => {
+  // Build stop buttons when HUD is active
+  const stopEls = stopsEl ? stops.map((s, idx) => {
     const b = document.createElement('button');
     b.className = 'mp-stop act';
     b.innerHTML = `<span class="mp-stop-tick"></span><span class="mp-stop-name">${s.label}</span><span class="mp-stop-sub" data-sub>${s.skip ? 'SKIP' : ''}</span>`;
     b.onclick = () => {
       st.playing = false;
-      playBtn.textContent = 'Play';
-      playBtn.setAttribute('aria-pressed', 'false');
+      if (playBtn){
+        playBtn.textContent = 'Play';
+        playBtn.setAttribute('aria-pressed', 'false');
+      }
       animateTo(s.at);
     };
     stopsEl.appendChild(b);
     return { stop: s, el: b, subEl: b.querySelector('[data-sub]'), idx };
-  });
+  }) : [];
 
   const ctx = {
     width: vbW,
     height: vbH,
     idPrefix: instPfx,
     tokens: _readMpTokens(rootEl),
+    smooth7,
+    preintegratePeriodicPendulum,
     timelapse,
     renderTimelapse: (opts = {}, tNorm = st.t) => renderTimelapse(Object.assign({ width: vbW, height: vbH, idPrefix: instPfx }, opts), tNorm),
     renderPlate: (plate = {}) => renderPlate(plate, { width: vbW, height: vbH, idPrefix: instPfx }),
@@ -495,25 +570,25 @@ function mountMultiplane(cfg){
       subEl.textContent = subText;
     });
 
-    if (cfg.stats){
-      const m = cfg.stats(st, t, nextStop);
-      if (m){
-        titleEl.textContent = m.title || nextStop.label;
-        metricValEl.textContent = m.value;
-        metricUnitEl.textContent = m.unit || 'MIN';
+      if (cfg.stats){
+        const m = cfg.stats(st, t, nextStop);
+        if (m && titleEl && metricValEl && metricUnitEl){
+          titleEl.textContent = m.title || nextStop.label;
+          metricValEl.textContent = m.value;
+          metricUnitEl.textContent = m.unit || 'MIN';
+        }
+      } else if (titleEl && metricValEl && metricUnitEl){
+        titleEl.textContent = nextStop.label;
+        const remMins = Math.max(0, Math.round(Math.max(0, nextStop.at - t) * 10));
+        metricValEl.textContent = String(remMins);
+        metricUnitEl.textContent = 'MIN';
       }
-    } else {
-      titleEl.textContent = nextStop.label;
-      const remMins = Math.max(0, Math.round(Math.max(0, nextStop.at - t) * 10));
-      metricValEl.textContent = String(remMins);
-      metricUnitEl.textContent = 'MIN';
-    }
 
-    const pct = (t * 100).toFixed(2) + '%';
-    fillEl.style.width = pct;
-    playheadEl.style.left = pct;
-    readoutEl.textContent = `T=${t.toFixed(2)} · ${st.explode ? '3D MULTIPLANE' : 'COMPOSITED'} · ${nextStop.label.toUpperCase()}`;
-  };
+      const pct = (t * 100).toFixed(2) + '%';
+      if (fillEl) fillEl.style.width = pct;
+      if (playheadEl) playheadEl.style.left = pct;
+      if (readoutEl) readoutEl.textContent = `T=${t.toFixed(2)} · ${st.explode ? '3D MULTIPLANE' : 'COMPOSITED'} · ${nextStop.label.toUpperCase()}`;
+    };
 
   let scrubAnim = 0;
   function animateTo(targetT, ms = 650){
@@ -540,19 +615,19 @@ function mountMultiplane(cfg){
     rafId = requestAnimationFrame(tick);
   }
 
-  playBtn.onclick = () => {
+  if (playBtn) playBtn.onclick = () => {
     st.playing = !st.playing;
     playBtn.textContent = st.playing ? 'Pause' : 'Play';
     playBtn.setAttribute('aria-pressed', String(st.playing));
     if (st.playing){ lastFrame = performance.now(); tick(); }
     else cancelAnimationFrame(rafId);
   };
-  explodeBtn.onclick = () => {
+  if (explodeBtn) explodeBtn.onclick = () => {
     st.explode = !st.explode;
     explodeBtn.setAttribute('aria-pressed', String(st.explode));
     ui.render();
   };
-  pigmentBtn.onclick = () => {
+  if (pigmentBtn) pigmentBtn.onclick = () => {
     st.pigment = !st.pigment;
     pigmentBtn.setAttribute('aria-pressed', String(st.pigment));
     ui.render();

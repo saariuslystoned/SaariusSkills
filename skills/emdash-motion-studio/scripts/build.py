@@ -6,7 +6,7 @@ Usage:
   python3 build.py figure.html OUT.html [--chrome full|storefront|stage-only]
 
   # 2. Zero-dependency EmDash Astro component (.astro)
-  python3 build.py figure.html src/components/motion/HeroFigure.astro --astro [--chrome storefront]
+  python3 build.py figure.html src/components/motion/HeroFigure.astro --astro [--chrome stage-only]
 """
 from __future__ import annotations
 
@@ -393,7 +393,7 @@ def main() -> None:
         "--chrome",
         choices=("full", "storefront", "stage-only"),
         default=None,
-        help="Default UI chrome mode (defaults to 'full' for HTML, 'storefront' for --astro)",
+        help="Default UI chrome mode (defaults to 'full' for HTML, 'stage-only' for --astro)",
     )
     args = parser.parse_args()
 
@@ -404,7 +404,7 @@ def main() -> None:
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if is_astro:
-        default_chrome = args.chrome or "storefront"
+        default_chrome = args.chrome or "stage-only"
         astro_code = build_astro(raw_page, src_path, default_chrome, strict_no_any=args.strict_no_any)
         out_path.write_text(astro_code, encoding="utf-8")
     else:

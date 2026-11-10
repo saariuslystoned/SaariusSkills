@@ -67,6 +67,30 @@ const ui = mountMultiplane({
 
 ---
 
+## 1B. 3-Plate Hybrid Depth Architecture, Chroma-Safe Despill & Overhead Hoist Kinematics
+
+When building industrial, editorial, or character-driven Mode B stages (such as `assets/examples/foundry-hoist-multiplane.html`), apply these four field-verified mechanics:
+
+### 1. Asset Separation & Foreground Plane Healing
+- **Never build organic characters, creatures, or mascots from `core.js` cylinders or hand-coded SVG Bezier `<path>` curves.** Use canonical character sheets from [`smoky-character-studio`](../../smoky-character-studio/SKILL.md) or generated 3D-vinyl / architectural RGBA plates, reserving procedural SVG strictly for mechanical rigging and lighting.
+- **Plane 01 (`background`)**: Diorama architecture, workbenches, and `mix-blend-mode: screen` `<radialGradient>` light blooms synced to active station phase `t`.
+- **Plane 02 (`midground`)**: Despilled RGBA actor pose swaps + motorized rig hardware (overhead trolley, grooved sheave wheel, differential taut/slack chain, hook latch, payload).
+- **Plane 03 (`foreground`, `pointer-events: none`)**: Structural foreground steel girders, columns, or archways that Plane 02 passes *behind*. **Always heal/clone moving rig hardware off Plane 03 onto Plane 02** so no static duplicate trolley or chain remains frozen in front of the moving midground rig.
+
+### 2. Chroma-Safe Despill (Why `#FF00FF` Magenta Destroys Warm/Crimson Subjects)
+- Never chroma-key crimson, red, coral, or molten-amber subjects on `#FF00FF` magenta backgrounds: magenta spill math (`max(R, B)`) strips red pigment and turns shadows muddy grey.
+- Use **`#00FF00` pure lime** (`G > max(R, B)`) when the subject contains zero green, or **two-pass black-on-white difference matting** for `0.00%` color spill across arbitrary palettes.
+
+### 3. Zero-Jerk Hoist Kinematics (`smooth7` & `preintegratePeriodicPendulum`)
+- **Ban floating `translateX` slides:** Every moving payload needs visible mechanical causality — motorized trolley → grooved pulley wheel rotating by `(dx + dy) / R` → differential load/slack chain payout → hook latch → lift → carry → lower → unhook.
+- **`C³` Zero-Jerk Septic Smoothstep (`smooth7(a, b, x)` in `assets/multiplane.js`):** Standard cubic smoothstep (`3u² - 2u³`) has discontinuous acceleration at segment boundaries, causing visible snaps when a heavy rig starts or stops. `smooth7(a, b, x)` (`u⁴(35 - 84u + 70u² - 20u³)`) guarantees zero velocity, zero acceleration, and zero jerk at every station stop.
+- **Periodic Damped Harmonic Pendulum (`preintegratePeriodicPendulum(xFn, opts)` in `assets/multiplane.js`):** Pre-integrates `θ'' = -ωₙ²θ - 2ζωₙθ' - x''(t)·driveScale` across 3 loop passes (`steps = 720`) so suspended loads lean naturally against trolley acceleration, settle with damped sway on arrival, and wrap across `t = 0 / 1` with **zero loop seam**.
+
+### 4. Ambient Embedded Default (`chrome: 'stage-only'`)
+- Embedded EmDash stages (`build.py --astro` and non-standalone `mountMultiplane`) default to `chrome: 'stage-only'`, omitting `.mp-hud-top` and `.mp-hud-bottom` from the DOM (`role="img"`, `aria-label`) so zero `01..04` stop bars, scrubbers, or `Layers` debug buttons clutter the live page while `?t=0..1` and `?explode=1` remain active URL hooks for GrillTrack proof.
+
+---
+
 ## 2. Pigment Drift Technique (`renderPigmentDrift`)
 
 Inspired by David East's *Soft Current* watercolor/ink-bleed study: warm archival paper (`#fcf6e9` / `--color-canvas`) meets a living, granulated watercolor pigment wash that slowly drifts along paper fibers without distracting from editorial typography.

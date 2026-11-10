@@ -32,7 +32,8 @@ Because the generated `.astro` wrapper bridges `--paper: var(--color-canvas, #f2
 Always author and verify your animation as a standalone `.html` file first so `scripts/verify_motion.py` can test every angle and timeline scrub in headless Chrome. Then compile it to an `.astro` component:
 
 ```bash
-python3 "<skill-dir>/scripts/build.py" espresso.html src/components/motion/EspressoCutaway.astro --astro --chrome storefront
+# Defaults to ambient chrome="stage-only" (pass --chrome storefront only when step pills are desired)
+python3 "<skill-dir>/scripts/build.py" espresso.html src/components/motion/EspressoCutaway.astro --astro --strict-no-any
 ```
 
 ### Generated `.astro` Component Contract
@@ -44,15 +45,15 @@ The generated component accepts standard typed props and scopes all DOM and CSS 
 import EspressoCutaway from "../components/motion/EspressoCutaway.astro";
 ---
 
-<!-- Storefront mode: interactive 3D stage + action buttons + See-through/Labels pills -->
-<EspressoCutaway chrome="storefront" palette="site" class="my-8" />
+<!-- Ambient default (chrome="stage-only"): pure HUD-free stage with role="img" + aria-label -->
+<EspressoCutaway height="460px" />
 
-<!-- Stage-only mode: pure interactive figure for compact cards or columns -->
-<EspressoCutaway chrome="stage-only" height="420px" />
+<!-- Opt-in storefront mode: interactive 3D stage + compact action/See-through pills -->
+<EspressoCutaway chrome="storefront" palette="site" class="my-8" />
 ```
 
 Supported props on generated `.astro` components:
-- `chrome?: 'storefront' | 'stage-only' | 'full'` (defaults to `'storefront'` when built with `--astro`)
+- `chrome?: 'stage-only' | 'storefront' | 'full'` (defaults to `'stage-only'` when built with `--astro`; keeps `?t=0..1` and `?explode=1` active as URL query proof hooks without rendering HUD buttons in production DOM)
 - `palette?: 'site' | 'mustard' | 'tomato' | 'mint' | 'cobalt' | 'blush'`
 - `height?: string` (optional max-height constraint on the SVG stage)
 - `class?: string` (additional wrapper classes)
