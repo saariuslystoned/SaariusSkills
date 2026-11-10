@@ -1545,6 +1545,26 @@ exit "$1"
         self.assertIsNone(rect_3x3_plan["qr_zone"]["vec_box"])
         self.assertIsNotNone(rect_3x3_plan["hero"]["brand_header"])
 
+        # Open sleeve with wide glue_flap_in > 0.85" excludes the leading glue flap from printable faces
+        wide_sleeve_calc = mod.calculate_container_dieline(
+            {"type": "sleeve", "width_in": 2.0, "depth_in": 1.5, "height_in": 4.0, "glue_flap_in": 1.0}
+        )
+        sp_cfg = wide_sleeve_calc["panels"][0]
+        self.assertTrue(sp_cfg["has_leading_glue_flap"])
+        sleeve_dp = mod.DielinePanel(
+            sp_cfg["panel_id"],
+            sp_cfg["shape"],
+            cx=400.0,
+            cy=300.0,
+            width_in=sp_cfg["width_in"],
+            height_in=sp_cfg["height_in"],
+            fold_offsets_in=sp_cfg["fold_offsets_in"],
+            has_leading_glue_flap=sp_cfg["has_leading_glue_flap"],
+        )
+        sleeve_plan = mod.plan_panel_artwork_layout(sleeve_dp, {"product_name": "TEA SLEEVE"})
+        glue_right_edge = sleeve_dp.x0 + mod.inch(1.0)
+        self.assertGreater(sleeve_plan["hero"]["x0"], glue_right_edge)
+
         # Custom palette CMYK channel bounds and <= 300% TAC enforcement
         valid_pal = mod.validate_palette_cmyk({"bg": [70, 40, 50, 30]})
         self.assertEqual(sum(valid_pal["bg"]), 190.0)
@@ -1628,6 +1648,18 @@ exit "$1"
                 no_printstate_pdf = tmp_root / "missing_printstate.pdf"
                 no_printstate_pdf.write_bytes(good_pdf.read_bytes().replace(b"/PrintState /OFF", b"/PrintState /ON"))
                 self.assertFalse(mod.verify_dieline_pdf(no_printstate_pdf)["preflight_pass"])
+
+                # Changing JUST Diecut to PrintState ON while Safety/Bleed stay OFF must fail stdlib preflight!
+                diecut_on_pdf = tmp_root / "diecut_print_on.pdf"
+                diecut_on_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"3 0 obj << /Type /OCG /Name (Diecut) /Usage << /Print << /PrintState /OFF >> >> >> endobj",
+                        b"3 0 obj << /Type /OCG /Name (Diecut) /Usage << /Print << /PrintState /ON >> >> >> endobj",
+                    )
+                )
+                diecut_on_rep = mod.verify_dieline_pdf(diecut_on_pdf)
+                self.assertFalse(diecut_on_rep["preflight_pass"])
+                self.assertFalse(diecut_on_rep["non_printing_tech_layers"])
 
                 over_tac_stream = zlib.compress(
                     b"q /OC /LayerArtwork BDC 1.0 1.0 1.0 1.0 k /GSOverprint gs EMC Q\n"

@@ -600,6 +600,8 @@ def calculate_container_dieline(container: dict[str, Any]) -> dict[str, Any]:
             "width_in": round(total_w, 4),
             "height_in": round(h, 4),
             "fold_offsets_in": folds,
+            "has_leading_glue_flap": True,
+            "glue_flap_in": round(glue, 4),
             "corner_radius_in": 0.0,
             "bleed_in": bleed_in,
             "safety_in": safety_in,
@@ -959,6 +961,7 @@ class DielinePanel:
         sector_angle_deg: float | None = None,
         apex_down: bool = True,
         carton_net: dict[str, Any] | None = None,
+        has_leading_glue_flap: bool | None = None,
         label_desc: str | None = None,
     ):
         if width_in <= 0 or height_in <= 0:
@@ -982,6 +985,11 @@ class DielinePanel:
             raise ValueError(f"Panel {panel_id!r} corner_radius_in must be >= 0, got {resolved_corner_in}")
         self.corner_r = inch(resolved_corner_in)
         self.fold_offsets = [inch(f) for f in (fold_offsets_in or [])]
+        self.has_leading_glue_flap: bool = (
+            bool(has_leading_glue_flap)
+            if has_leading_glue_flap is not None
+            else (shape == "carton_sleeve" and len(self.fold_offsets) >= 4)
+        )
         self.inner_radius_in: float | None = None
         self.outer_radius_in: float | None = None
         self.sector_angle_deg: float | None = None
@@ -1288,10 +1296,21 @@ class SmokyDielineSheet:
         self.meta = sku_meta or {}
         self.brand_vecs = load_brand_vectors(brand_vectors_path)
 
-        max_x = max(p.cx + max(p.w, p.top_w) / 2.0 + p.bleed + inch(2.8) for p in panels)
-        max_y = max(p.cy + p.h / 2.0 + p.bleed + inch(1.4) for p in panels)
+        max_x = max(p.offset_bbox(+p.bleed)[0] + p.offset_bbox(+p.bleed)[2] + inch(2.8) for p in panels)
+        max_y = max(p.offset_bbox(+p.bleed)[1] + p.offset_bbox(+p.bleed)[3] + inch(1.4) for p in panels)
         self.page_w = inch(page_w_in) if page_w_in else max(1336.93, max_x)
         self.page_h = inch(page_h_in) if page_h_in else max(696.35, max_y)
+        if self.page_w <= 0 or self.page_h <= 0:
+            raise ValueError(f"Sheet page dimensions must be positive, got {self.page_w}x{self.page_h} pt")
+        for p in panels:
+            bx0, by0, bw, bh = p.offset_bbox(+p.bleed)
+            if bx0 < -1e-6 or by0 < -1e-6 or (bx0 + bw) > self.page_w + 1e-6 or (by0 + bh) > self.page_h + 1e-6:
+                raise ValueError(
+                    f"Panel {p.panel_id!r} bleed bounds ({bx0 / PT_PER_INCH:.3f}\"..{(bx0 + bw) / PT_PER_INCH:.3f}\" W, "
+                    f"{by0 / PT_PER_INCH:.3f}\"..{(by0 + bh) / PT_PER_INCH:.3f}\" H) exceed sheet bounds "
+                    f"({self.page_w / PT_PER_INCH:.3f}\" x {self.page_h / PT_PER_INCH:.3f}\"); "
+                    "increase page_w_in/page_h_in or adjust cx_in/cy_in."
+                )
 
         self.c = canvas.Canvas(str(self.out_pdf), pagesize=(self.page_w, self.page_h))
         self.c.setTitle(self.title)
@@ -1971,6 +1990,63 @@ def _collect_pikepdf_drawable_streams(pk_doc: Any) -> tuple[bytes, bytes, bool]:
     return bytes(stream_buf), bytes(meta_buf), ok
 
 
+def _verify_ocg_print_states_stdlib(corpus: bytes) -> bool:
+    """
+    Validates individual OCG object dictionaries in stdlib mode:
+      - PDF catalog `/OCProperties` `/D` `/AS` defines an `/Event /Print` auto-state entry with `/Category [/Print]`
+        referencing every technical OCG object ID;
+      - Every OCG object exists for the 6 canonical layers (`Artwork`, `Diecut`, `Safety`, `Bleed`, `Dimensions`, `Die Template`),
+        with `Artwork` set to `/PrintState /ON` and every non-`Artwork` OCG set to `/PrintState /OFF`.
+    """
+    ocg_states: dict[str, tuple[int, int, str]] = {}
+    for m_obj in re.finditer(rb"(\d+)\s+(\d+)\s+obj\b(.*?)endobj", corpus, flags=re.DOTALL):
+        obj_num = int(m_obj.group(1))
+        gen_num = int(m_obj.group(2))
+        body = m_obj.group(3)
+        if not re.search(rb"/Type\s*/OCG\b", body):
+            continue
+        m_name = re.search(rb"/Name\s*(?:\(([^)]*)\)|/([A-Za-z0-9#._+-]+))", body)
+        if not m_name:
+            return False
+        raw_name = m_name.group(1) if m_name.group(1) is not None else m_name.group(2)
+        name_str = (raw_name or b"").decode("latin-1", errors="ignore").replace("#20", " ").strip()
+        m_ps = re.search(rb"/Print\s*<<[^>]*?/PrintState\s*(/[A-Za-z]+)", body, flags=re.DOTALL)
+        if not m_ps:
+            return False
+        pstate = m_ps.group(1).decode("ascii", errors="ignore")
+        if name_str in ocg_states and ocg_states[name_str][2] != pstate:
+            return False
+        ocg_states[name_str] = (obj_num, gen_num, pstate)
+
+    required_names = {human_name for _, human_name in SmokyDielineSheet.OCG_ORDER}
+    if not required_names.issubset(set(ocg_states.keys())):
+        return False
+
+    tech_refs: list[tuple[int, int]] = []
+    for name_str, (onum, gnum, pstate) in ocg_states.items():
+        expected = "/ON" if name_str == "Artwork" else "/OFF"
+        if pstate != expected:
+            return False
+        if name_str != "Artwork":
+            tech_refs.append((onum, gnum))
+
+    for m_as in re.finditer(rb"<<([^>]*?/Event\s*/Print\b.*?)>>", corpus, flags=re.DOTALL):
+        as_body = m_as.group(1)
+        if not re.search(rb"/Category\s*\[\s*[^\]]*?/Print\b", as_body, flags=re.DOTALL):
+            continue
+        m_ocgs = re.search(rb"/OCGs\s*\[([^\]]*)\]", as_body, flags=re.DOTALL)
+        if not m_ocgs:
+            continue
+        listed_refs = {
+            (int(r.group(1)), int(r.group(2)))
+            for r in re.finditer(rb"(\d+)\s+(\d+)\s+R\b", m_ocgs.group(1))
+        }
+        if all(ref in listed_refs for ref in tech_refs):
+            return True
+
+    return False
+
+
 def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | None = None) -> dict[str, Any]:
     """Verifies OCG layers, non-printing technical PrintState, spot separations, overprint, zero RGB leaks, TAC <= 300%, and exact trim dimensions."""
     raw = Path(pdf_path).read_bytes()
@@ -1978,11 +2054,7 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
     streams_only = stdlib_streams_only
     streams_decoded_ok = stdlib_streams_ok
 
-    has_nonprinting_tech = (
-        ((b"/PrintState /OFF" in corpus) or (b"/PrintState/OFF" in corpus))
-        and ((b"/PrintState /ON" in corpus) or (b"/PrintState/ON" in corpus))
-        and ((b"/Event /Print" in corpus) or (b"/Event/Print" in corpus))
-    )
+    has_nonprinting_tech = _verify_ocg_print_states_stdlib(corpus)
 
     try:
         import pikepdf
@@ -2000,16 +2072,32 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
                 oc_props = pk.Root.get("/OCProperties")
                 if oc_props is not None:
                     ocg_objs = list(oc_props.get("/OCGs", []))
+                    ocg_by_name = {str(ocg.get("/Name", "")): ocg for ocg in ocg_objs}
+                    req_names = {human_name for _, human_name in SmokyDielineSheet.OCG_ORDER}
                     as_list = list(oc_props.get("/D", {}).get("/AS", []))
-                    has_print_event = any(
-                        str(item.get("/Event", "")) == "/Print"
-                        and "/Print" in [str(cat) for cat in item.get("/Category", [])]
-                        for item in as_list
-                    )
-                    states_ok = bool(ocg_objs) and all(
-                        str(ocg.get("/Usage", {}).get("/Print", {}).get("/PrintState", ""))
-                        == ("/ON" if str(ocg.get("/Name", "")) == "Artwork" else "/OFF")
+                    tech_objgens = {
+                        getattr(ocg, "objgen", None)
                         for ocg in ocg_objs
+                        if str(ocg.get("/Name", "")) != "Artwork"
+                    }
+                    has_print_event = False
+                    for item in as_list:
+                        if str(item.get("/Event", "")) != "/Print":
+                            continue
+                        if "/Print" not in [str(cat) for cat in item.get("/Category", [])]:
+                            continue
+                        as_objgens = {getattr(o, "objgen", None) for o in item.get("/OCGs", [])}
+                        if tech_objgens.issubset(as_objgens):
+                            has_print_event = True
+                            break
+                    states_ok = (
+                        bool(ocg_objs)
+                        and req_names.issubset(set(ocg_by_name.keys()))
+                        and all(
+                            str(ocg.get("/Usage", {}).get("/Print", {}).get("/PrintState", ""))
+                            == ("/ON" if str(ocg.get("/Name", "")) == "Artwork" else "/OFF")
+                            for ocg in ocg_objs
+                        )
                     )
                     has_nonprinting_tech = bool(has_print_event and states_ok)
                 else:
@@ -2979,8 +3067,8 @@ def plan_panel_artwork_layout(
                 {"name": f"face_{i}", "x0": p.x0 + xs[i], "x1": p.x0 + xs[i + 1], "y0": p.y0, "y1": p.y0 + p.h}
                 for i in range(len(xs) - 1)
             ]
-            if p.shape == "carton_sleeve" and len(raw_faces) >= 4 and (raw_faces[0]["x1"] - raw_faces[0]["x0"]) <= inch(0.85):
-                faces = raw_faces[1:]
+            if p.has_leading_glue_flap and len(raw_faces) >= 2:
+                faces = [f for f in raw_faces[1:] if (f["x1"] - f["x0"]) > 2.0 * p.safety + 12.0]
             else:
                 faces = [f for f in raw_faces if (f["x1"] - f["x0"]) > 2.0 * p.safety + 12.0]
 
@@ -3580,6 +3668,7 @@ def main() -> None:
                 sector_angle_deg=p_cfg.get("sector_angle_deg"),
                 apex_down=p_cfg.get("apex_down", True),
                 carton_net=p_cfg.get("carton_net"),
+                has_leading_glue_flap=p_cfg.get("has_leading_glue_flap"),
                 label_desc=p_cfg.get("label_desc"),
             )
         )
@@ -3589,16 +3678,34 @@ def main() -> None:
     panel_bleed_spans_in = [b[2] / PT_PER_INCH for b in panel_bleed_boxes_pt]
     panel_bleed_heights_in = [b[3] / PT_PER_INCH for b in panel_bleed_boxes_pt]
     total_span_in = sum(panel_bleed_spans_in) + gap_in * max(0, len(panels) - 1)
+    max_bleed_h_in = max(panel_bleed_heights_in)
     sheet_w_in = float(spec.get("page_w_in") or max(18.5685, total_span_in + 5.0))
-    sheet_h_in = float(spec.get("page_h_in") or max(9.6715, max(panel_bleed_heights_in) + 5.8))
+    sheet_h_in = float(spec.get("page_h_in") or max(9.6715, max_bleed_h_in + 5.8))
     cur_left_in = (sheet_w_in - total_span_in) / 2.0
-    default_cy_in = (sheet_h_in - 1.925) * 0.54 + 1.925
+    footer_top_in = 139.3 / PT_PER_INCH  # 1.9347" top of Die Template footer banner
+    if spec.get("page_h_in") is not None:
+        if sheet_h_in > footer_top_in + max_bleed_h_in + 0.10:
+            default_cy_in = footer_top_in + (sheet_h_in - footer_top_in) * 0.50
+        else:
+            default_cy_in = sheet_h_in * 0.50
+    else:
+        default_cy_in = (sheet_h_in - 1.925) * 0.54 + 1.925
 
-    for p, bbox_pt, span_in, (cx_exp, cy_exp) in zip(panels, panel_bleed_boxes_pt, panel_bleed_spans_in, explicit_positions):
+    for p, bbox_pt, span_in, bh_in, (cx_exp, cy_exp) in zip(
+        panels, panel_bleed_boxes_pt, panel_bleed_spans_in, panel_bleed_heights_in, explicit_positions
+    ):
         cx_offset_in = -(bbox_pt[0] + bbox_pt[2] / 2.0) / PT_PER_INCH
         cy_offset_in = -(bbox_pt[1] + bbox_pt[3] / 2.0) / PT_PER_INCH
         cx_in = cx_exp if cx_exp is not None else (cur_left_in + span_in / 2.0 + cx_offset_in)
-        cy_in = cy_exp if cy_exp is not None else (default_cy_in + cy_offset_in)
+        if cy_exp is not None:
+            cy_in = cy_exp
+        else:
+            bleed_mid_y_in = default_cy_in
+            half_bh_in = bh_in / 2.0
+            pad_y_in = 0.05 if sheet_h_in >= bh_in + 0.10 else 0.0
+            if sheet_h_in >= bh_in + 2.0 * pad_y_in:
+                bleed_mid_y_in = min(sheet_h_in - pad_y_in - half_bh_in, max(pad_y_in + half_bh_in, bleed_mid_y_in))
+            cy_in = bleed_mid_y_in + cy_offset_in
         p.cx = inch(cx_in)
         p.cy = inch(cy_in)
         cur_left_in += span_in + gap_in
