@@ -2144,6 +2144,8 @@ def _scan_pdf_color_operators(
 
         # Operator token:
         if tok == b"BI":
+            # Inline raster image (`BI ... ID <binary> EI`) cannot have CMYK TAC verified safely from operators; fail closed.
+            eval_ok = False
             operands.clear()
             continue
         if tok == b"q":
@@ -2449,6 +2451,149 @@ def _eval_shadings_stdlib(raw: bytes, corpus: bytes) -> tuple[list[tuple[float, 
     return (quads, saw_rgb, eval_ok)
 
 
+def _eval_pikepdf_image_cmyk(
+    item: Any,
+) -> tuple[bool, bool, tuple[float, float, float, float] | None, bool]:
+    """
+    Inspects a pikepdf `/Subtype /Image` XObject for RGB leaks and per-pixel CMYK Total Area Coverage (TAC).
+    Returns `(has_rgb, has_cmyk, max_cmyk_quad, eval_ok)`:
+      - Image masks (`/ImageMask true`) and `/DeviceGray` / single-spot images carry <= 100% single-ink coverage (`eval_ok=True`).
+      - `/DeviceRGB` / 3-channel `/ICCBased` images set `has_rgb=True`.
+      - 4-channel CMYK images (`/DeviceCMYK` or `/ICCBased` `/N 4`) decode every pixel via `pikepdf.PdfImage.as_pil_image()`
+        (applying any `/Decode` array linear remapping when present) and return the maximum-TAC `(c, m, y, k)` pixel quad.
+      - Any CMYK, `/Indexed`, `/DeviceN`, or unresolved image whose per-pixel ink coverage cannot be decoded fails closed (`eval_ok=False`).
+    """
+    import pikepdf as _pk
+
+    if bool(item.get("/ImageMask", False)):
+        return (False, False, None, True)
+
+    cs_val = item.get("/ColorSpace")
+    r_flag, c_flag, cs_kind = _inspect_cs_pikepdf(cs_val)
+    if cs_kind in ("gray", "spot"):
+        return (r_flag, c_flag, None, True)
+    if cs_kind == "rgb" or r_flag:
+        return (True, c_flag, None, True)
+    if cs_kind != "cmyk":
+        return (r_flag, c_flag, None, False)
+
+    try:
+        decode_arr = [float(x) for x in list(item["/Decode"])] if "/Decode" in item else None
+        if decode_arr is not None and len(decode_arr) != 8:
+            return (r_flag, True, None, False)
+
+        pimg = _pk.PdfImage(item)
+        pil_im = pimg.as_pil_image()
+        if pil_im.mode != "CMYK":
+            return (r_flag, True, None, False)
+        raw_bytes = pil_im.tobytes()
+        if not raw_bytes or (len(raw_bytes) % 4) != 0:
+            return (r_flag, True, None, False)
+
+        mv = memoryview(raw_bytes)
+        best_sum = -1.0
+        best_quad: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
+        if decode_arr is None or decode_arr == [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]:
+            best_int_sum = -1
+            best_idx = 0
+            for idx in range(0, len(mv), 4):
+                s_int = mv[idx] + mv[idx + 1] + mv[idx + 2] + mv[idx + 3]
+                if s_int > best_int_sum:
+                    best_int_sum = s_int
+                    best_idx = idx
+            best_quad = (
+                mv[best_idx] / 255.0,
+                mv[best_idx + 1] / 255.0,
+                mv[best_idx + 2] / 255.0,
+                mv[best_idx + 3] / 255.0,
+            )
+        else:
+            d0, d1, d2, d3, d4, d5, d6, d7 = decode_arr
+            for idx in range(0, len(mv), 4):
+                c_v = d0 + (mv[idx] / 255.0) * (d1 - d0)
+                m_v = d2 + (mv[idx + 1] / 255.0) * (d3 - d2)
+                y_v = d4 + (mv[idx + 2] / 255.0) * (d5 - d4)
+                k_v = d6 + (mv[idx + 3] / 255.0) * (d7 - d6)
+                s_f = c_v + m_v + y_v + k_v
+                if s_f > best_sum:
+                    best_sum = s_f
+                    best_quad = (c_v, m_v, y_v, k_v)
+
+        if "/SMaskInData" in item and int(item.get("/SMaskInData", 0)) != 0:
+            return (r_flag, True, best_quad, False)
+        return (r_flag, True, best_quad, True)
+    except Exception:
+        return (r_flag, True, None, False)
+
+
+def _eval_images_stdlib(raw: bytes) -> tuple[list[tuple[float, float, float, float]], bool, bool]:
+    """
+    Stdlib-mode raster `/Subtype /Image` inspector.
+    Decodes uncompressed or `/FlateDecode` / `/ASCIIHexDecode` / `/ASCII85Decode` 8-bit `/DeviceCMYK` images
+    pixel-by-pixel for TAC compliance, flags `/DeviceRGB` images, allows `/ImageMask true` and `/DeviceGray`,
+    and fails closed (`eval_ok=False`) on DCT/JPX/Indexed/DeviceN/non-8-bit images whose TAC cannot be verified in stdlib.
+    """
+    quads: list[tuple[float, float, float, float]] = []
+    saw_rgb = False
+    eval_ok = True
+
+    for m in re.finditer(rb"(?<!end)stream(?:\r\n|\n)", raw):
+        hdr = raw[max(0, m.start() - 2048) : m.start()]
+        sdict = _extract_stream_dict_bytes(hdr)
+        if not re.search(rb"/Subtype\s*/Image\b", sdict):
+            continue
+        if re.search(rb"/ImageMask\s+true\b", sdict):
+            continue
+        if b"/DeviceRGB" in sdict or b"/CalRGB" in sdict or re.search(rb"/ColorSpace\s*/RGB\b", sdict):
+            saw_rgb = True
+            continue
+        if b"/DeviceGray" in sdict or b"/CalGray" in sdict or re.search(rb"/ColorSpace\s*/G\b", sdict):
+            continue
+        if not (b"/DeviceCMYK" in sdict or re.search(rb"/ColorSpace\s*/CMYK\b", sdict)):
+            eval_ok = False
+            continue
+
+        m_bpc = re.search(rb"/(?:BitsPerComponent|BPC)\s+(\d+)\b", sdict)
+        if not m_bpc or int(m_bpc.group(1)) != 8 or b"/Decode" in sdict:
+            eval_ok = False
+            continue
+
+        start = m.end()
+        end = raw.find(b"endstream", start)
+        if end == -1:
+            eval_ok = False
+            continue
+        raw_body = raw[start:end]
+        if raw_body.endswith(b"\r\n"):
+            raw_body = raw_body[:-2]
+        elif raw_body.endswith((b"\n", b"\r")):
+            raw_body = raw_body[:-1]
+
+        decoded, dec_ok = _decode_single_pdf_stream(raw_body, sdict)
+        if not dec_ok or not decoded or (len(decoded) % 4) != 0:
+            eval_ok = False
+            continue
+
+        mv = memoryview(decoded)
+        best_sum = -1
+        best_idx = 0
+        for idx in range(0, len(mv), 4):
+            s_int = mv[idx] + mv[idx + 1] + mv[idx + 2] + mv[idx + 3]
+            if s_int > best_sum:
+                best_sum = s_int
+                best_idx = idx
+        quads.append(
+            (
+                mv[best_idx] / 255.0,
+                mv[best_idx + 1] / 255.0,
+                mv[best_idx + 2] / 255.0,
+                mv[best_idx + 3] / 255.0,
+            )
+        )
+
+    return (quads, saw_rgb, eval_ok)
+
+
 def _collect_pikepdf_drawable_streams(
     pk_doc: Any,
 ) -> tuple[
@@ -2549,9 +2694,19 @@ def _collect_pikepdf_drawable_streams(
                         cs_val = item.get("/ColorSpace")
                         meta_buf.extend(str(cs_val or "").encode("utf-8", errors="ignore"))
                         meta_buf.extend(b"\n")
-                        r_flag, c_flag, _ = _inspect_cs_pikepdf(cs_val)
+                        r_flag, c_flag, im_q, im_ok = _eval_pikepdf_image_cmyk(item)
                         cs_has_rgb = cs_has_rgb or r_flag
                         cs_has_cmyk = cs_has_cmyk or c_flag
+                        if im_q is not None:
+                            shading_quads.append(im_q)
+                        shading_eval_ok = shading_eval_ok and im_ok
+                        if "/SMask" in item:
+                            r_sm, c_sm, sm_q, sm_ok = _eval_pikepdf_image_cmyk(item["/SMask"])
+                            cs_has_rgb = cs_has_rgb or r_sm
+                            cs_has_cmyk = cs_has_cmyk or c_sm
+                            if sm_q is not None:
+                                shading_quads.append(sm_q)
+                            shading_eval_ok = shading_eval_ok and sm_ok
                         continue
                     if "/Shading" in item:
                         r_flag, c_flag, sh_q, sh_ok = _eval_pikepdf_shading_cmyk(item["/Shading"])
@@ -2798,9 +2953,11 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
     else:
         cmyk_ops, saw_rgb_op, color_ops_eval_ok = _scan_pdf_color_operators(stdlib_streams_only or corpus, cs_kinds)
         sh_quads_std, sh_rgb_std, sh_ok_std = _eval_shadings_stdlib(raw, corpus)
+        im_quads_std, im_rgb_std, im_ok_std = _eval_images_stdlib(raw)
         cmyk_ops.extend(sh_quads_std)
-        saw_rgb_op = saw_rgb_op or sh_rgb_std
-        color_ops_eval_ok = color_ops_eval_ok and sh_ok_std
+        cmyk_ops.extend(im_quads_std)
+        saw_rgb_op = saw_rgb_op or sh_rgb_std or im_rgb_std
+        color_ops_eval_ok = color_ops_eval_ok and sh_ok_std and im_ok_std
 
     for m in _CMYK_OP_RE.finditer(streams_only or corpus):
         cmyk_ops.append((float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4))))

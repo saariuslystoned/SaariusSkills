@@ -1825,6 +1825,56 @@ exit "$1"
                 mesh_sh_rep = mod.verify_dieline_pdf(mesh_sh_pdf)
                 self.assertFalse(mesh_sh_rep["preflight_pass"])
                 self.assertFalse(mesh_sh_rep["tac_within_limit"])
+
+                # CMYK raster `/Subtype /Image` XObject exceeding 300% pixel TAC must fail!
+                cmyk_img_400 = zlib.compress(bytes([255, 255, 255, 255] * 4))
+                cmyk_img_bad_pdf = tmp_root / "cmyk_img_400.pdf"
+                cmyk_img_bad_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"%%EOF\n",
+                        b"13 0 obj << /Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceCMYK "
+                        b"/BitsPerComponent 8 /Filter /FlateDecode /Length "
+                        + str(len(cmyk_img_400)).encode("ascii")
+                        + b" >>\nstream\n"
+                        + cmyk_img_400
+                        + b"\nendstream\nendobj\n%%EOF\n",
+                    )
+                )
+                cmyk_img_bad_rep = mod.verify_dieline_pdf(cmyk_img_bad_pdf)
+                self.assertFalse(cmyk_img_bad_rep["preflight_pass"])
+                self.assertFalse(cmyk_img_bad_rep["tac_within_limit"])
+                self.assertAlmostEqual(cmyk_img_bad_rep["max_tac_pct"], 400.0, places=2)
+
+                # Compliant CMYK raster `/Subtype /Image` XObject (<= 300% pixel TAC) passes!
+                cmyk_img_ok = zlib.compress(bytes([51, 51, 51, 102] * 4))  # 20% + 20% + 20% + 40% = 100% TAC
+                cmyk_img_ok_pdf = tmp_root / "cmyk_img_ok.pdf"
+                cmyk_img_ok_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"%%EOF\n",
+                        b"13 0 obj << /Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceCMYK "
+                        b"/BitsPerComponent 8 /Filter /FlateDecode /Length "
+                        + str(len(cmyk_img_ok)).encode("ascii")
+                        + b" >>\nstream\n"
+                        + cmyk_img_ok
+                        + b"\nendstream\nendobj\n%%EOF\n",
+                    )
+                )
+                cmyk_img_ok_rep = mod.verify_dieline_pdf(cmyk_img_ok_pdf)
+                self.assertTrue(cmyk_img_ok_rep["preflight_pass"])
+                self.assertTrue(cmyk_img_ok_rep["tac_within_limit"])
+
+                # Uninspectable `/DCTDecode` CMYK image in stdlib mode must fail closed!
+                dct_img_pdf = tmp_root / "cmyk_dct_img.pdf"
+                dct_img_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"%%EOF\n",
+                        b"13 0 obj << /Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceCMYK "
+                        b"/BitsPerComponent 8 /Filter /DCTDecode /Length 4 >>\nstream\nJPEG\nendstream\nendobj\n%%EOF\n",
+                    )
+                )
+                dct_img_rep = mod.verify_dieline_pdf(dct_img_pdf)
+                self.assertFalse(dct_img_rep["preflight_pass"])
+                self.assertFalse(dct_img_rep["tac_within_limit"])
             finally:
                 builtins.__import__ = old_imp
 
