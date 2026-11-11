@@ -46,3 +46,4 @@ jobs:
         run: |
           python skills/grilltrack/scripts/grilltrack_ledger.py --help
           python skills/grilltrack/scripts/validate_picker.py fixtures/frontend-picker/manifest.json
+          python skills/smoky-label-dieline/scripts/dieline_engine.py --help

@@ -23,6 +23,7 @@ HARNESS2_SKILL = ROOT / "skills" / "harness2"
 PERFORMANCE_SKILL = ROOT / "skills" / "smoky-performance"
 CHARACTER_STUDIO_SKILL = ROOT / "skills" / "smoky-character-studio"
 GITHUB_DESIGN_SKILL = ROOT / "skills" / "smoky-github-design"
+LABEL_DIELINE_SKILL = ROOT / "skills" / "smoky-label-dieline"
 AGY_SIDEBAR_SESSION_SKILL = ROOT / "skills" / "agy-sidebar-session"
 
 
@@ -1253,6 +1254,629 @@ exit "$1"
                 check=False,
             )
             self.assertEqual(good_social_run.returncode, 0, good_social_run.stderr)
+
+    def test_smoky_label_dieline_skill_is_packaged_and_verifies_prepress_contracts(self) -> None:
+        import math
+        import re
+        import zlib
+
+        skill = (LABEL_DIELINE_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (
+            LABEL_DIELINE_SKILL / "agents" / "openai.yaml"
+        ).read_text(encoding="utf-8")
+        prepress_ref = (
+            LABEL_DIELINE_SKILL / "references" / "prepress-and-container-specs.md"
+        ).read_text(encoding="utf-8")
+        brand_vecs = json.loads(
+            (LABEL_DIELINE_SKILL / "assets" / "brand_vectors.json").read_text(encoding="utf-8")
+        )
+        helper = LABEL_DIELINE_SKILL / "scripts" / "dieline_engine.py"
+        cursor = json.loads(
+            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+
+        self.assertLessEqual(len(skill.splitlines()), 500)
+        self.assertIn("name: smoky-label-dieline\n", skill)
+        self.assertIn("$smoky-label-dieline", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("./skills/smoky-label-dieline/", cursor["skills"])
+        self.assertEqual(
+            (LABEL_DIELINE_SKILL / "LICENSE").read_bytes(),
+            (ROOT / "LICENSE").read_bytes(),
+        )
+        for catalog in ("README.md", "docs/portable-skills.md"):
+            self.assertIn(
+                "skills/smoky-label-dieline/SKILL.md",
+                (ROOT / catalog).read_text(encoding="utf-8"),
+            )
+        for doc in LABEL_DIELINE_SKILL.rglob("*.md"):
+            text = doc.read_text(encoding="utf-8")
+            self.assertNotIn("/Users/", text, str(doc))
+            self.assertNotIn("/home/", text, str(doc))
+            for target in re.findall(r"\]\(([^)]+)\)", text):
+                if "://" not in target and not target.startswith("#"):
+                    self.assertTrue(
+                        (doc.parent / target.split("#")[0]).is_file(),
+                        f"{doc}: {target}",
+                    )
+        self.assertNotIn("/Users/", helper.read_text(encoding="utf-8"))
+        self.assertNotIn("/home/", helper.read_text(encoding="utf-8"))
+        self.assertIn("Die Line", skill)
+        self.assertIn("TAC", prepress_ref)
+        self.assertIn("smoky_co", brand_vecs)
+        self.assertIn("smcbd", brand_vecs)
+        self.assertTrue(helper.is_file())
+        self.assertTrue(helper.stat().st_mode & 0o111)
+
+        # 1. Hermetic --help smoke
+        help_run = subprocess.run(
+            [sys.executable, str(helper), "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(help_run.returncode, 0, help_run.stderr)
+        self.assertIn("--calc-container", help_run.stdout)
+
+        # 2. Container-to-dieline dimensional math across cylinder, tapered cone, pouch, and carton
+        cyl_run = subprocess.run(
+            [
+                sys.executable,
+                str(helper),
+                "--calc-container",
+                json.dumps(
+                    {
+                        "type": "cylinder",
+                        "diameter_in": 2.0865,
+                        "straight_height_in": 1.815,
+                        "lid_recess_in": 2.5625,
+                    }
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(cyl_run.returncode, 0, cyl_run.stderr)
+        cyl_payload = json.loads(cyl_run.stdout)
+        self.assertEqual(len(cyl_payload["panels"]), 2)
+        self.assertAlmostEqual(cyl_payload["panels"][0]["width_in"], 2.5, places=3)
+        self.assertAlmostEqual(cyl_payload["panels"][1]["width_in"], 6.4299, places=3)
+        self.assertAlmostEqual(cyl_payload["panels"][1]["height_in"], 1.69, places=3)
+
+        carton_run = subprocess.run(
+            [
+                sys.executable,
+                str(helper),
+                "--calc-container",
+                json.dumps(
+                    {"type": "carton", "width_in": 2.0, "depth_in": 1.5, "height_in": 4.0}
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(carton_run.returncode, 0, carton_run.stderr)
+        carton_panel = json.loads(carton_run.stdout)["panels"][0]
+        self.assertEqual(carton_panel["width_in"], 7.5)
+        self.assertEqual(carton_panel["height_in"], 8.25)
+        self.assertEqual(len(carton_panel["carton_net"]["fold_lines_in"]), 12)
+        self.assertEqual(len(carton_panel["carton_net"]["flap_slits_in"]), 3)
+
+        cone_run = subprocess.run(
+            [
+                sys.executable,
+                str(helper),
+                "--calc-container",
+                json.dumps(
+                    {
+                        "type": "tapered",
+                        "bottom_diameter_in": 2.0,
+                        "top_diameter_in": 3.0,
+                        "vertical_height_in": 4.0,
+                    }
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(cone_run.returncode, 0, cone_run.stderr)
+        cone_panel = json.loads(cone_run.stdout)["panels"][0]
+        self.assertEqual(cone_panel["shape"], "conical_wrap")
+        self.assertAlmostEqual(cone_panel["inner_radius_in"], 8.125, places=3)
+        self.assertAlmostEqual(cone_panel["outer_radius_in"], 12.0311, places=3)
+        self.assertGreater(cone_panel["sector_angle_deg"], 43.0)
+
+        # Long (> 300-byte) inline JSON `--calc-container` must parse directly without ENAMETOOLONG filesystem stat
+        long_inline_json = json.dumps(
+            {
+                "container_type": "cylinder",
+                "diameter_in": 2.125,
+                "straight_height_in": 2.0,
+                "seam_gap_in": 0.25,
+                "height_clearance_in": 0.3125,
+                "corner_radius_in": 0.1092,
+                "lid_recess_in": 2.50,
+                "lid_clearance_in": 0.0,
+                "bleed_in": 0.125,
+                "safety_in": 0.0625,
+                "notes": "x" * 180,
+            }
+        )
+        self.assertGreater(len(long_inline_json.encode("utf-8")), 300)
+        long_calc_run = subprocess.run(
+            [sys.executable, str(helper), "--calc-container", long_inline_json],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(long_calc_run.returncode, 0, long_calc_run.stderr)
+        self.assertEqual(len(json.loads(long_calc_run.stdout)["panels"]), 2)
+
+        # 3. UPC-A Modulo-10 encoder & bad check-digit rejection
+        upc_ok = subprocess.run(
+            [sys.executable, str(helper), "--encode-upca", "85004341302"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(upc_ok.returncode, 0, upc_ok.stderr)
+        upc_data = json.loads(upc_ok.stdout)
+        self.assertEqual(upc_data["upc12"], "850043413028")
+        self.assertEqual(upc_data["modules"], 95)
+
+        upc_bad = subprocess.run(
+            [sys.executable, str(helper), "--encode-upca", "850043413029"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(upc_bad.returncode, 0)
+
+        # 4. GS1 retail UPC-A sizing, 4-module QR quiet zone, and conical annular sector normal-offset verification
+        import importlib.util
+
+        spec_mod = importlib.util.spec_from_file_location("dieline_engine", helper)
+        assert spec_mod and spec_mod.loader
+        mod = importlib.util.module_from_spec(spec_mod)
+        spec_mod.loader.exec_module(mod)
+
+        # GS1 retail UPC-A minimum & fixed aspect-ratio bar-height enforcement (bar_h >= 69.23X)
+        valid_upc = mod.validate_upca_box(86.0, 62.0, bg_pad=2.0)
+        self.assertGreaterEqual(valid_upc["mod_w_pt"] / 72.0, 0.0104)
+        self.assertGreaterEqual(valid_upc["short_bar_h_pt"], valid_upc["mod_w_pt"] * mod.GS1_UPCA_BAR_HEIGHT_MODULES - 1e-6)
+        with self.assertRaises(ValueError):
+            mod.validate_upca_box(70.0, 36.25, bg_pad=2.0)
+        with self.assertRaises(ValueError):
+            # 104pt width (X=0.01278") requires >= 0.885" (63.7pt) bars, so 62pt outer box is truncated and rejected!
+            mod.validate_upca_box(104.0, 62.0, bg_pad=2.0)
+        wide_upc_panel = mod.DielinePanel("wide_upc", "rect", cx=400.0, cy=300.0, width_in=7.5, height_in=3.0)
+        wide_upc_plan = mod.plan_panel_artwork_layout(wide_upc_panel, {"product_name": "WIDE WRAP", "upc": "850043413028"})
+        w_ux, w_uy, w_uw, w_uh = wide_upc_plan["upc_rect"]
+        wide_upc_metrics = mod.validate_upca_box(w_uw, w_uh, bg_pad=2.0)
+        self.assertGreaterEqual(wide_upc_metrics["short_bar_h_pt"], wide_upc_metrics["mod_w_pt"] * mod.GS1_UPCA_BAR_HEIGHT_MODULES - 1e-6)
+
+        # ISO/IEC 18004 4-module QR quiet zone
+        qr_layout = mod.compute_qr_layout(40.0, 25, quiet_modules=4.0)
+        self.assertAlmostEqual(qr_layout["quiet_pad_pt"] / qr_layout["cell_pt"], 4.0, places=6)
+        with self.assertRaises(ValueError):
+            mod.compute_qr_layout(40.0, 25, quiet_modules=2.0)
+
+        # Conical annular sector perpendicular normal offset (+0.125" = 9.0 pt)
+        cp = mod.DielinePanel(
+            "cone",
+            "conical_wrap",
+            cx=300.0,
+            cy=300.0,
+            width_in=cone_panel["width_in"],
+            height_in=cone_panel["height_in"],
+            inner_radius_in=cone_panel["inner_radius_in"],
+            outer_radius_in=cone_panel["outer_radius_in"],
+            sector_angle_deg=cone_panel["sector_angle_deg"],
+            apex_down=True,
+        )
+        pts_0 = cp.annular_sector_points(0.0, arc_steps=64)
+        pts_b = cp.annular_sector_points(9.0, arc_steps=64)
+        # Midpoint of outer arc is at index 32; midpoint of inner arc is at index 65 + 32 = 97
+        self.assertAlmostEqual(pts_b[32][1] - pts_0[32][1], 9.0, places=5)
+        self.assertAlmostEqual(pts_0[97][1] - pts_b[97][1], 9.0, places=5)
+        cbx0, cby0, cbw, cbh = cp.offset_bbox(9.0)
+        self.assertGreater(cbw, cp.w + 18.0 + 2.0)  # acute radial miter corners protrude past trim_w + 2*bleed
+        for px, py in pts_b:
+            self.assertGreaterEqual(px, cbx0 - 1e-6)
+            self.assertLessEqual(px, cbx0 + cbw + 1e-6)
+            self.assertGreaterEqual(py, cby0 - 1e-6)
+            self.assertLessEqual(py, cby0 + cbh + 1e-6)
+
+        # Flat prism trapezoid normal offset
+        tp = mod.DielinePanel(
+            "prism",
+            "flat_trapezoid",
+            cx=200.0,
+            cy=200.0,
+            width_in=2.0,
+            top_width_in=3.0,
+            height_in=4.0,
+        )
+        v0 = tp.trapezoid_vertices(0.0)
+        vb = tp.trapezoid_vertices(9.0)
+        dx, dy = v0[2][0] - v0[1][0], v0[2][1] - v0[1][1]
+        edge_len = math.hypot(dx, dy)
+        nx, ny = dy / edge_len, -dx / edge_len
+        perp_dist = (vb[1][0] - v0[1][0]) * nx + (vb[1][1] - v0[1][1]) * ny
+        self.assertAlmostEqual(perp_dist, 9.0, places=5)
+        tbx0, tby0, tbw, tbh = tp.offset_bbox(9.0)
+        self.assertGreater(tbw, max(tp.w, tp.top_w) + 18.0 + 1.0)
+        for px, py in vb:
+            self.assertGreaterEqual(px, tbx0 - 1e-6)
+            self.assertLessEqual(px, tbx0 + tbw + 1e-6)
+            self.assertGreaterEqual(py, tby0 - 1e-6)
+            self.assertLessEqual(py, tby0 + tbh + 1e-6)
+
+        # Square `rect` vs `rounded_rect` corner defaults
+        sq_rect = mod.DielinePanel("sq", "rect", cx=200.0, cy=200.0, width_in=4.0, height_in=2.0)
+        rd_rect = mod.DielinePanel("rd", "rounded_rect", cx=200.0, cy=200.0, width_in=4.0, height_in=2.0)
+        self.assertEqual(sq_rect.corner_r, 0.0)
+        self.assertGreater(rd_rect.corner_r, 0.0)
+
+        # Folded carton & sleeve barcode stays strictly inside one flat body panel (never crosses fold scores),
+        # and omitting 'upc' or 'qr_url' never fabricates another SKU's GTIN or URL.
+        carton_dp = mod.DielinePanel(
+            "carton_rte",
+            "tuck_box",
+            cx=400.0,
+            cy=400.0,
+            width_in=carton_panel["width_in"],
+            height_in=carton_panel["height_in"],
+            carton_net=carton_panel["carton_net"],
+        )
+        carton_no_upc = mod.plan_panel_artwork_layout(carton_dp, {"product_name": "ROASTED COFFEE"})
+        self.assertIsNone(carton_no_upc["upc_rect"])
+        self.assertIsNone(carton_no_upc["qr_zone"]["qr_rect"])
+
+        carton_plan = mod.plan_panel_artwork_layout(
+            carton_dp,
+            {
+                "product_name": "RELIEF TINCTURE",
+                "upc": "850043413028",
+                "qr_url": "https://example.com/coa",
+            },
+        )
+        ux, uy, uw, uh = carton_plan["upc_rect"]
+        upc_face = carton_plan["upc_face"]
+        self.assertGreaterEqual(ux, upc_face["x0"] + carton_dp.safety)
+        self.assertLessEqual(ux + uw, upc_face["x1"] - carton_dp.safety)
+        for fx1, fy1, fx2, fy2 in carton_dp.fold_segments():
+            if abs(fx1 - fx2) < 1e-6:  # vertical fold score
+                self.assertFalse(ux < fx1 < ux + uw, f"Barcode {ux}..{ux+uw} crossed vertical fold at {fx1}")
+
+        # Standalone circular labels preserve requested qr_url/disclaimer, and small 2"x2" flat labels
+        # omit unused optional columns instead of failing on empty side-column reservations.
+        standalone_circle = mod.DielinePanel("seal", "circle", cx=200.0, cy=200.0, width_in=3.0, height_in=3.0)
+        circle_qr_plan = mod.plan_panel_artwork_layout(
+            standalone_circle,
+            {"product_name": "BATCH SEAL", "qr_url": "https://example.com/batch", "disclaimer": "KEEP REFRIGERATED."},
+        )
+        self.assertEqual(circle_qr_plan["mode"], "flat_3zone")
+        self.assertIsNotNone(circle_qr_plan["qr_zone"]["qr_rect"])
+        self.assertGreater(len(circle_qr_plan["qr_zone"]["fda_layout"]["lines"]), 0)
+
+        small_flat = mod.DielinePanel("small_2x2", "rect", cx=200.0, cy=200.0, width_in=2.0, height_in=2.0)
+        small_plan = mod.plan_panel_artwork_layout(small_flat, {"product_name": "COFFEE"})
+        self.assertIsNone(small_plan["qr_zone"])
+        self.assertIsNone(small_plan["upc_zone"])
+        self.assertFalse(small_plan["draw_dividers"])
+
+        # 3"x3" rectangular panel with brand + qr_url where narrow QR column cannot fit a side vector logo
+        # must preserve brand identification in the hero header instead of hiding both!
+        rect_3x3 = mod.DielinePanel("rect_3x3", "rect", cx=200.0, cy=200.0, width_in=3.0, height_in=3.0)
+        rect_3x3_plan = mod.plan_panel_artwork_layout(
+            rect_3x3,
+            {"brand": "SMOKY MOUNTAIN CBD", "product_name": "BALM", "qr_url": "https://example.com/coa"},
+        )
+        self.assertIsNone(rect_3x3_plan["qr_zone"]["vec_box"])
+        self.assertIsNotNone(rect_3x3_plan["hero"]["brand_header"])
+
+        # Open sleeve with wide glue_flap_in > 0.85" excludes the leading glue flap from printable faces
+        wide_sleeve_calc = mod.calculate_container_dieline(
+            {"type": "sleeve", "width_in": 2.0, "depth_in": 1.5, "height_in": 4.0, "glue_flap_in": 1.0}
+        )
+        sp_cfg = wide_sleeve_calc["panels"][0]
+        self.assertTrue(sp_cfg["has_leading_glue_flap"])
+        sleeve_dp = mod.DielinePanel(
+            sp_cfg["panel_id"],
+            sp_cfg["shape"],
+            cx=400.0,
+            cy=300.0,
+            width_in=sp_cfg["width_in"],
+            height_in=sp_cfg["height_in"],
+            fold_offsets_in=sp_cfg["fold_offsets_in"],
+            has_leading_glue_flap=sp_cfg["has_leading_glue_flap"],
+        )
+        sleeve_plan = mod.plan_panel_artwork_layout(sleeve_dp, {"product_name": "TEA SLEEVE"})
+        glue_right_edge = sleeve_dp.x0 + mod.inch(1.0)
+        self.assertGreater(sleeve_plan["hero"]["x0"], glue_right_edge)
+
+        # Custom palette CMYK channel bounds and <= 300% TAC enforcement
+        valid_pal = mod.validate_palette_cmyk({"bg": [70, 40, 50, 30]})
+        self.assertEqual(sum(valid_pal["bg"]), 190.0)
+        with self.assertRaises(ValueError):
+            mod.validate_palette_cmyk({"bg": [100, 100, 100, 100]})
+        with self.assertRaises(ValueError):
+            mod.validate_palette_cmyk({"bg": [-5, 10, 10, 10]})
+        with self.assertRaises(ValueError):
+            mod.plan_panel_artwork_layout(
+                sq_rect,
+                {"product_name": "INK OVERLOAD", "palette_cmyk": {"bg": [100, 100, 100, 100]}},
+            )
+
+        # Overflowing directions/ingredients copy is rejected rather than silently dropped
+        short_rect = mod.DielinePanel("short", "rect", cx=200.0, cy=200.0, width_in=3.0, height_in=1.1)
+        with self.assertRaises(ValueError):
+            mod.plan_panel_artwork_layout(
+                short_rect,
+                {
+                    "product_name": "MINI BALM",
+                    "directions": "Apply liberally to clean dry skin up to four times daily.",
+                    "ingredients": "Octyldodecanol, Squalane, Menthol, Camphor, Hemp Extract.",
+                    "upc": "850043413028",
+                },
+            )
+        tall_rect = mod.DielinePanel("tall", "rounded_rect", cx=300.0, cy=200.0, width_in=6.43, height_in=1.69)
+        with self.assertRaises(ValueError):
+            mod.plan_panel_artwork_layout(
+                tall_rect,
+                {
+                    "product_name": "BALANCE BALM",
+                    "ingredients": " ".join(["Organic Botanical Extract,"] * 180),
+                },
+            )
+
+        # 5. Stdlib PDF preflight check (passes CMYK + Spot + non-printing tech OCG + Overprint; fails on RGB or missing PrintState OFF)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            stream_body = zlib.compress(
+                b"q /OC /LayerArtwork BDC 0.5 0.4 0.4 0.9 k /GSOverprint gs EMC Q\n"
+            )
+            good_pdf = tmp_root / "good.pdf"
+            good_pdf.write_bytes(
+                b"%PDF-1.7\n"
+                b"1 0 obj << /Type /Catalog /OCProperties << /OCGs [2 0 R 3 0 R 4 0 R 5 0 R 6 0 R 7 0 R] "
+                b"/D << /AS [ << /Event /Print /Category [/Print] /OCGs [2 0 R 3 0 R 4 0 R 5 0 R 6 0 R 7 0 R] >> ] >> >> >> endobj\n"
+                b"2 0 obj << /Type /OCG /Name (Artwork) /Usage << /Print << /PrintState /ON >> >> >> endobj\n"
+                b"3 0 obj << /Type /OCG /Name (Diecut) /Usage << /Print << /PrintState /OFF >> >> >> endobj\n"
+                b"4 0 obj << /Type /OCG /Name (Safety) /Usage << /Print << /PrintState /OFF >> >> >> endobj\n"
+                b"5 0 obj << /Type /OCG /Name (Bleed) /Usage << /Print << /PrintState /OFF >> >> >> endobj\n"
+                b"6 0 obj << /Type /OCG /Name (Dimensions) /Usage << /Print << /PrintState /OFF >> >> >> endobj\n"
+                b"7 0 obj << /Type /OCG /Name (Die Template) /Usage << /Print << /PrintState /OFF >> >> >> endobj\n"
+                b"8 0 obj [ /Separation /Die#20Line /DeviceCMYK << >> ] endobj\n"
+                b"9 0 obj [ /Separation /Safety#20Line /DeviceCMYK << >> ] endobj\n"
+                b"10 0 obj [ /Separation /Bleed#20Line /DeviceCMYK << >> ] endobj\n"
+                b"11 0 obj << /GSOverprint << /Type /ExtGState /OP true /op true /OPM 1 >> >> endobj\n"
+                b"12 0 obj << /Filter /FlateDecode >>\nstream\n"
+                + stream_body
+                + b"\nendstream\nendobj\n%%EOF\n"
+            )
+            rep_ok = mod._extract_pdf_text_and_content_streams(good_pdf.read_bytes())
+            self.assertIn(b"/GSOverprint gs", rep_ok)
+            orig_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+
+            def _stdlib_only_imports(name, *a, **kw):
+                if name in ("pymupdf", "pikepdf"):
+                    raise ImportError("mocked stdlib-only mode")
+                return orig_import(name, *a, **kw)
+
+            import builtins
+
+            old_imp = builtins.__import__
+            try:
+                builtins.__import__ = _stdlib_only_imports
+                good_rep = mod.verify_dieline_pdf(good_pdf)
+                self.assertTrue(good_rep["preflight_pass"])
+                self.assertTrue(good_rep["cmyk_only_no_rgb"])
+                self.assertTrue(good_rep["tac_within_limit"])
+                self.assertTrue(good_rep["non_printing_tech_layers"])
+
+                no_printstate_pdf = tmp_root / "missing_printstate.pdf"
+                no_printstate_pdf.write_bytes(good_pdf.read_bytes().replace(b"/PrintState /OFF", b"/PrintState /ON"))
+                self.assertFalse(mod.verify_dieline_pdf(no_printstate_pdf)["preflight_pass"])
+
+                # Changing JUST Diecut to PrintState ON while Safety/Bleed stay OFF must fail stdlib preflight!
+                diecut_on_pdf = tmp_root / "diecut_print_on.pdf"
+                diecut_on_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"3 0 obj << /Type /OCG /Name (Diecut) /Usage << /Print << /PrintState /OFF >> >> >> endobj",
+                        b"3 0 obj << /Type /OCG /Name (Diecut) /Usage << /Print << /PrintState /ON >> >> >> endobj",
+                    )
+                )
+                diecut_on_rep = mod.verify_dieline_pdf(diecut_on_pdf)
+                self.assertFalse(diecut_on_rep["preflight_pass"])
+                self.assertFalse(diecut_on_rep["non_printing_tech_layers"])
+
+                over_tac_stream = zlib.compress(
+                    b"q /OC /LayerArtwork BDC 1.0 1.0 1.0 1.0 k /GSOverprint gs EMC Q\n"
+                )
+                over_tac_pdf = tmp_root / "over_tac.pdf"
+                over_tac_pdf.write_bytes(good_pdf.read_bytes().replace(stream_body, over_tac_stream))
+                tac_rep = mod.verify_dieline_pdf(over_tac_pdf)
+                self.assertFalse(tac_rep["preflight_pass"])
+                self.assertFalse(tac_rep["tac_within_limit"])
+                self.assertAlmostEqual(tac_rep["max_tac_pct"], 400.0, places=2)
+
+                rgb_pdf = tmp_root / "bad_rgb.pdf"
+                rgb_pdf.write_bytes(good_pdf.read_bytes() + b"\n13 0 obj /DeviceRGB endobj\n")
+                bad_rep = mod.verify_dieline_pdf(rgb_pdf)
+                self.assertFalse(bad_rep["preflight_pass"])
+                self.assertFalse(bad_rep["cmyk_only_no_rgb"])
+
+                # Uncompressed (unfiltered) page streams must still be inspected for RGB and >300% CMYK TAC
+                uncompressed_rgb_pdf = tmp_root / "uncompressed_rgb.pdf"
+                uncompressed_rgb_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"12 0 obj << /Filter /FlateDecode >>\nstream\n" + stream_body + b"\nendstream",
+                        b"12 0 obj << /Length 58 >>\nstream\nq /OC /LayerArtwork BDC 0.2 0.4 0.8 rg /GSOverprint gs EMC Q\nendstream",
+                    )
+                )
+                unc_rgb_rep = mod.verify_dieline_pdf(uncompressed_rgb_pdf)
+                self.assertFalse(unc_rgb_rep["preflight_pass"])
+                self.assertFalse(unc_rgb_rep["cmyk_only_no_rgb"])
+
+                uncompressed_tac_pdf = tmp_root / "uncompressed_tac.pdf"
+                uncompressed_tac_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"12 0 obj << /Filter /FlateDecode >>\nstream\n" + stream_body + b"\nendstream",
+                        b"12 0 obj << /Length 63 >>\nstream\nq /OC /LayerArtwork BDC 1.0 1.0 1.0 1.0 k /GSOverprint gs EMC Q\nendstream",
+                    )
+                )
+                unc_tac_rep = mod.verify_dieline_pdf(uncompressed_tac_pdf)
+                self.assertFalse(unc_tac_rep["preflight_pass"])
+                self.assertFalse(unc_tac_rep["tac_within_limit"])
+                self.assertAlmostEqual(unc_tac_rep["max_tac_pct"], 400.0, places=2)
+
+                # Unknown or corrupt stream filters must fail closed rather than silently passing preflight
+                unknown_filter_pdf = tmp_root / "unknown_filter.pdf"
+                unknown_filter_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(b"/Filter /FlateDecode", b"/Filter /LZWDecode")
+                )
+                unk_rep = mod.verify_dieline_pdf(unknown_filter_pdf)
+                self.assertFalse(unk_rep["preflight_pass"])
+                self.assertFalse(unk_rep["streams_decoded_ok"])
+
+                # Overprint check must require `/OP true` (not just `/OPM 1` with `/OP false`)
+                op_false_pdf = tmp_root / "op_false.pdf"
+                op_false_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"/OP true /op true /OPM 1",
+                        b"/OP false /op false /OPM 1",
+                    )
+                )
+                op_false_rep = mod.verify_dieline_pdf(op_false_pdf)
+                self.assertFalse(op_false_rep["preflight_pass"])
+                self.assertFalse(op_false_rep["overprint_enabled"])
+
+                # 3-component `/ICCBased` RGB profile (without `/DeviceRGB` or `rg`) must fail RGB check!
+                icc_rgb_pdf = tmp_root / "icc_rgb.pdf"
+                icc_rgb_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"%%EOF\n",
+                        b"13 0 obj [ /ICCBased 14 0 R ] endobj\n"
+                        b"14 0 obj << /N 3 /Length 4 >>\nstream\nICCP\nendstream\nendobj\n%%EOF\n",
+                    )
+                )
+                icc_rgb_rep = mod.verify_dieline_pdf(icc_rgb_pdf)
+                self.assertFalse(icc_rgb_rep["preflight_pass"])
+                self.assertFalse(icc_rgb_rep["cmyk_only_no_rgb"])
+
+                # Alternate CMYK operators (`/DeviceCMYK cs 1 1 1 1 sc` and `CS` + `SCN`) must enforce TAC <= 300%!
+                alt_cmyk_sc_stream = zlib.compress(
+                    b"q /OC /LayerArtwork BDC /DeviceCMYK cs 1 1 1 1 sc /GSOverprint gs EMC Q\n"
+                )
+                alt_cmyk_sc_pdf = tmp_root / "alt_cmyk_sc.pdf"
+                alt_cmyk_sc_pdf.write_bytes(good_pdf.read_bytes().replace(stream_body, alt_cmyk_sc_stream))
+                alt_sc_rep = mod.verify_dieline_pdf(alt_cmyk_sc_pdf)
+                self.assertFalse(alt_sc_rep["preflight_pass"])
+                self.assertFalse(alt_sc_rep["tac_within_limit"])
+                self.assertAlmostEqual(alt_sc_rep["max_tac_pct"], 400.0, places=2)
+
+                alt_cmyk_scn_stream = zlib.compress(
+                    b"q /OC /LayerArtwork BDC /DeviceCMYK CS 0.9 0.9 0.9 0.9 SCN /GSOverprint gs EMC Q\n"
+                )
+                alt_cmyk_scn_pdf = tmp_root / "alt_cmyk_scn.pdf"
+                alt_cmyk_scn_pdf.write_bytes(good_pdf.read_bytes().replace(stream_body, alt_cmyk_scn_stream))
+                alt_scn_rep = mod.verify_dieline_pdf(alt_cmyk_scn_pdf)
+                self.assertFalse(alt_scn_rep["preflight_pass"])
+                self.assertFalse(alt_scn_rep["tac_within_limit"])
+                self.assertAlmostEqual(alt_scn_rep["max_tac_pct"], 360.0, places=2)
+
+                # Unresolved multi-ink color space (`/UnknownCS cs 1 1 1 1 scn`) must fail closed!
+                unknown_cs_stream = zlib.compress(
+                    b"q /OC /LayerArtwork BDC /UnknownCS cs 1 1 1 1 scn /GSOverprint gs EMC Q\n"
+                )
+                unknown_cs_pdf = tmp_root / "unknown_cs_scn.pdf"
+                unknown_cs_pdf.write_bytes(good_pdf.read_bytes().replace(stream_body, unknown_cs_stream))
+                unknown_cs_rep = mod.verify_dieline_pdf(unknown_cs_pdf)
+                self.assertFalse(unknown_cs_rep["preflight_pass"])
+                self.assertFalse(unknown_cs_rep["tac_within_limit"])
+
+                # CMYK `/Shading` gradient stops (`/FunctionType 2` / `3`) exceeding 300% TAC must fail!
+                grad_over_pdf = tmp_root / "grad_over_tac.pdf"
+                grad_over_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"%%EOF\n",
+                        b"13 0 obj << /ShadingType 2 /ColorSpace /DeviceCMYK /Coords [0 0 100 100] /Function 14 0 R >> endobj\n"
+                        b"14 0 obj << /FunctionType 2 /Domain [0 1] /C0 [0.1 0.2 0.3 0.4] /C1 [1 1 1 1] /N 1 >> endobj\n%%EOF\n",
+                    )
+                )
+                grad_over_rep = mod.verify_dieline_pdf(grad_over_pdf)
+                self.assertFalse(grad_over_rep["preflight_pass"])
+                self.assertFalse(grad_over_rep["tac_within_limit"])
+                self.assertAlmostEqual(grad_over_rep["max_tac_pct"], 400.0, places=2)
+
+                # Uninspectable mesh `/ShadingType 4` in CMYK must fail closed!
+                mesh_sh_pdf = tmp_root / "mesh_shading.pdf"
+                mesh_sh_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"%%EOF\n",
+                        b"13 0 obj << /ShadingType 4 /ColorSpace /DeviceCMYK /BitsPerCoordinate 16 >> endobj\n%%EOF\n",
+                    )
+                )
+                mesh_sh_rep = mod.verify_dieline_pdf(mesh_sh_pdf)
+                self.assertFalse(mesh_sh_rep["preflight_pass"])
+                self.assertFalse(mesh_sh_rep["tac_within_limit"])
+
+                # CMYK raster `/Subtype /Image` XObject exceeding 300% pixel TAC must fail!
+                cmyk_img_400 = zlib.compress(bytes([255, 255, 255, 255] * 4))
+                cmyk_img_bad_pdf = tmp_root / "cmyk_img_400.pdf"
+                cmyk_img_bad_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"%%EOF\n",
+                        b"13 0 obj << /Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceCMYK "
+                        b"/BitsPerComponent 8 /Filter /FlateDecode /Length "
+                        + str(len(cmyk_img_400)).encode("ascii")
+                        + b" >>\nstream\n"
+                        + cmyk_img_400
+                        + b"\nendstream\nendobj\n%%EOF\n",
+                    )
+                )
+                cmyk_img_bad_rep = mod.verify_dieline_pdf(cmyk_img_bad_pdf)
+                self.assertFalse(cmyk_img_bad_rep["preflight_pass"])
+                self.assertFalse(cmyk_img_bad_rep["tac_within_limit"])
+                self.assertAlmostEqual(cmyk_img_bad_rep["max_tac_pct"], 400.0, places=2)
+
+                # Compliant CMYK raster `/Subtype /Image` XObject (<= 300% pixel TAC) passes!
+                cmyk_img_ok = zlib.compress(bytes([51, 51, 51, 102] * 4))  # 20% + 20% + 20% + 40% = 100% TAC
+                cmyk_img_ok_pdf = tmp_root / "cmyk_img_ok.pdf"
+                cmyk_img_ok_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"%%EOF\n",
+                        b"13 0 obj << /Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceCMYK "
+                        b"/BitsPerComponent 8 /Filter /FlateDecode /Length "
+                        + str(len(cmyk_img_ok)).encode("ascii")
+                        + b" >>\nstream\n"
+                        + cmyk_img_ok
+                        + b"\nendstream\nendobj\n%%EOF\n",
+                    )
+                )
+                cmyk_img_ok_rep = mod.verify_dieline_pdf(cmyk_img_ok_pdf)
+                self.assertTrue(cmyk_img_ok_rep["preflight_pass"])
+                self.assertTrue(cmyk_img_ok_rep["tac_within_limit"])
+
+                # Uninspectable `/DCTDecode` CMYK image in stdlib mode must fail closed!
+                dct_img_pdf = tmp_root / "cmyk_dct_img.pdf"
+                dct_img_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"%%EOF\n",
+                        b"13 0 obj << /Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceCMYK "
+                        b"/BitsPerComponent 8 /Filter /DCTDecode /Length 4 >>\nstream\nJPEG\nendstream\nendobj\n%%EOF\n",
+                    )
+                )
+                dct_img_rep = mod.verify_dieline_pdf(dct_img_pdf)
+                self.assertFalse(dct_img_rep["preflight_pass"])
+                self.assertFalse(dct_img_rep["tac_within_limit"])
+            finally:
+                builtins.__import__ = old_imp
 
 
 if __name__ == "__main__":
