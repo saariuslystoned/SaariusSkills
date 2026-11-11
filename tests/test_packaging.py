@@ -1799,6 +1799,32 @@ exit "$1"
                 unknown_cs_rep = mod.verify_dieline_pdf(unknown_cs_pdf)
                 self.assertFalse(unknown_cs_rep["preflight_pass"])
                 self.assertFalse(unknown_cs_rep["tac_within_limit"])
+
+                # CMYK `/Shading` gradient stops (`/FunctionType 2` / `3`) exceeding 300% TAC must fail!
+                grad_over_pdf = tmp_root / "grad_over_tac.pdf"
+                grad_over_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"%%EOF\n",
+                        b"13 0 obj << /ShadingType 2 /ColorSpace /DeviceCMYK /Coords [0 0 100 100] /Function 14 0 R >> endobj\n"
+                        b"14 0 obj << /FunctionType 2 /Domain [0 1] /C0 [0.1 0.2 0.3 0.4] /C1 [1 1 1 1] /N 1 >> endobj\n%%EOF\n",
+                    )
+                )
+                grad_over_rep = mod.verify_dieline_pdf(grad_over_pdf)
+                self.assertFalse(grad_over_rep["preflight_pass"])
+                self.assertFalse(grad_over_rep["tac_within_limit"])
+                self.assertAlmostEqual(grad_over_rep["max_tac_pct"], 400.0, places=2)
+
+                # Uninspectable mesh `/ShadingType 4` in CMYK must fail closed!
+                mesh_sh_pdf = tmp_root / "mesh_shading.pdf"
+                mesh_sh_pdf.write_bytes(
+                    good_pdf.read_bytes().replace(
+                        b"%%EOF\n",
+                        b"13 0 obj << /ShadingType 4 /ColorSpace /DeviceCMYK /BitsPerCoordinate 16 >> endobj\n%%EOF\n",
+                    )
+                )
+                mesh_sh_rep = mod.verify_dieline_pdf(mesh_sh_pdf)
+                self.assertFalse(mesh_sh_rep["preflight_pass"])
+                self.assertFalse(mesh_sh_rep["tac_within_limit"])
             finally:
                 builtins.__import__ = old_imp
 

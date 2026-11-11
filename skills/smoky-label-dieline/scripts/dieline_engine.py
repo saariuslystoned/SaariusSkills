@@ -2236,14 +2236,235 @@ def _scan_pdf_color_operators(
     return (cmyk_ops, saw_rgb, eval_ok)
 
 
+def _eval_pikepdf_shading_cmyk(
+    sh_obj: Any,
+    visited_fn: set[tuple[int, int]] | None = None,
+) -> tuple[bool, bool, list[tuple[float, float, float, float]], bool]:
+    """
+    Inspects a pikepdf `/Shading` dictionary and its `/Function` tree + `/Background` array.
+    Returns `(has_rgb, has_cmyk, cmyk_quads, eval_ok)`:
+      - Evaluates `/FunctionType 2` (exponential interpolation `/C0` + `/C1`) and `/FunctionType 3`
+        (stitching `/Functions`) across `[0, 1]` endpoints for 4-channel CMYK shadings, plus optional `/Background`.
+      - Fails closed (`eval_ok=False`) on CMYK or unresolved multi-ink shadings using non-evaluable functions
+        (e.g., `/FunctionType 0` sampled LUTs, `/FunctionType 4` PostScript calculator functions, or mesh vertex streams `/ShadingType 4..7`).
+    """
+    import pikepdf as _pk
+
+    if sh_obj is None:
+        return (False, False, [], True)
+    r_flag, c_flag, cs_kind = _inspect_cs_pikepdf(sh_obj.get("/ColorSpace"))
+    quads: list[tuple[float, float, float, float]] = []
+    eval_ok = True
+
+    if cs_kind in ("gray", "spot"):
+        return (r_flag, c_flag, quads, True)
+    if cs_kind == "rgb" or r_flag:
+        return (True, c_flag, quads, True)
+    if cs_kind != "cmyk":
+        return (r_flag, c_flag, quads, False)
+
+    # Check optional `/Background` 4-channel CMYK array:
+    if "/Background" in sh_obj:
+        try:
+            bg = [float(x) for x in list(sh_obj["/Background"])]
+            if len(bg) == 4:
+                quads.append((bg[0], bg[1], bg[2], bg[3]))
+            else:
+                eval_ok = False
+        except Exception:
+            eval_ok = False
+
+    try:
+        sh_type = int(sh_obj.get("/ShadingType", 0))
+    except Exception:
+        sh_type = 0
+    if sh_type not in (1, 2, 3):
+        # Free-form / lattice Gouraud / Coons / Tensor-product mesh shadings store colors in binary vertex streams
+        return (r_flag, True, quads, False)
+
+    fn_root = sh_obj.get("/Function")
+    if fn_root is None:
+        return (r_flag, True, quads, False)
+
+    seen = visited_fn if visited_fn is not None else set()
+
+    def _walk_fn(fn_item: Any) -> bool:
+        if fn_item is None:
+            return False
+        og = getattr(fn_item, "objgen", (0, 0))
+        if og != (0, 0):
+            if og in seen:
+                return True
+            seen.add(og)
+        if isinstance(fn_item, _pk.Array):
+            # Array of 4 single-output functions (one per C, M, Y, K component): evaluate conservative per-channel max!
+            items = list(fn_item)
+            if len(items) != 4:
+                return False
+            ch_maxes: list[float] = []
+            for sub in items:
+                try:
+                    if int(sub.get("/FunctionType", -1)) != 2:
+                        return False
+                    c0_v = float(list(sub.get("/C0", [0.0]))[0])
+                    c1_v = float(list(sub.get("/C1", [1.0]))[0])
+                    if min(c0_v, c1_v) < -1e-6 or max(c0_v, c1_v) > 1.0 + 1e-6:
+                        return False
+                    ch_maxes.append(max(c0_v, c1_v))
+                except Exception:
+                    return False
+            quads.append((ch_maxes[0], ch_maxes[1], ch_maxes[2], ch_maxes[3]))
+            return True
+
+        try:
+            ftype = int(fn_item.get("/FunctionType", -1))
+        except Exception:
+            return False
+
+        if ftype == 2:
+            try:
+                c0 = [float(x) for x in list(fn_item.get("/C0", [0.0, 0.0, 0.0, 0.0]))]
+                c1 = [float(x) for x in list(fn_item.get("/C1", [0.0, 0.0, 0.0, 0.0]))]
+                exp_n = float(fn_item.get("/N", 1.0))
+                dom = [float(x) for x in list(fn_item.get("/Domain", [0.0, 1.0]))]
+            except Exception:
+                return False
+            if len(c0) != 4 or len(c1) != 4 or len(dom) < 2 or exp_n <= 0:
+                return False
+            # Sample domain endpoints plus interior t^N curve points so non-unit exponents cannot hide interior TAC peaks
+            t_samples = (0.0, 0.25, 0.5, 0.75, 1.0)
+            for t in t_samples:
+                w = t ** exp_n
+                quads.append(
+                    (
+                        c0[0] + w * (c1[0] - c0[0]),
+                        c0[1] + w * (c1[1] - c0[1]),
+                        c0[2] + w * (c1[2] - c0[2]),
+                        c0[3] + w * (c1[3] - c0[3]),
+                    )
+                )
+            return True
+
+        if ftype == 3:
+            try:
+                subs = list(fn_item.get("/Functions", []))
+            except Exception:
+                return False
+            if not subs:
+                return False
+            return all(_walk_fn(s) for s in subs)
+
+        return False
+
+    if not _walk_fn(fn_root):
+        eval_ok = False
+
+    return (r_flag, True, quads, eval_ok)
+
+
+def _eval_shadings_stdlib(raw: bytes, corpus: bytes) -> tuple[list[tuple[float, float, float, float]], bool, bool]:
+    """
+    Stdlib-mode shading inspector for `/ShadingType` dictionaries.
+    Follows `/Function` references (inline or indirect `N G R`) across `/FunctionType 2` and `/FunctionType 3`,
+    extracting 4-channel CMYK `/C0`, `/C1`, and `/Background` stops, and failing closed (`eval_ok=False`)
+    if any CMYK or unresolved shading uses `/FunctionType 0`/`4`, mesh `/ShadingType 4..7`, or missing stops.
+    """
+    quads: list[tuple[float, float, float, float]] = []
+    saw_rgb = False
+    eval_ok = True
+
+    if not re.search(rb"/ShadingType\s+\d+\b", corpus):
+        return (quads, saw_rgb, eval_ok)
+
+    objs: dict[tuple[int, int], bytes] = {}
+    for m_obj in re.finditer(rb"(\d+)\s+(\d+)\s+obj\b(.*?)(?:stream\r?\n|endobj)", raw, flags=re.DOTALL):
+        objs[(int(m_obj.group(1)), int(m_obj.group(2)))] = m_obj.group(3)
+    for m_obj in re.finditer(rb"(\d+)\s+(\d+)\s+obj\b(.*?)endobj", corpus, flags=re.DOTALL):
+        objs.setdefault((int(m_obj.group(1)), int(m_obj.group(2))), m_obj.group(3))
+
+    def _parse_four_floats(arr_bytes: bytes) -> tuple[float, float, float, float] | None:
+        nums = [float(x) for x in re.findall(rb"[+-]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?", arr_bytes)]
+        if len(nums) == 4:
+            return (nums[0], nums[1], nums[2], nums[3])
+        return None
+
+    def _walk_fn_stdlib(fn_bytes: bytes, depth: int = 0) -> bool:
+        if depth > 6 or not fn_bytes:
+            return False
+        m_ft = re.search(rb"/FunctionType\s+(\d+)\b", fn_bytes)
+        if not m_ft:
+            return False
+        ft = int(m_ft.group(1))
+        if ft == 2:
+            m_c0 = re.search(rb"/C0\s*\[([^\]]+)\]", fn_bytes)
+            m_c1 = re.search(rb"/C1\s*\[([^\]]+)\]", fn_bytes)
+            q0 = _parse_four_floats(m_c0.group(1)) if m_c0 else (0.0, 0.0, 0.0, 0.0)
+            q1 = _parse_four_floats(m_c1.group(1)) if m_c1 else (0.0, 0.0, 0.0, 0.0)
+            if q0 is None or q1 is None or (m_c0 is None and m_c1 is None):
+                return False
+            quads.extend((q0, q1))
+            return True
+        if ft == 3:
+            m_fns = re.search(rb"/Functions\s*\[(.*?)\]", fn_bytes, flags=re.DOTALL)
+            if not m_fns:
+                return False
+            sub_body = m_fns.group(1)
+            sub_refs = list(re.finditer(rb"(\d+)\s+(\d+)\s+R\b", sub_body))
+            if sub_refs:
+                return all(_walk_fn_stdlib(objs.get((int(r.group(1)), int(r.group(2))), b""), depth + 1) for r in sub_refs)
+            inline_dicts = list(re.finditer(rb"<<(.*?)>>", sub_body, flags=re.DOTALL))
+            if not inline_dicts:
+                return False
+            return all(_walk_fn_stdlib(d.group(0), depth + 1) for d in inline_dicts)
+        return False
+
+    shading_candidates = [b for b in objs.values() if re.search(rb"/ShadingType\s+\d+\b", b)]
+    if not shading_candidates:
+        shading_candidates = [m.group(0) for m in re.finditer(rb"<<[^>]*?/ShadingType\s+\d+\b.*?>>", corpus, flags=re.DOTALL)]
+
+    for sh_body in shading_candidates:
+        m_st = re.search(rb"/ShadingType\s+(\d+)\b", sh_body)
+        sh_type = int(m_st.group(1)) if m_st else 0
+        if b"/DeviceRGB" in sh_body or b"/CalRGB" in sh_body:
+            saw_rgb = True
+            continue
+        if b"/DeviceGray" in sh_body or b"/CalGray" in sh_body or b"/Separation" in sh_body:
+            continue
+        if sh_type not in (1, 2, 3):
+            eval_ok = False
+            continue
+        for m_bg in re.finditer(rb"/Background\s*\[([^\]]+)\]", sh_body):
+            q = _parse_four_floats(m_bg.group(1))
+            if q is not None:
+                quads.append(q)
+            else:
+                eval_ok = False
+        m_fref = re.search(rb"/Function\s+(\d+)\s+(\d+)\s+R\b", sh_body)
+        if m_fref:
+            if not _walk_fn_stdlib(objs.get((int(m_fref.group(1)), int(m_fref.group(2))), b"")):
+                eval_ok = False
+        elif not _walk_fn_stdlib(sh_body):
+            eval_ok = False
+
+    return (quads, saw_rgb, eval_ok)
+
+
 def _collect_pikepdf_drawable_streams(
     pk_doc: Any,
-) -> tuple[bytes, bytes, bool, bool, bool, bool | None, list[tuple[bytes, dict[str, str]]]]:
+) -> tuple[
+    bytes,
+    bytes,
+    bool,
+    bool,
+    bool,
+    bool | None,
+    list[tuple[bytes, dict[str, str]]],
+    list[tuple[float, float, float, float]],
+    bool,
+]:
     """
-    Extracts `(stream_bytes, meta_bytes, streams_ok, cs_has_rgb, cs_has_cmyk, gs_overprint_ok, scoped_streams)`
+    Extracts `(stream_bytes, meta_bytes, streams_ok, cs_has_rgb, cs_has_cmyk, gs_overprint_ok, scoped_streams, shading_cmyk_quads, shading_eval_ok)`
     across page content streams, Form/Image XObjects, Tiling/Shading Patterns, and Resources via pikepdf.
-    Each entry in `scoped_streams` is `(stream_bytes, local_cs_kinds)` so graphics state and `/ColorSpace`
-    resource names stay isolated per page, Form XObject, and Tiling Pattern.
     """
     stream_buf = bytearray()
     meta_buf = bytearray()
@@ -2254,6 +2475,8 @@ def _collect_pikepdf_drawable_streams(
     gs_seen = False
     gs_all_ok = True
     scoped_streams: list[tuple[bytes, dict[str, str]]] = []
+    shading_quads: list[tuple[float, float, float, float]] = []
+    shading_eval_ok = True
 
     import pikepdf as _pk
 
@@ -2277,7 +2500,7 @@ def _collect_pikepdf_drawable_streams(
         return local_cs
 
     def _visit_resources(res_obj: Any, inherited_cs: dict[str, str]) -> dict[str, str]:
-        nonlocal ok, cs_has_rgb, cs_has_cmyk, gs_seen, gs_all_ok
+        nonlocal ok, cs_has_rgb, cs_has_cmyk, gs_seen, gs_all_ok, shading_eval_ok
         local_cs = _extract_local_cs_kinds(res_obj, inherited_cs)
         if res_obj is None:
             return local_cs
@@ -2296,11 +2519,14 @@ def _collect_pikepdf_drawable_streams(
         try:
             if "/Shading" in res_obj:
                 for sh_val in res_obj["/Shading"].values():
-                    r_flag, c_flag, _ = _inspect_cs_pikepdf(sh_val.get("/ColorSpace"))
+                    r_flag, c_flag, sh_q, sh_ok = _eval_pikepdf_shading_cmyk(sh_val)
                     cs_has_rgb = cs_has_rgb or r_flag
                     cs_has_cmyk = cs_has_cmyk or c_flag
+                    shading_quads.extend(sh_q)
+                    shading_eval_ok = shading_eval_ok and sh_ok
         except Exception:
             ok = False
+            shading_eval_ok = False
 
         for group_key, req_subtype in (("/XObject", "/Form"), ("/Pattern", None)):
             if group_key not in res_obj:
@@ -2328,9 +2554,11 @@ def _collect_pikepdf_drawable_streams(
                         cs_has_cmyk = cs_has_cmyk or c_flag
                         continue
                     if "/Shading" in item:
-                        r_flag, c_flag, _ = _inspect_cs_pikepdf(item["/Shading"].get("/ColorSpace"))
+                        r_flag, c_flag, sh_q, sh_ok = _eval_pikepdf_shading_cmyk(item["/Shading"])
                         cs_has_rgb = cs_has_rgb or r_flag
                         cs_has_cmyk = cs_has_cmyk or c_flag
+                        shading_quads.extend(sh_q)
+                        shading_eval_ok = shading_eval_ok and sh_ok
                     if req_subtype and subtype != req_subtype:
                         continue
                     child_cs = _visit_resources(item.get("/Resources"), local_cs)
@@ -2368,7 +2596,17 @@ def _collect_pikepdf_drawable_streams(
             ok = False
 
     gs_overprint_ok: bool | None = (gs_seen and gs_all_ok) if gs_seen else False
-    return bytes(stream_buf), bytes(meta_buf), ok, cs_has_rgb, cs_has_cmyk, gs_overprint_ok, scoped_streams
+    return (
+        bytes(stream_buf),
+        bytes(meta_buf),
+        ok,
+        cs_has_rgb,
+        cs_has_cmyk,
+        gs_overprint_ok,
+        scoped_streams,
+        shading_quads,
+        shading_eval_ok,
+    )
 
 
 def _verify_gsoverprint_stdlib(corpus: bytes, streams_only: bytes) -> bool:
@@ -2480,6 +2718,8 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
     pk_gs_overprint_ok: bool | None = None
     cs_kinds = _collect_cs_kinds_stdlib(raw, corpus)
     pk_scoped_streams: list[tuple[bytes, dict[str, str]]] = []
+    pk_shading_quads: list[tuple[float, float, float, float]] = []
+    pk_shading_eval_ok = True
     used_pikepdf = False
 
     try:
@@ -2488,9 +2728,17 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
         try:
             with pikepdf.open(pdf_path) as pk:
                 used_pikepdf = True
-                pk_streams, pk_meta, pk_streams_ok, pk_cs_rgb, pk_cs_cmyk, pk_gs_overprint_ok, pk_scoped_streams = (
-                    _collect_pikepdf_drawable_streams(pk)
-                )
+                (
+                    pk_streams,
+                    pk_meta,
+                    pk_streams_ok,
+                    pk_cs_rgb,
+                    pk_cs_cmyk,
+                    pk_gs_overprint_ok,
+                    pk_scoped_streams,
+                    pk_shading_quads,
+                    pk_shading_eval_ok,
+                ) = _collect_pikepdf_drawable_streams(pk)
                 if pk_streams:
                     streams_only = stdlib_streams_only + b"\n" + pk_streams
                     corpus = corpus + b"\n" + pk_streams + b"\n" + pk_meta
@@ -2545,8 +2793,14 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
             cmyk_ops.extend(s_cmyk)
             saw_rgb_op = saw_rgb_op or s_rgb
             color_ops_eval_ok = color_ops_eval_ok and s_ok
+        cmyk_ops.extend(pk_shading_quads)
+        color_ops_eval_ok = color_ops_eval_ok and pk_shading_eval_ok
     else:
         cmyk_ops, saw_rgb_op, color_ops_eval_ok = _scan_pdf_color_operators(stdlib_streams_only or corpus, cs_kinds)
+        sh_quads_std, sh_rgb_std, sh_ok_std = _eval_shadings_stdlib(raw, corpus)
+        cmyk_ops.extend(sh_quads_std)
+        saw_rgb_op = saw_rgb_op or sh_rgb_std
+        color_ops_eval_ok = color_ops_eval_ok and sh_ok_std
 
     for m in _CMYK_OP_RE.finditer(streams_only or corpus):
         cmyk_ops.append((float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4))))
