@@ -2483,17 +2483,31 @@ def _eval_pikepdf_image_cmyk(
             return (r_flag, True, None, False)
 
         pimg = _pk.PdfImage(item)
-        pil_im = pimg.as_pil_image()
-        if pil_im.mode != "CMYK":
-            return (r_flag, True, None, False)
-        raw_bytes = pil_im.tobytes()
+        # Obtain un-remapped CMYK base samples (`apply_decode_array=False, apply_mask=False`) so `/Decode` is applied
+        # at most once here (and attached `/SMask` / `/Mask` does not convert CMYK base samples out of 4-channel mode).
+        # Note: JPEG (`/DCTDecode`) and JPEG2000 (`/JPXDecode`) carry Adobe APP14 inversion in the codec itself,
+        # so per pikepdf's image model `/Decode` is NOT re-applied on top of DCT/JPX output.
+        pil_im = pimg.as_pil_image(apply_decode_array=False, apply_mask=False)
+        try:
+            if pil_im.mode != "CMYK":
+                return (r_flag, True, None, False)
+            raw_bytes = pil_im.tobytes()
+        finally:
+            pil_im.close()
+
         if not raw_bytes or (len(raw_bytes) % 4) != 0:
             return (r_flag, True, None, False)
 
+        is_dct_or_jpx = any(flt in ("/DCTDecode", "/JPXDecode") for flt in getattr(pimg, "filters", ()))
+        use_decode = (
+            decode_arr is not None
+            and not is_dct_or_jpx
+            and decode_arr != [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
+        )
+
         mv = memoryview(raw_bytes)
-        best_sum = -1.0
         best_quad: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
-        if decode_arr is None or decode_arr == [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]:
+        if not use_decode:
             best_int_sum = -1
             best_idx = 0
             for idx in range(0, len(mv), 4):
@@ -2508,12 +2522,14 @@ def _eval_pikepdf_image_cmyk(
                 mv[best_idx + 3] / 255.0,
             )
         else:
+            assert decode_arr is not None
             d0, d1, d2, d3, d4, d5, d6, d7 = decode_arr
+            best_sum = -1.0
             for idx in range(0, len(mv), 4):
-                c_v = d0 + (mv[idx] / 255.0) * (d1 - d0)
-                m_v = d2 + (mv[idx + 1] / 255.0) * (d3 - d2)
-                y_v = d4 + (mv[idx + 2] / 255.0) * (d5 - d4)
-                k_v = d6 + (mv[idx + 3] / 255.0) * (d7 - d6)
+                c_v = min(1.0, max(0.0, d0 + (mv[idx] / 255.0) * (d1 - d0)))
+                m_v = min(1.0, max(0.0, d2 + (mv[idx + 1] / 255.0) * (d3 - d2)))
+                y_v = min(1.0, max(0.0, d4 + (mv[idx + 2] / 255.0) * (d5 - d4)))
+                k_v = min(1.0, max(0.0, d6 + (mv[idx + 3] / 255.0) * (d7 - d6)))
                 s_f = c_v + m_v + y_v + k_v
                 if s_f > best_sum:
                     best_sum = s_f
