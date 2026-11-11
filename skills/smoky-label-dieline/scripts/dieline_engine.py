@@ -1943,50 +1943,307 @@ def _extract_pdf_content_streams_only(raw: bytes) -> bytes:
     return streams_only
 
 
-def _inspect_cs_pikepdf(cs_obj: Any, visited_cs: set[tuple[int, int]] | None = None) -> tuple[bool, bool]:
-    """Returns `(has_rgb_colorspace, has_cmyk_colorspace)` for a pikepdf `/ColorSpace` entry or array."""
+def _inspect_cs_pikepdf(cs_obj: Any, visited_cs: set[tuple[int, int]] | None = None) -> tuple[bool, bool, str]:
+    """Returns `(has_rgb_colorspace, has_cmyk_colorspace, cs_kind)` for a pikepdf `/ColorSpace` entry or array."""
     if cs_obj is None:
-        return (False, False)
+        return (False, False, "unknown")
     seen = visited_cs if visited_cs is not None else set()
     og = getattr(cs_obj, "objgen", (0, 0))
     if og != (0, 0):
         if og in seen:
-            return (False, False)
+            return (False, False, "unknown")
         seen.add(og)
 
     s = str(cs_obj)
     if s in ("/DeviceRGB", "/CalRGB", "/RGB"):
-        return (True, False)
+        return (True, False, "rgb")
     if s in ("/DeviceCMYK", "/CMYK"):
-        return (False, True)
+        return (False, True, "cmyk")
     if s in ("/DeviceGray", "/CalGray", "/G"):
-        return (False, False)
+        return (False, False, "gray")
 
     try:
-        if hasattr(cs_obj, "__len__") and not isinstance(cs_obj, (str, bytes)) and not hasattr(cs_obj, "keys"):
+        import pikepdf
+
+        is_array = isinstance(cs_obj, pikepdf.Array)
+    except Exception:
+        is_array = hasattr(cs_obj, "__len__") and not isinstance(cs_obj, (str, bytes)) and not hasattr(cs_obj, "keys")
+
+    try:
+        if is_array:
             items = list(cs_obj)
             if not items:
-                return (False, False)
+                return (False, False, "unknown")
             head = str(items[0])
             if head == "/ICCBased" and len(items) >= 2:
                 prof = items[1]
                 n_comp = int(prof.get("/N", 0))
-                alt_rgb, alt_cmyk = _inspect_cs_pikepdf(prof.get("/Alternate"), seen)
-                return (n_comp == 3 or alt_rgb, n_comp == 4 or alt_cmyk)
-            if head in ("/Indexed", "/Separation", "/DeviceN") and len(items) >= 3:
-                idx = 1 if head == "/Indexed" else 2
-                return _inspect_cs_pikepdf(items[idx], seen)
-            if head == "/Pattern" and len(items) >= 2:
-                return _inspect_cs_pikepdf(items[1], seen)
+                alt_rgb, alt_cmyk, _ = _inspect_cs_pikepdf(prof.get("/Alternate"), seen)
+                kind = "rgb" if (n_comp == 3 or alt_rgb) else ("cmyk" if n_comp == 4 else ("gray" if n_comp == 1 else "unknown"))
+                return (n_comp == 3 or alt_rgb, n_comp == 4 or alt_cmyk, kind)
+            if head == "/Separation" and len(items) >= 3:
+                alt_rgb, alt_cmyk, _ = _inspect_cs_pikepdf(items[2], seen)
+                return (alt_rgb, alt_cmyk, "spot")
+            if head == "/Indexed" and len(items) >= 2:
+                alt_rgb, alt_cmyk, _ = _inspect_cs_pikepdf(items[1], seen)
+                return (alt_rgb, alt_cmyk, "unknown")
+            if head == "/DeviceN" and len(items) >= 3:
+                alt_rgb, alt_cmyk, _ = _inspect_cs_pikepdf(items[2], seen)
+                return (alt_rgb, alt_cmyk, "unknown")
+            if head == "/Pattern":
+                if len(items) >= 2:
+                    alt_rgb, alt_cmyk, _ = _inspect_cs_pikepdf(items[1], seen)
+                    return (alt_rgb, alt_cmyk, "pattern")
+                return (False, False, "pattern")
     except Exception:
         pass
-    return (False, False)
+    return (False, False, "unknown")
 
 
-def _collect_pikepdf_drawable_streams(pk_doc: Any) -> tuple[bytes, bytes, bool, bool, bool, bool | None]:
+_PDF_CS_TOKEN_RE = re.compile(
+    rb"\((?:\\.|[^\\)])*\)|<~.*?~>|<<|>>|<[0-9A-Fa-f\s]*>|\[|\]|/[A-Za-z0-9#._+-]+|[+-]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?|[A-Za-z*'\"]+",
+    flags=re.DOTALL,
+)
+
+
+def _normalize_pdf_name_bytes(tok: bytes) -> str:
+    """Decodes PDF `#XX` hex escapes in a `/Name` token (e.g. `/Die#20Line` -> `/Die Line`)."""
+    s = tok.decode("latin-1", errors="ignore")
+    return re.sub(r"#([0-9A-Fa-f]{2})", lambda m: chr(int(m.group(1), 16)), s)
+
+
+def _collect_cs_kinds_stdlib(raw: bytes, corpus: bytes) -> dict[str, str]:
+    """Resolves named `/ColorSpace` resource entries in stdlib mode to `'cmyk'`, `'rgb'`, `'gray'`, `'spot'`, `'pattern'`, or `'unknown'`."""
+    objs: dict[tuple[int, int], bytes] = {}
+    for m_obj in re.finditer(rb"(\d+)\s+(\d+)\s+obj\b(.*?)(?:stream\r?\n|endobj)", raw, flags=re.DOTALL):
+        objs[(int(m_obj.group(1)), int(m_obj.group(2)))] = m_obj.group(3)
+    for m_obj in re.finditer(rb"(\d+)\s+(\d+)\s+obj\b(.*?)endobj", corpus, flags=re.DOTALL):
+        objs.setdefault((int(m_obj.group(1)), int(m_obj.group(2))), m_obj.group(3))
+
+    def _classify_expr(expr: bytes, depth: int = 0) -> str:
+        if depth > 6:
+            return "unknown"
+        e = expr.strip()
+        if e.startswith((b"/DeviceCMYK", b"/CMYK")):
+            return "cmyk"
+        if e.startswith((b"/DeviceRGB", b"/CalRGB", b"/RGB")):
+            return "rgb"
+        if e.startswith((b"/DeviceGray", b"/CalGray", b"/G")):
+            return "gray"
+        m_ref = re.match(rb"^(\d+)\s+(\d+)\s+R\b", e)
+        if m_ref:
+            target = objs.get((int(m_ref.group(1)), int(m_ref.group(2))), b"")
+            if target:
+                return _classify_expr(target, depth + 1)
+            return "unknown"
+        if b"/Separation" in e:
+            if b"/DeviceRGB" in e or b"/CalRGB" in e:
+                return "rgb"
+            return "spot"
+        m_icc = re.search(rb"/ICCBased\s+(\d+)\s+(\d+)\s+R\b", e)
+        if m_icc:
+            hdr = objs.get((int(m_icc.group(1)), int(m_icc.group(2))), b"")
+            if re.search(rb"/N\s+4\b", hdr):
+                return "cmyk"
+            if re.search(rb"/N\s+3\b", hdr) or b"/DeviceRGB" in hdr or b"/CalRGB" in hdr:
+                return "rgb"
+            if re.search(rb"/N\s+1\b", hdr):
+                return "gray"
+        if e.startswith(b"[") and b"/Pattern" in e:
+            if b"/DeviceRGB" in e or b"/CalRGB" in e:
+                return "rgb"
+            return "pattern"
+        return "unknown"
+
+    cs_map: dict[str, str] = {
+        "/DeviceCMYK": "cmyk",
+        "/CMYK": "cmyk",
+        "/DeviceRGB": "rgb",
+        "/CalRGB": "rgb",
+        "/RGB": "rgb",
+        "/DeviceGray": "gray",
+        "/CalGray": "gray",
+        "/G": "gray",
+        "/Pattern": "pattern",
+    }
+
+    def _parse_cs_dict_body(body: bytes) -> None:
+        for m_ent in re.finditer(
+            rb"(/[A-Za-z0-9#._+-]+)\s*(\[[^\]]*\]|\d+\s+\d+\s+R\b|/[A-Za-z0-9#._+-]+)",
+            body,
+            flags=re.DOTALL,
+        ):
+            name_norm = _normalize_pdf_name_bytes(m_ent.group(1))
+            kind = _classify_expr(m_ent.group(2))
+            if cs_map.get(name_norm) not in (None, kind):
+                cs_map[name_norm] = "unknown"
+            else:
+                cs_map[name_norm] = kind
+
+    for m_cs in re.finditer(rb"/ColorSpace\s*(?:<<(.*?)>>|(\d+)\s+(\d+)\s+R\b)", corpus, flags=re.DOTALL):
+        if m_cs.group(1) is not None:
+            _parse_cs_dict_body(m_cs.group(1))
+        else:
+            ref_body = objs.get((int(m_cs.group(2)), int(m_cs.group(3))), b"")
+            m_inner = re.search(rb"<<(.*?)>>", ref_body, flags=re.DOTALL)
+            if m_inner:
+                _parse_cs_dict_body(m_inner.group(1))
+    return cs_map
+
+
+def _scan_pdf_color_operators(
+    stream_bytes: bytes,
+    cs_kinds: dict[str, str],
+) -> tuple[list[tuple[float, float, float, float]], bool, bool]:
     """
-    Extracts `(stream_bytes, meta_bytes, streams_ok, cs_has_rgb, cs_has_cmyk, gs_overprint_ok)`
+    Stateful PDF graphics-stream color scanner.
+    Evaluates `k`/`K`, `rg`/`RG`, `cs`/`CS`, and color-space-aware `sc`/`SC`/`scn`/`SCN`
+    across `q`/`Q` graphics state saves, returning `(cmyk_quads, saw_rgb_op, color_ops_eval_ok)`.
+    Fails closed (`color_ops_eval_ok=False`) if `sc`/`SC`/`scn`/`SCN` paints in an unresolved or
+    unevaluable multi-ink color space (e.g. `/DeviceN`, `/Indexed`, or missing 4-channel operands).
+    """
+    base_map = {
+        "/DeviceCMYK": "cmyk",
+        "/CMYK": "cmyk",
+        "/DeviceRGB": "rgb",
+        "/CalRGB": "rgb",
+        "/RGB": "rgb",
+        "/DeviceGray": "gray",
+        "/CalGray": "gray",
+        "/G": "gray",
+        "/Pattern": "pattern",
+        **cs_kinds,
+    }
+    cmyk_ops: list[tuple[float, float, float, float]] = []
+    saw_rgb = False
+    eval_ok = True
+
+    fill_cs = "gray"
+    stroke_cs = "gray"
+    gs_stack: list[tuple[str, str]] = []
+    operands: list[bytes] = []
+    in_array = 0
+
+    for m in _PDF_CS_TOKEN_RE.finditer(stream_bytes):
+        tok = m.group(0)
+        b0 = tok[0]
+        if b0 == ord("["):
+            in_array += 1
+            operands.append(tok)
+            continue
+        if b0 == ord("]"):
+            in_array = max(0, in_array - 1)
+            operands.append(tok)
+            continue
+        if in_array > 0 or b0 in (ord("("), ord("<"), ord("/")):
+            operands.append(tok)
+            continue
+        if b0 in b"+-.0123456789":
+            operands.append(tok)
+            continue
+
+        # Operator token:
+        if tok == b"BI":
+            operands.clear()
+            continue
+        if tok == b"q":
+            gs_stack.append((fill_cs, stroke_cs))
+            operands.clear()
+            continue
+        if tok == b"Q":
+            if gs_stack:
+                fill_cs, stroke_cs = gs_stack.pop()
+            operands.clear()
+            continue
+
+        if tok in (b"k", b"K"):
+            if len(operands) >= 4:
+                try:
+                    quad = (
+                        float(operands[-4]),
+                        float(operands[-3]),
+                        float(operands[-2]),
+                        float(operands[-1]),
+                    )
+                    cmyk_ops.append(quad)
+                    if tok == b"k":
+                        fill_cs = "cmyk"
+                    else:
+                        stroke_cs = "cmyk"
+                except ValueError:
+                    eval_ok = False
+            else:
+                eval_ok = False
+        elif tok in (b"rg", b"RG"):
+            saw_rgb = True
+            if tok == b"rg":
+                fill_cs = "rgb"
+            else:
+                stroke_cs = "rgb"
+        elif tok in (b"g", b"G"):
+            if tok == b"g":
+                fill_cs = "gray"
+            else:
+                stroke_cs = "gray"
+        elif tok in (b"cs", b"CS"):
+            if operands and operands[-1].startswith(b"/"):
+                cs_name = _normalize_pdf_name_bytes(operands[-1])
+                kind = base_map.get(cs_name, "unknown")
+            else:
+                kind = "unknown"
+            if kind == "rgb":
+                saw_rgb = True
+            if tok == b"cs":
+                fill_cs = kind
+            else:
+                stroke_cs = kind
+        elif tok in (b"sc", b"SC", b"scn", b"SCN"):
+            active_cs = fill_cs if tok in (b"sc", b"scn") else stroke_cs
+            num_ops: list[float] = []
+            for op_tok in operands:
+                if op_tok[:1] in b"+-.0123456789":
+                    try:
+                        num_ops.append(float(op_tok))
+                    except ValueError:
+                        pass
+            if active_cs == "cmyk":
+                if len(num_ops) >= 4:
+                    cmyk_ops.append((num_ops[-4], num_ops[-3], num_ops[-2], num_ops[-1]))
+                else:
+                    eval_ok = False
+            elif active_cs == "rgb":
+                saw_rgb = True
+            elif active_cs == "gray":
+                if len(num_ops) < 1:
+                    eval_ok = False
+            elif active_cs == "spot":
+                # Single-separation tint `0..1` ( <= 100% single-ink or non-printing technical separation )
+                if not num_ops or not (-1e-6 <= num_ops[-1] <= 1.0 + 1e-6):
+                    eval_ok = False
+            elif active_cs == "pattern":
+                if num_ops:
+                    if len(num_ops) == 4:
+                        cmyk_ops.append((num_ops[0], num_ops[1], num_ops[2], num_ops[3]))
+                    elif len(num_ops) == 3:
+                        saw_rgb = True
+                    elif len(num_ops) != 1:
+                        eval_ok = False
+            else:
+                eval_ok = False
+
+        operands.clear()
+
+    return (cmyk_ops, saw_rgb, eval_ok)
+
+
+def _collect_pikepdf_drawable_streams(
+    pk_doc: Any,
+) -> tuple[bytes, bytes, bool, bool, bool, bool | None, list[tuple[bytes, dict[str, str]]]]:
+    """
+    Extracts `(stream_bytes, meta_bytes, streams_ok, cs_has_rgb, cs_has_cmyk, gs_overprint_ok, scoped_streams)`
     across page content streams, Form/Image XObjects, Tiling/Shading Patterns, and Resources via pikepdf.
+    Each entry in `scoped_streams` is `(stream_bytes, local_cs_kinds)` so graphics state and `/ColorSpace`
+    resource names stay isolated per page, Form XObject, and Tiling Pattern.
     """
     stream_buf = bytearray()
     meta_buf = bytearray()
@@ -1996,22 +2253,34 @@ def _collect_pikepdf_drawable_streams(pk_doc: Any) -> tuple[bytes, bytes, bool, 
     cs_has_cmyk = False
     gs_seen = False
     gs_all_ok = True
+    scoped_streams: list[tuple[bytes, dict[str, str]]] = []
 
-    def _visit_resources(res_obj: Any) -> None:
-        nonlocal ok, cs_has_rgb, cs_has_cmyk, gs_seen, gs_all_ok
+    import pikepdf as _pk
+
+    def _extract_local_cs_kinds(res_obj: Any, inherited_cs: dict[str, str]) -> dict[str, str]:
+        nonlocal ok, cs_has_rgb, cs_has_cmyk
+        local_cs = dict(inherited_cs)
         if res_obj is None:
-            return
+            return local_cs
         try:
             if "/ColorSpace" in res_obj:
                 cs_dict = res_obj["/ColorSpace"]
                 meta_buf.extend(repr(cs_dict).encode("utf-8", errors="ignore"))
                 meta_buf.extend(b"\n")
-                for cs_val in cs_dict.values():
-                    r_flag, c_flag = _inspect_cs_pikepdf(cs_val)
+                for cs_key, cs_val in cs_dict.items():
+                    r_flag, c_flag, kind = _inspect_cs_pikepdf(cs_val)
                     cs_has_rgb = cs_has_rgb or r_flag
                     cs_has_cmyk = cs_has_cmyk or c_flag
+                    local_cs[_normalize_pdf_name_bytes(str(cs_key).encode("latin-1", errors="ignore"))] = kind
         except Exception:
             ok = False
+        return local_cs
+
+    def _visit_resources(res_obj: Any, inherited_cs: dict[str, str]) -> dict[str, str]:
+        nonlocal ok, cs_has_rgb, cs_has_cmyk, gs_seen, gs_all_ok
+        local_cs = _extract_local_cs_kinds(res_obj, inherited_cs)
+        if res_obj is None:
+            return local_cs
 
         try:
             if "/ExtGState" in res_obj:
@@ -2027,7 +2296,7 @@ def _collect_pikepdf_drawable_streams(pk_doc: Any) -> tuple[bytes, bytes, bool, 
         try:
             if "/Shading" in res_obj:
                 for sh_val in res_obj["/Shading"].values():
-                    r_flag, c_flag = _inspect_cs_pikepdf(sh_val.get("/ColorSpace"))
+                    r_flag, c_flag, _ = _inspect_cs_pikepdf(sh_val.get("/ColorSpace"))
                     cs_has_rgb = cs_has_rgb or r_flag
                     cs_has_cmyk = cs_has_cmyk or c_flag
         except Exception:
@@ -2054,41 +2323,52 @@ def _collect_pikepdf_drawable_streams(pk_doc: Any) -> tuple[bytes, bytes, bool, 
                         cs_val = item.get("/ColorSpace")
                         meta_buf.extend(str(cs_val or "").encode("utf-8", errors="ignore"))
                         meta_buf.extend(b"\n")
-                        r_flag, c_flag = _inspect_cs_pikepdf(cs_val)
+                        r_flag, c_flag, _ = _inspect_cs_pikepdf(cs_val)
                         cs_has_rgb = cs_has_rgb or r_flag
                         cs_has_cmyk = cs_has_cmyk or c_flag
                         continue
                     if "/Shading" in item:
-                        r_flag, c_flag = _inspect_cs_pikepdf(item["/Shading"].get("/ColorSpace"))
+                        r_flag, c_flag, _ = _inspect_cs_pikepdf(item["/Shading"].get("/ColorSpace"))
                         cs_has_rgb = cs_has_rgb or r_flag
                         cs_has_cmyk = cs_has_cmyk or c_flag
                     if req_subtype and subtype != req_subtype:
                         continue
-                    if hasattr(item, "read_bytes"):
+                    child_cs = _visit_resources(item.get("/Resources"), local_cs)
+                    if isinstance(item, _pk.Stream):
+                        b_data = item.read_bytes()
                         stream_buf.extend(b"\n")
-                        stream_buf.extend(item.read_bytes())
-                    if "/Resources" in item:
-                        _visit_resources(item["/Resources"])
+                        stream_buf.extend(b_data)
+                        scoped_streams.append((b_data, child_cs))
                 except Exception:
                     ok = False
 
+        return local_cs
+
     for page in pk_doc.pages:
         try:
+            page_cs = _visit_resources(page.get("/Resources"), {})
             contents = page.get("/Contents")
             if contents is not None:
-                if hasattr(contents, "read_bytes"):
+                page_buf = bytearray()
+                if isinstance(contents, _pk.Stream):
+                    b_data = contents.read_bytes()
                     stream_buf.extend(b"\n")
-                    stream_buf.extend(contents.read_bytes())
+                    stream_buf.extend(b_data)
+                    page_buf.extend(b_data)
                 else:
                     for c_stream in contents:
+                        b_data = c_stream.read_bytes()
                         stream_buf.extend(b"\n")
-                        stream_buf.extend(c_stream.read_bytes())
-            _visit_resources(page.get("/Resources"))
+                        stream_buf.extend(b_data)
+                        page_buf.extend(b"\n")
+                        page_buf.extend(b_data)
+                if page_buf:
+                    scoped_streams.append((bytes(page_buf), page_cs))
         except Exception:
             ok = False
 
     gs_overprint_ok: bool | None = (gs_seen and gs_all_ok) if gs_seen else False
-    return bytes(stream_buf), bytes(meta_buf), ok, cs_has_rgb, cs_has_cmyk, gs_overprint_ok
+    return bytes(stream_buf), bytes(meta_buf), ok, cs_has_rgb, cs_has_cmyk, gs_overprint_ok, scoped_streams
 
 
 def _verify_gsoverprint_stdlib(corpus: bytes, streams_only: bytes) -> bool:
@@ -2198,13 +2478,17 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
     pk_cs_rgb = False
     pk_cs_cmyk = False
     pk_gs_overprint_ok: bool | None = None
+    cs_kinds = _collect_cs_kinds_stdlib(raw, corpus)
+    pk_scoped_streams: list[tuple[bytes, dict[str, str]]] = []
+    used_pikepdf = False
 
     try:
         import pikepdf
 
         try:
             with pikepdf.open(pdf_path) as pk:
-                pk_streams, pk_meta, pk_streams_ok, pk_cs_rgb, pk_cs_cmyk, pk_gs_overprint_ok = (
+                used_pikepdf = True
+                pk_streams, pk_meta, pk_streams_ok, pk_cs_rgb, pk_cs_cmyk, pk_gs_overprint_ok, pk_scoped_streams = (
                     _collect_pikepdf_drawable_streams(pk)
                 )
                 if pk_streams:
@@ -2252,14 +2536,27 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
     except ImportError:
         pass
 
-    cmyk_ops = [
-        (float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4)))
-        for m in _CMYK_OP_RE.finditer(streams_only or corpus)
-    ]
+    cmyk_ops: list[tuple[float, float, float, float]] = []
+    saw_rgb_op = False
+    color_ops_eval_ok = True
+    if used_pikepdf:
+        for s_bytes, s_cs in pk_scoped_streams:
+            s_cmyk, s_rgb, s_ok = _scan_pdf_color_operators(s_bytes, s_cs)
+            cmyk_ops.extend(s_cmyk)
+            saw_rgb_op = saw_rgb_op or s_rgb
+            color_ops_eval_ok = color_ops_eval_ok and s_ok
+    else:
+        cmyk_ops, saw_rgb_op, color_ops_eval_ok = _scan_pdf_color_operators(stdlib_streams_only or corpus, cs_kinds)
+
+    for m in _CMYK_OP_RE.finditer(streams_only or corpus):
+        cmyk_ops.append((float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4))))
     max_tac_pct = round(max((sum(op) * 100.0 for op in cmyk_ops), default=0.0), 2)
-    tac_within_limit = all(
-        all(-1e-6 <= ch <= 1.0 + 1e-6 for ch in op) and (sum(op) * 100.0 <= MAX_CMYK_TAC_PCT + 1e-3)
-        for op in cmyk_ops
+    tac_within_limit = bool(
+        color_ops_eval_ok
+        and all(
+            all(-1e-6 <= ch <= 1.0 + 1e-6 for ch in op) and (sum(op) * 100.0 <= MAX_CMYK_TAC_PCT + 1e-3)
+            for op in cmyk_ops
+        )
     )
 
     has_dieline_spot = (b"Die#20Line" in corpus) or (b"Die Line" in corpus)
@@ -2273,6 +2570,7 @@ def verify_dieline_pdf(pdf_path: Path, expected_panels: list[DielinePanel] | Non
     )
     has_rgb = (
         pk_cs_rgb
+        or saw_rgb_op
         or _has_rgb_icc_stdlib(raw, corpus)
         or (b"/DeviceRGB" in corpus)
         or (b"/CalRGB" in corpus)

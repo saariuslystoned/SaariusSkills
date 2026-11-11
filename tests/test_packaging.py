@@ -1768,6 +1768,37 @@ exit "$1"
                 icc_rgb_rep = mod.verify_dieline_pdf(icc_rgb_pdf)
                 self.assertFalse(icc_rgb_rep["preflight_pass"])
                 self.assertFalse(icc_rgb_rep["cmyk_only_no_rgb"])
+
+                # Alternate CMYK operators (`/DeviceCMYK cs 1 1 1 1 sc` and `CS` + `SCN`) must enforce TAC <= 300%!
+                alt_cmyk_sc_stream = zlib.compress(
+                    b"q /OC /LayerArtwork BDC /DeviceCMYK cs 1 1 1 1 sc /GSOverprint gs EMC Q\n"
+                )
+                alt_cmyk_sc_pdf = tmp_root / "alt_cmyk_sc.pdf"
+                alt_cmyk_sc_pdf.write_bytes(good_pdf.read_bytes().replace(stream_body, alt_cmyk_sc_stream))
+                alt_sc_rep = mod.verify_dieline_pdf(alt_cmyk_sc_pdf)
+                self.assertFalse(alt_sc_rep["preflight_pass"])
+                self.assertFalse(alt_sc_rep["tac_within_limit"])
+                self.assertAlmostEqual(alt_sc_rep["max_tac_pct"], 400.0, places=2)
+
+                alt_cmyk_scn_stream = zlib.compress(
+                    b"q /OC /LayerArtwork BDC /DeviceCMYK CS 0.9 0.9 0.9 0.9 SCN /GSOverprint gs EMC Q\n"
+                )
+                alt_cmyk_scn_pdf = tmp_root / "alt_cmyk_scn.pdf"
+                alt_cmyk_scn_pdf.write_bytes(good_pdf.read_bytes().replace(stream_body, alt_cmyk_scn_stream))
+                alt_scn_rep = mod.verify_dieline_pdf(alt_cmyk_scn_pdf)
+                self.assertFalse(alt_scn_rep["preflight_pass"])
+                self.assertFalse(alt_scn_rep["tac_within_limit"])
+                self.assertAlmostEqual(alt_scn_rep["max_tac_pct"], 360.0, places=2)
+
+                # Unresolved multi-ink color space (`/UnknownCS cs 1 1 1 1 scn`) must fail closed!
+                unknown_cs_stream = zlib.compress(
+                    b"q /OC /LayerArtwork BDC /UnknownCS cs 1 1 1 1 scn /GSOverprint gs EMC Q\n"
+                )
+                unknown_cs_pdf = tmp_root / "unknown_cs_scn.pdf"
+                unknown_cs_pdf.write_bytes(good_pdf.read_bytes().replace(stream_body, unknown_cs_stream))
+                unknown_cs_rep = mod.verify_dieline_pdf(unknown_cs_pdf)
+                self.assertFalse(unknown_cs_rep["preflight_pass"])
+                self.assertFalse(unknown_cs_rep["tac_within_limit"])
             finally:
                 builtins.__import__ = old_imp
 
