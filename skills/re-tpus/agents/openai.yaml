@@ -1,0 +1,6 @@
+interface:
+  display_name: "RE TPUs"
+  short_description: "Reverse-engineer Edge and Cloud TPUs into clean-room bare-metal drivers and native C++ PJRT/GGML runtimes."
+  default_prompt: "Use $re-tpus to reverse-engineer an Edge or Cloud TPU stack, run causal differential probes, or build a clean-room VFIO/PJRT/GGML runtime."
+policy:
+  allow_implicit_invocation: true
