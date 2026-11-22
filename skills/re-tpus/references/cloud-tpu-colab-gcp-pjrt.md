@@ -29,6 +29,13 @@ Pure C++17 PJRT probing (`tpu_pjrt_bench.cpp`) proved Cloud TPUs work identicall
    - Pipelining 100 async steps overlaps host enqueue (`28.86 us`), dropping amortized launch to **`32.00 us`** (`3.97x` speedup) and reaching **`180.36 TFLOP/s`** BF16 (`91.6%` of `197 TFLOP/s`, `max_abs_err = 0.0`).
    - Fusing ops + double-buffered async VMEM DMA (`pltpu.make_async_copy`) closes `~94%` of XLA speed (`135.5 TFLOP/s`) and beats XLA `3.05x–3.24x` on `W4A16` decode.
 
+### Live `v5e-1` PJRT + Textual StableHLO Lessons (`ggml-cloudtpu`)
+- **Textual MLIR Works Directly in `libtpu.so` (`0.0.50`, PJRT `0.116`)**: `PJRT_Program{ .format = "mlir" }` compiles pure C++-emitted textual StableHLO MLIR directly (zero MLIR/libprotobuf/Python dependencies, `MAPS_LIBPYTHON=0`). Requires non-empty `CompileOptionsProto` (e.g. 11-byte `ExecutableBuildOptionsProto` with `num_replicas=1, num_partitions=1, use_spmd_partitioning=1, use_shardy_partitioner=1`; empty options fail with `Requested total cores: 0`).
+- **Single-Chip `execute_device` Must Be `nullptr`**: `PJRT_LoadedExecutable_Execute_Args.execute_device` must be `nullptr` on single-chip `libtpu.so` (passing `devices_[0]` triggers `execute_device not supported` because device assignment is baked at compile time).
+- **Mandatory Row-Major `host_layout` on `PJRT_Buffer_ToHostBuffer`**: Passing `host_layout = nullptr` causes `libtpu.so` to copy out in the TPU device buffer's XLA-chosen minor-to-major dimension order — silently transposing non-multiple-of-8 (`ROPE` `[1,2,52,128]`) and batched (`MUL_MAT` `[4,6,1,16]`) outputs. Always query `PJRT_Buffer_Dimensions` and pass an untiled `PJRT_Buffer_MemoryLayout_Type_Tiled` with `minor_to_major = {R-1, ..., 0}, num_tiles = 0`.
+- **Dequantize `Q4_0`/`Q8_0` to `F32` Before `F32` `dot_general`**: Dequantizing split `Q4_0`/`Q8_0` weights to `BF16` and upcasting `BF16 -> F32` before `dot_general` fails `test-backend-ops` (`Q4_0` NMSE `~1.9`, `Q8_0` NMSE `~0.005`); dequantizing directly to `F32` when activations are `F32` achieves 100% `v5e-1` parity (`NMSE < 5e-4`).
+- **GCC 13+ `-Wchanges-meaning` on `pjrt_c_api.h`**: Mark `third_party/openxla` as `SYSTEM` include and add `-Wno-changes-meaning` on GCC 13+ (`libstdc++` also requires explicit `<stdexcept>` / `<string>`).
+
 ---
 
 ## 3. Headless Google Colab Control Planes & Traps
@@ -51,3 +58,25 @@ Two sanctioned programmatic paths exist (strictly R&D/benchmarking only — neve
 - **Standalone / New GCP Project Limits**: Newly created consumer projects without a Workspace/Cloud Identity org often face `tpu7x` throttling (`reconciling: True`, `grantedValue: 0`), DWS Calendar Mode blocks, and Standard Support eligibility limits.
 - **Cost-Locked Ephemeral Runs**: Always use Spot / `DWS Flex-Start` with `--max-run-duration=25m --instance-termination-action=DELETE` and verify `0` leftover VMs across both `tpu-vm list` and `compute instances list`.
 - **Cloud Shell Bridge Traps**: `gcloud cloud-shell ssh` shares the browser VM/`tmux` and port-8080 `/_cloudshell/{file,ls}` HTTP sidecar. Always **base64-frame** remote commands (`ssh.py` splits args on spaces) and renew `AuthorizeEnvironment()` keepalive before `28m` (`1,680s`) so tunnels never drop silently.
+
+---
+
+## 5. Clean-Room Bare-Metal `v5e-1` Direct-in-IMEM Execution (Zero `libtpu.so`)
+
+Proven 100% zero-blob on live Cloud TPU `v5e-1` (`0x1ae0:0x0063`) via `/dev/vfio/*` + `BAR0 + 0x10000` SQ/CQ rings (`libopentpu.so`, `MAPS_LIBTPU=0`, `MAPS_LIBPYTHON=0`):
+
+- **Minimal Bring-Up (No `BAR0+0x0a...`, No `0x10090`, No `0x161`)**:
+  - `VFIO_DEVICE_RESET` + 256-slot SQ (`0x0`), CQ (`0x8000`), Status (`0xa000`) ring init at `BAR0 + 0x10000`.
+  - **Direct Host -> IMEM DMA (`0x1000_00000000`)**: Upload `120` 512-bit VLIW bundles (`7,680 B` = `15 x 512 B`) directly from host staging IOVA using `op=0x04` (`dst_flags_hi=0x10000000`, `w28=0x130`, `w29=0x04000000`) — zero HBM bounce buffer needed. **Alignment trap**: IMEM DMA length MUST be a multiple of `512 B` (`8` bundles; `100` bundles times out, `104/112/120/128` pass).
+  - **Core Start**: Single `op=0x03 d[8]=0x121` starts execution at IMEM `PC=0`.
+- **Direct-in-IMEM Resident Poller + Matmul Loop (`120` bundles, Zero `prog_hbm` Reload)**:
+  - **Fixed Slot-0 Launch Descriptor (`0x3fff00000`)**: Omitting the ring-index increment pins every call to HBM `0x3fff00000` (infinite calls, no 2048-slot wrap). Only 4 `uint32_t` fields are causally read: `+0x170 = rhs_hbm >> 9`, `+0x174 = lhs_hbm >> 9`, `+0x190 = out_hbm >> 9`, `+0x1e8 = exec_seq`.
+  - **Doorbell & Completion Handshake**: Host uploads `512 B` `OtV5eLaunchDesc` to `0x3fff00000` with `w28=0x0001fb10, w29=0x01000000` (`+16` to sync flag `0x1fb`), then submits `op=0x06 d[8]=0x41 d[10]=0x010101f9` and asserts `cq[4] == 1 && cq[5] == exec_seq`.
+  - **Mandatory Causal Sync Gates (All 3 Falsified on Silicon)**:
+    1. `sync[0x1fb]` doorbell wait/sub (`>=16` / `-=16`): omitting causes the core to free-spin while host is idle.
+    2. `sync[0x1ff]` 512 B `ldesc` HBM->SMEM DMA wait/sub + scalar fence (`0x55700900`): omitting causes `16384/16384` mismatches.
+    3. `sync[0x33]` 32 KiB LHS HBM->VMEM DMA wait/sub/clear (`w12=(flag&0x3f)<<26`, `w13=((bytes/32)<<14)|(flag>>6)`): omitting causes intermittent `512–2303/16384` HBM race corruption. Also patch `s1` predicate `w14[28:24]` to `0x0e` (always-true, `w14=0x4e01bee8`) to eliminate the `+0x1a8` guard.
+  - **Loop-Back**: Unconditional absolute jump `br_abs(0)` (`w13=0, w15=0x55700400`) + 4 delay-slot NOPs returns to `PC=0` (writes `SMEM[+0x1e8]` -> `sync[0x1f9]`, then blocks on `sync[0x1fb]`).
+- **Verified Silicon Proof**:
+  - `100/100` consecutive zero-blob calls (`avg_dt = 133.1 us`, `cq_fails=0`, `0/819,200` mismatches / `max_diff=0.0` on dyadic `0.125`-step random BF16; `max_diff=0.015625` <= 1 BF16 ULP on arbitrary continuous uniform `[-1, 1]` BF16 due to MXU reduction-tree ties).
+  - Live `libopentpu.so` (`readelf -d`: `NEEDED = [libc.so.6, ld-linux-x86-64.so.2]` only, `0` vendor strings) + `opentpu_matmul_proof`: `0/16384` mismatches (`max_diff=0.000000`) across `5/5` C API `ot_matmul_bf16` + chained `(A@B)@D` (`594–648 us` warm) AND `5/5` fresh `dlopen("./libopentpu.so") -> GetPjrtApi()` (`334–359 us` warm), `MAPS_LIBTPU=0`, `MAPS_LIBPYTHON=0`.

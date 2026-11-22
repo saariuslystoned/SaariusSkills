@@ -55,6 +55,10 @@ Since Cloud TPUs expose **no** small `.dgc0` compiler files — everything lives
    - Trace `libtpu.so` running minimal `1x64x32` and `128x128` PJRT programs under `ptrace` (capturing `ioctl` VFIO commands, `mmap` offsets correlated via `/proc/<pid>/maps`, `pread64`/`pwrite64`, `eventfd` wait patterns) and non-invasive MMIO page-fault taps (`mprotect(PROT_READ)` trap-and-step on BAR pages) to log exact register write sequences, ring head/tail doorbell updates, and IOVA DMA descriptors.
 3. **Differential Sweep Through Minimal PJRT Programs**:
    - Run two minimal C++ PJRT programs (`tpu_pjrt_bench` style) differing in **one** tensor size, buffer address (`H2D`), or op (zero-copy `H2D -> D2H` first for M2 DMA round-trip, then `128x128` `bf16` matmul for M3). Diff the captured MMIO/DMA ring packets to isolate opcodes and HBM addresses cleanly.
+4. **`v5e-1` Bare-Metal VFIO Controller & VLIW Findings (`libopentpu`)**:
+   - **Ring Pointer Reset (`10 us` `seq=0`)**: `VFIO_DEVICE_RESET` leaves `BAR0 + 0x1001c` (`sq_head`) and `+0x10028` (`cq_tail`) non-zero; after enabling `+0x10000 = 1`, zero `+0x10018 = 0`, `+0x1002c = 0`, `+0x10044 = 0` so `seq=0` completes in `~10 us` with zero `BAR0 + 0x0a...` CSR writes.
+   - **`op=0x04` DMA & `512 B` Launch Descriptor**: `qwords = len / 8` splits across `w[8][31:16]` and `w[9][5:0]`; host IOVA `[63:32]` goes in `w[10]`, HBM `[35:32]` in `w[25]` (`D2H`) / `w[27]` (`H2D`). Program launch uploads a `512 B` struct to `0x3_fff00000` (`rhs>>9` at `+0x170`, `lhs>>9` at `+0x174`, `out>>9` at `+0x190`, `exec_seq` at `+0x1e8`; zeroed timestamps/fingerprints work) before `op=0x06`.
+   - **`{1,0:T(2,128)}` HBM Tiling & Direct-in-IMEM 512-bit VLIW**: `128x128` BF16 HBM layout maps `(r, c)` to `(r >> 1) * 256 + c * 2 + (r & 1)`; paired with the clean-room `120`-bundle (`7,680 B`, 512 B-aligned) direct-in-IMEM resident poller + `58`-bundle matmul body (`ot::emit_v5e_matmul_128x128_body()`), live `v5e-1` silicon matches BF16 `A @ B` with `0/16384` errors (`max_diff=0.0`, `MAPS_LIBTPU=0`, zero `libtpu.so` / zero blob preload — see [cloud-tpu-colab-gcp-pjrt.md](./cloud-tpu-colab-gcp-pjrt.md) Section 5).
 
 ---
 

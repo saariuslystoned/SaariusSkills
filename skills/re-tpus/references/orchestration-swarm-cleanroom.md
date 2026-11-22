@@ -46,6 +46,6 @@ Never trust secondary estimates or model cards alone for RAM or TPU compatibilit
 | --- | --- | --- |
 | **Pixel Tensor G5 (`buenos_a0`)** | `/dev/edgetpu-soc` (Litebuf VII `0xED`) + `/dev/dma_heap/system` | RV64 X280 DIVE VM (`ext[1]`), `1,286.4 MHz` DVFS + WakeLock, `~27.96 GB/s` INT8 ceiling (`W4`/Huffman DMA inactive), native `W8A16(FP16/BF16)`, `libopenbuenos` + `ggml-edgetpu` |
 | **Pixel Tensor G6** | Cross-gen diff baseline (`vendor`/`KERNEL_ABI`) | Next edge target beyond `buenos_a0`'s 1 B/weight decode ceiling |
-| **Cloud TPU `v5e-1`** | `/dev/vfio/<group>` (`0x1ae0:0x0063`, `class=0xff0000`) | `BAR0=4 GiB`, `BAR4=16 MiB`, `128` MSI-X, `15.748 GiB` HBM2e (`656 GB/s`), `~180 TF/s` BF16 / `~357 TOPS` INT8, `~127 us` PJRT sync / `32 us` pipelined |
+| **Cloud TPU `v5e-1`** | `/dev/vfio/<group>` (`0x1ae0:0x0063`, `class=0xff0000`) | `BAR0=4 GiB`, `BAR4=16 MiB`, `128` MSI-X, `15.748 GiB` HBM2e (`656 GB/s`), `~180 TF/s` BF16 / `~357 TOPS` INT8; PJRT `~127 us` sync / `32 us` pipelined; bare-metal zero-`libtpu.so` `120`-bundle IMEM `ot_matmul_bf16` + `GetPjrtApi()` (`133 us` avg, `0/16384` BF16 errors) |
 | **Cloud TPU `v6e` (Trillium)** | `/dev/vfio/<group>` (`0x1ae0:0x006f`; note `00:05.0` may be gVNIC `0x0042`) | `31.25 GiB`/chip HBM (`250 GiB` on `v6e-8`), requires `IPC_LOCK` + unlimited `memlock` + `--net=host` CDI |
 | **Cloud TPU `tpu7x` (Ironwood)** | VFIO / PJRT (`GetPjrtApi()`) | Next datacenter target; needs Workspace/org quota & `tpu.googleapis.com` aware provisioning |

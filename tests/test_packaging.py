@@ -1301,8 +1301,22 @@ exit "$1"
                     )
         for catalog in ("README.md", "docs/portable-skills.md"):
             self.assertIn("skills/re-tpus/SKILL.md", (ROOT / catalog).read_text(encoding="utf-8"))
+        cloud_ref = (RE_TPUS_SKILL / "references" / "cloud-tpu-colab-gcp-pjrt.md").read_text(
+            encoding="utf-8"
+        )
+        isa_ref = (RE_TPUS_SKILL / "references" / "differential-isa-vfio-re.md").read_text(
+            encoding="utf-8"
+        )
+        runtime_ref = (RE_TPUS_SKILL / "references" / "native-runtime-ggml-perf.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("0x1000_00000000", cloud_ref)
+        self.assertIn("PJRT_Buffer_ToHostBuffer", cloud_ref)
+        self.assertIn("0x1001c", isa_ref)
+        self.assertIn("{1,0:T(2,128)}", isa_ref)
+        self.assertIn("ggml_backend_sched", runtime_ref)
         forbidden = re.compile(
-            r"/Users/|/home/|[A-Z]:\\\\Users\\\\|saari-co|bobbybones|gen-lang-client",
+            r"/Users/|/home/|[A-Z]:\\\\Users\\\\|saari-co|bobbybones|gen-lang-client|rea-lab|openclaw|clawsweeper",
             re.I,
         )
         for path in RE_TPUS_SKILL.rglob("*"):

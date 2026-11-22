@@ -45,6 +45,6 @@ Read only the references needed for your current task:
 | Reference | Read When... |
 | --- | --- |
 | [`references/differential-isa-vfio-re.md`](./references/differential-isa-vfio-re.md) | Dissecting `.dgc0`/VLIW/MMIO packets, using `rea` / compiler-oracle / `ptrace` VFIO taps, running 1-param differential sweeps, or designing causal falsification probes. |
-| [`references/cloud-tpu-colab-gcp-pjrt.md`](./references/cloud-tpu-colab-gcp-pjrt.md) | Targeting Cloud TPUs (`v5e`, `v6e`, `tpu7x`), probing `/dev/vfio/*`, driving headless Colab (`colab` CLI / MCP) or GCP VMs/quotas/CDI, or calling `GetPjrtApi()` / `StableHLO` in C++. |
+| [`references/cloud-tpu-colab-gcp-pjrt.md`](./references/cloud-tpu-colab-gcp-pjrt.md) | Targeting Cloud TPUs (`v5e`, `v6e`, `tpu7x`), probing `/dev/vfio/*`, driving headless Colab (`colab` CLI / MCP) or GCP VMs/quotas/CDI, calling `GetPjrtApi()` / `StableHLO` in C++, or running bare-metal `v5e-1` direct-in-IMEM execution without `libtpu.so`. |
 | [`references/native-runtime-ggml-perf.md`](./references/native-runtime-ggml-perf.md) | Designing `libopentpu` / `libopenbuenos`, fixing weight-cache thrashing or handle caps, building `ggml-cloudtpu` / `ggml-edgetpu` / `ggml-rpc`, tuning quantization/SwiGLU/W8A16/SPSC, or avoiding review regressions. |
 | [`references/orchestration-swarm-cleanroom.md`](./references/orchestration-swarm-cleanroom.md) | Choosing `/swarm` vs independent parallel sessions, coordinating tracks around a C ABI seam, passing clean-room CI, qualifying models against hardware truth, or landing stacked PRs. |
