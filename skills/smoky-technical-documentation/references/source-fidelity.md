@@ -16,6 +16,7 @@ Use this checklist for claims in the requested scope. Keep a small claim-to-evid
 
 - Check exact spelling, case, arguments, quoting, aliases, required flags and order-sensitive behavior. Inspect wrappers as well as underlying tools; they may change defaults and authorization.
 - Confirm prerequisites and working directory. Avoid examples that rely on an undeclared environment, leak sensitive data or hide failure behind a pipeline.
+- **Verify file paths before read/edit**: confirm target paths exist in the active worktree/checkout (e.g., via directory listing or `git ls-files`) before citing, reading, or patching them — do not assume sibling checkout paths, moved references, or stale links from prior branches exist on disk.
 - Prefer hermetic parser tests, safe help and repository-native docs/snippet checks. First verify that a help or dry-run path has no unwanted side effects. A “dry-run” may contact a service or write state; the name is not a safety guarantee.
 - Preserve literal commands during a prose rewrite. Correct a literal only with source evidence, clearly identified as a factual correction. Never run deploy/send/delete/install/auth-changing actions merely to verify a sentence.
 - Report static-only or not-run checks and why. A link checker passing does not prove that a command works or that a page's description is true.
