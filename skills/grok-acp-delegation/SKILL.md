@@ -133,6 +133,26 @@ explicitly authorizes that alternative.
   Grok login stay on the worker. A live hopped delegate still needs an
   isolated worktree, one intended path, and a stated budget.
 
+## Bounded X search sweeps
+
+When using Grok Build's native X search tools (`x_user_search`,
+`x_keyword_search`) through `grok-acp`:
+
+- Keep each delegated turn bounded to `<=15` X tool calls on
+  `grok-4.7-build-fast` (typically finishes in 15–40s). Asking one turn to
+  verify 30–60+ handles individually causes serial tool loops and risks wall-clock
+  timeouts.
+- Group `OR`-batched `x_keyword_search` (Latest mode, limit-10 page) queries by
+  similar posting cadence (2–3 handles per query) or query key handles
+  individually so high-frequency accounts do not crowd lower-cadence accounts
+  out of the 10-post page.
+- Preserve the compact handoff cap (`2,400` chars). For larger structured
+  rosters, JSON, or status URL lists, have the worker write to an explicit
+  output path and return only the path and summary counts in the handoff.
+- Check `PROOF.md` (`Tool calls observed` and `Tool calls by name`) to verify
+  native X search tools actually executed rather than falling back to memory or
+  generic `web_search`.
+
 ## Scope boundary
 
 This is an experimental local MCP slice. Local unset hop is L/A1. Set hop is B
