@@ -7,7 +7,7 @@ description: Bring a character, mascot, or AI agent persona to life through a 5-
 
 Bring an agent persona, robot mascot, or brand character to life—from initial concept grilling to a complete **Master Identity Pack** and a validated **`sprite_version: 2` Extended Pet Rig** (`1536×2288` RGBA PNG, `8×11` of `192×208` cells = `73` populated frames).
 
-This workflow synthesizes the battle-tested architecture and lessons across three generations of character builds (**Clank**, **Bobby Bones**, and **Blaze**) plus brand mascot kits:
+This workflow synthesizes the battle-tested architecture and lessons across four generations of character builds (**Clank**, **Bobby Bones**, **Blaze**, and **Gen 4 Delidded Hardware Mascot**) plus brand mascot kits:
 
 ```text
 5 Archetypes (Grill R1) -> 5 Hybrid Variations (Grill R2) -> 3 Master Identity Sheets -> 6 Chroma-Key 2x2 Pose Sheets -> Deterministic Atlas Compiler -> QA & Release Proof
@@ -15,12 +15,15 @@ This workflow synthesizes the battle-tested architecture and lessons across thre
 
 Read [references/sprite-v2-contract.md](references/sprite-v2-contract.md) for the exact `8×11` cell grid, row frame counts, prompt templates, and lessons learned from prior character builds.
 
+> **Execution & Storage Map:** Keep image-generator subagent prompts focused on image generation and visual self-QA only (generators write `.jpg` into the artifact directory without shell access); run one Pillow conversion/packing script per phase in the main session. Route finished deliverables cleanly: tracked specs in `docs/design/<slug>-character-and-pet-rig.md`, text/JSON proof in `proof/<slug>-pet-avatar-<date>/`, and multi-MB binary media/ZIPs on the designated immutable asset shelf (or repo-local `.github/assets/` for compact `< 500 KB` README loops).
+
 ## Phase 1 — GrillTrack Concept Funnel (`5 Archetypes → 5 Hybrids → Lock`)
 
 Never jump straight to sprite strips before the character's silhouette, head-to-body ratio, and material language are locked.
 
 1. **Initialize a GrillTrack Ledger (`.grilltrack/ledger.json`)**:
    - Record the character name, role (e.g., coding companion, OpenClaw agent, brand mascot), and core motifs.
+   - **Real-World Physical Anatomy Pass (Hardware / Infra Mascots):** Before rendering Round 1A/1B, inspect real reference anatomy (substrates, MLCC rings, Pin-1 chamfers, fasteners, heat spreaders, lenses, or housings) so mechanical details look engineered rather than generic sci-fi.
 2. **Round 1A — Five Distinct Archetypes (`1:1` Square Portraits)**:
    - Generate **five genuinely divergent character archetypes** in parallel (for example: *Tactile Retro-Bot*, *Armored Mecha Creature*, *Living Elemental/Plasma Entity*, *Streetwear Mascot*, *Minimalist Holographic Construct*).
    - Keep framing consistent (`1:1` square, 3/4 front hero angle, dark studio background) so the user compares character identity rather than camera distance.
@@ -51,6 +54,8 @@ Before producing animation frames, generate three canonical reference sheets in 
 ## Phase 3 — Six `2×2` `#FF00FF` Chroma-Key Pose Sheets
 
 > **Critical Lesson (Clank vs. Bobby Bones & Blaze):** Do **not** ask image generators for `8×1` horizontal sprite strips (`1536×208`). Wide strips cause severe aspect-ratio crowding, inconsistent character scale across rows, clipped limbs, and interior transparency holes. Instead, generate **six `1:1` square `2×2` key-pose sheets** (`4` full-body poses per sheet = `24` master key poses) on a **100% flat, solid pure magenta (`#FF00FF`) background**.
+
+> **Parallel Batch Cap (`4–5` max concurrent calls):** Firing 7–8+ image-generation subagents in a single burst trips per-second `429 RATE_LIMIT_EXCEEDED` limits. Dispatch Phase 3 sheets in **two waves of `3–4`** (including any optional extra `2×2` action/breakdance sheets for a README `.gif` loop) and retry transient `429`s sequentially.
 
 Use the prompt templates in [references/sprite-v2-contract.md](references/sprite-v2-contract.md) and pass the locked **Master Hero Avatar** and **Turnaround Sheet** as reference images for all six sheets:
 
@@ -103,11 +108,13 @@ python3 skills/smoky-character-studio/scripts/compile_pet_atlas.py verify \
 
 When writing a character-specific pose synthesizer or using `compile_pet_atlas.py`, enforce these five deterministic compiler invariants:
 
-1. **Edge-Local `#FF00FF` Chroma Despill & Zero Residue**:
+1. **Edge-Local `#FF00FF` Chroma Despill, Post-Resize Sanitizer, & Zero Residue**:
    - Strip 8px quadrant borders before connected-component bounding-box extraction so border artifacts never merge with the character silhouette.
    - Suppress magenta spill on semi-transparent and edge pixels (`excess = min(R, B) - G`; reduce `R` and `B`, boost `G` slightly) and zero out RGB channels wherever `alpha == 0`.
+   - **Mandatory Post-Resize Cell Sanitizer (`sanitize_final_cell`)**: `LANCZOS` downscaling, mirroring, and collar compositing can reintroduce faint edge halos even when raw `512×512` cutouts pass cleanly. Run `sanitize_final_cell` on every final `192×208` cell *after* resizing/compositing (zero 1px outer perimeter, drop `alpha <= 24`, strip residual chroma/fringe, zero RGB where `alpha == 0`).
    - Required QA gates: `transparent_rgb_residue_pixels == 0`, `opaque_chroma_key_pixels == 0`, `chroma_fringe_pixels == 0`, `semi_transparent_fringe_pixels == 0`, and `edge_touch_frames == 0`.
-2. **Torso/Hip Horizontal Centroid Registration (`center_x = 96.0`)**:
+2. **Uniform Canonical Scale & Torso/Hip Horizontal Centroid Registration (`center_x = 96.0`)**:
+   - Compute one uniform `canon_scale = CANON_HEIGHT / r0c0_h` from `r0c0` and apply it across all same-resolution quadrants (clamping only if an action prop overflows bounds) so smoke puffs, raised waves, or props never shrink the character body.
    - Compute horizontal center of mass from the **middle torso band (`38%–76%` of normalized height)** rather than the full bounding box. That way a raised waving arm, wide pincer, or magnifying glass never pulls the standing body off `center_x = 96.0`.
 3. **True `44px` Jump Arc (`Row 4`)**:
    - Anchor standing idle feet to `baseline_bottom_y = 201` (or `202`).
@@ -115,6 +122,7 @@ When writing a character-specific pose synthesizer or using `compile_pet_atlas.p
 4. **Locked-Body / U-Collar Socket 16-Angle Clockwise Gaze Ring (`Rows 9–10`, `0°–337.5°`)**:
    - Naive row slicing across 16 turnaround frames causes center drift and width-ratio jumps at row boundaries (`157.5° → 180°` and `337.5° → 0°`).
    - Instead, **freeze the `r0c0` standing lower body/carapace across all 16 frames** (`Rows 9–10`) and composite the rotating head/visor into a feathered U-shaped collar socket (or shift the HUD visor reticle along the `16` compass angles `0°..337.5°` inside the locked chamber).
+   - For **hooded/cowled characters**, cut side/rear hoods tighter (`neck_frac ~0.41–0.42` vs `~0.47` front) and keep the collar blend strictly above the `38%` torso-centroid band so rear hoods never obscure chest motifs or drift `center_x`.
    - Required QA gates: `maximum_center_drift_pixels == 0.0` (hard limit `<= 6.0`) and `maximum_width_ratio == 1.0` (hard limit `<= 1.18`).
 5. **Save `spritesheet-extended.png` *Before* Computing Manifest SHA-256**:
    - Always finish writing `spritesheet-extended.png` (including any PNG optimization flags) **before** computing its SHA-256 digest so `spritesheet-extended-manifest.json`, `validation-extended.json`, `pets-preflight.json`, and `pet-quality.json` record the exact same byte size and SHA-256 hash.

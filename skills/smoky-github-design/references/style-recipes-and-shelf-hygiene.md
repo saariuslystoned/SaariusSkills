@@ -34,6 +34,14 @@ This reference grows as new repository banners, marks, and organization systems 
 - **Problem:** Full waist-up portraits shrink to an unreadable `12px` head inside GitHub's `40×40` PR timeline avatar, and unvignetted backgrounds leave sharp rectangular seams on dark/light UI cards.
 - **Fix:** Crop tightly around the head/visor (`~65%` width occupancy) and apply a smooth outer radial alpha/obsidian vignette (`r = 0.38 -> 0.50`) while staying strictly under `1,048,576` bytes (`< 1 MB`).
 
+### Recipe 6 — Animated README Mascot Loop (`.gif`, `256×256`, `< 500 KB`)
+- **Composition:** Center `12–18` quantized action/dance frames extracted from `2×2` `#FF00FF` chroma sheets onto a crisp `256×256` dark `#0D1117` stage card with a subtle floor spotlight ring, optimizing palette size (`256` colors, `optimize=True`) to stay under `500 KB`.
+- **Placement:** Embed below the positioning thesis via repo-local `<img alt="..." src=".github/assets/<slug>-loop.gif" width="180">` so GitHub auto-plays it cleanly without waiting on external proxies.
+
+### Recipe 7 — Deterministic `16:9 → 1280×640` (`2:1`) OpenGraph Safe-Zone Packer
+- **Problem:** Image generators typically cap landscape outputs at `16:9` rather than native `2:1`; naive center-cropping clips top/bottom margins, while blurring a full-frame copy smears bright mascot highlights onto outer edges.
+- **Fix:** Sample the four outer corner pixels of the `16:9` artwork to bilinearly interpolate a clean `1280×640` obsidian backdrop, scale the foreground artwork proportionally to `height = 520` (`~924–932×520`) strictly inside the `1080×520` safe box, and alpha-composite through a rounded-rectangle Gaussian feather mask (`< 1 MiB` PNG).
+
 ---
 
 ## 2. Public vs. Private Asset-Shelf Decision Matrix
