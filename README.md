@@ -48,11 +48,6 @@ repo-owned bindings and the local-only Python helpers.
   inspect, fork, wait on, stop, and export top-level Antigravity 2.0 sidebar
   sessions across any project via `agentapi` and the 365 local
   `LanguageServerService` ConnectRPC endpoints.
-- [re-tpus](skills/re-tpus/SKILL.md): reverse-engineer Edge and Cloud TPUs
-  (Tensor G5/G6, Colab/GCP `v5e`, `v6e` Trillium, `tpu7x` Ironwood), run causal
-  differential probes, build clean-room `/dev/vfio/*` and `GetPjrtApi()` C++17
-  runtimes (`libopenbuenos`, `libopentpu`, `ggml-edgetpu`, `ggml-cloudtpu`),
-  and orchestrate multi-agent TPU R&D sprints.
 
 For the performance migration, update prompts and configured skill references
 from `smoky-ci-performance` to `smoky-performance`. Update scripts from
