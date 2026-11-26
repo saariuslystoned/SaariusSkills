@@ -188,6 +188,19 @@ def check_role(
     elif role == "mark":
         if w != h:
             errors.append(f"mark ({info['path']}) must have 1:1 aspect ratio, got {w}x{h}")
+    elif role == "gif":
+        if info["format"] != "gif":
+            errors.append(
+                f"gif ({info['path']}) must be GIF format, got {info['format']}"
+            )
+        if not (64 <= w <= 800 and 64 <= h <= 800):
+            errors.append(
+                f"gif ({info['path']}) dimensions must be within 64..800px, got {w}x{h}"
+            )
+        if not (0.5 <= ratio <= 2.5):
+            errors.append(
+                f"gif ({info['path']}) aspect ratio {ratio:.2f} outside 0.5..2.5 range ({w}x{h})"
+            )
     return errors
 
 
@@ -719,6 +732,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--banner", action="append", default=[], help="16:9 or wide README banner file")
     parser.add_argument("--social", action="append", default=[], help="1280x640 social preview file")
     parser.add_argument("--avatar", action="append", default=[], help="1:1 square avatar/badge file")
+    parser.add_argument("--gif", action="append", default=[], help="Animated README mascot GIF (<= 1 MiB, 64..800px)")
     parser.add_argument("--mark", action="append", default=[], help="1:1 SVG/PNG mark file")
     parser.add_argument("--readme", type=Path, help="README.md or profile/README.md to audit")
     parser.add_argument(
@@ -753,6 +767,7 @@ def main(argv: list[str] | None = None) -> int:
         ("banner", args.banner),
         ("social", args.social),
         ("avatar", args.avatar),
+        ("gif", args.gif),
         ("mark", args.mark),
     ):
         for raw in paths:
@@ -765,6 +780,10 @@ def main(argv: list[str] | None = None) -> int:
                 info["role"] = role
                 assets.append(info)
                 errors.extend(check_role(info, role))
+                if role == "gif" and info["bytes"] > 524_288 and info["bytes"] <= GITHUB_ONE_MIB:
+                    warnings.append(
+                        f"gif ({info['path']}) is {info['bytes']} bytes (> 512 KiB); target < 500 KB for fast README autoplay"
+                    )
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{role} ({p}): {exc}")
 

@@ -920,10 +920,14 @@ exit "$1"
         )
         self.assertIn("#FF00FF", skill)
         self.assertIn("sprite_version: 2", skill)
+        self.assertIn("4–5", skill)
+        self.assertIn("sanitize_final_cell", skill)
+        self.assertIn("canon_scale", skill)
         self.assertIn("1536×2288", contract)
         self.assertIn("Clank", contract)
         self.assertIn("Bobby Bones", contract)
         self.assertIn("Blaze", contract)
+        self.assertIn("Gen 4", contract)
         self.assertTrue(helper.is_file())
         self.assertTrue(helper.stat().st_mode & 0o111)
         spec_run = subprocess.run(
@@ -936,6 +940,34 @@ exit "$1"
         spec_payload = json.loads(spec_run.stdout)
         self.assertEqual(spec_payload["populated_frames"], 73)
         self.assertEqual(spec_payload["unused_cells"], 15)
+
+        try:
+            import numpy as np
+        except ImportError:
+            np = None
+        if np is not None:
+            import importlib.util
+
+            mod_spec = importlib.util.spec_from_file_location("compile_pet_atlas", helper)
+            assert mod_spec is not None and mod_spec.loader is not None
+            mod = importlib.util.module_from_spec(mod_spec)
+            mod_spec.loader.exec_module(mod)
+
+            cell = np.zeros((208, 192, 4), dtype=np.uint8)
+            cell[0, 50:70] = [255, 255, 255, 255]  # 1px outer border edge touch
+            cell[20:30, 20:30] = [200, 200, 200, 18]  # faint sub-threshold halo
+            cell[35:45, 35:45] = [255, 0, 255, 255]  # opaque #FF00FF chroma
+            cell[50:60, 50:60] = [240, 20, 235, 120]  # semi-transparent magenta fringe
+            cell[65:75, 65:75] = [12, 34, 56, 0]  # transparent RGB residue
+            cell[80:160, 60:132] = [40, 180, 220, 255]  # valid interior body block
+
+            cleaned = mod.sanitize_final_cell(cell, np)
+            stats = mod.analyze_cell(cleaned, np)
+            self.assertFalse(stats["empty"])
+            self.assertEqual(stats["transparent_rgb_residue_pixels"], 0)
+            self.assertEqual(stats["opaque_chroma_key_pixels"], 0)
+            self.assertEqual(stats["semi_transparent_fringe_pixels"], 0)
+            self.assertEqual(stats["edge_touch_pixels"], 0)
 
     def test_agy_sidebar_session_skill_is_packaged(self) -> None:
         skill = (AGY_SIDEBAR_SESSION_SKILL / "SKILL.md").read_text(encoding="utf-8")
@@ -998,10 +1030,13 @@ exit "$1"
         )
         self.assertIn("prefers-color-scheme", skill)
         self.assertIn("1280×640", skill)
+        self.assertIn("--gif", skill)
         self.assertIn("smoky-character-studio", skill)
         self.assertIn("openclaw/openclaw", anatomy)
         self.assertIn("morluto/rea", anatomy)
         self.assertIn("Character-Mark", recipes)
+        self.assertIn("Recipe 6", recipes)
+        self.assertIn("Recipe 7", recipes)
         self.assertTrue(helper.is_file())
         self.assertTrue(helper.stat().st_mode & 0o111)
 
@@ -1254,6 +1289,42 @@ exit "$1"
                 check=False,
             )
             self.assertEqual(good_social_run.returncode, 0, good_social_run.stderr)
+
+            # Animated README mascot GIF validation (--gif)
+            good_gif = tmp_root / "mascot.gif"
+            good_gif.write_bytes(b"GIF89a" + struct.pack("<HH", 256, 256) + b"\x00\x00\x00;")
+            good_gif_run = subprocess.run(
+                [sys.executable, str(helper), "--gif", str(good_gif)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(good_gif_run.returncode, 0, good_gif_run.stderr)
+            good_gif_payload = json.loads(good_gif_run.stdout)
+            self.assertTrue(good_gif_payload["ok"])
+            self.assertEqual(good_gif_payload["assets"][0]["role"], "gif")
+            self.assertEqual(good_gif_payload["assets"][0]["width"], 256)
+            self.assertEqual(good_gif_payload["assets"][0]["height"], 256)
+
+            bad_gif_format = subprocess.run(
+                [sys.executable, str(helper), "--gif", str(good_social_png)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(bad_gif_format.returncode, 1)
+            self.assertIn("must be GIF format", bad_gif_format.stdout)
+
+            oversized_dim_gif = tmp_root / "big.gif"
+            oversized_dim_gif.write_bytes(b"GIF89a" + struct.pack("<HH", 1200, 1200) + b"\x00\x00\x00;")
+            bad_gif_dim = subprocess.run(
+                [sys.executable, str(helper), "--gif", str(oversized_dim_gif)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(bad_gif_dim.returncode, 1)
+            self.assertIn("64..800px", bad_gif_dim.stdout)
 
     def test_re_tpus_skill_is_packaged(self) -> None:
         import re
