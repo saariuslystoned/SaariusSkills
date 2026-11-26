@@ -15,7 +15,6 @@ canonical name is `smoky-coordinator`.
 | [`smoky-character-studio`](../skills/smoky-character-studio/SKILL.md) | GrillTrack character discovery, Master Identity Pack, `2x2` `#FF00FF` chroma pose sheets, and `sprite_version: 2` extended pet rig compilation |
 | [`smoky-github-design`](../skills/smoky-github-design/SKILL.md) | GitHub repository, GitHub App, and `.github` organization banners, character-marks/logos, `1280x640` social previews, top-starred README anatomy, and asset/shelf verification |
 | [`agy-sidebar-session`](../skills/agy-sidebar-session/SKILL.md) | Top-level Antigravity 2.0 sidebar session creation, cross-project messaging, trajectory export, and 365 local `LanguageServerService` ConnectRPC calls |
-| [`re-tpus`](../skills/re-tpus/SKILL.md) | Clean-room Edge and Cloud TPU reverse engineering, causal falsification probes, bare-metal `/dev/vfio/*` + `GetPjrtApi()` C++17 runtimes, `ggml` hardening, and `/swarm` TPU sprint orchestration |
 | `smoky-worktree` | Fresh source identity and isolated writable ownership |
 | `smoky-coordinator` | One lead assignment through the configured runtime, bounded specialists, handoffs and exact-source closeout |
 | `smoky-maintainer` | Bounded repository or selected-portfolio maintenance assessments and priorities; separate execution handoff |

@@ -24,7 +24,6 @@ PERFORMANCE_SKILL = ROOT / "skills" / "smoky-performance"
 CHARACTER_STUDIO_SKILL = ROOT / "skills" / "smoky-character-studio"
 GITHUB_DESIGN_SKILL = ROOT / "skills" / "smoky-github-design"
 AGY_SIDEBAR_SESSION_SKILL = ROOT / "skills" / "agy-sidebar-session"
-RE_TPUS_SKILL = ROOT / "skills" / "re-tpus"
 
 
 class PackagingTests(unittest.TestCase):
@@ -1325,74 +1324,6 @@ exit "$1"
             )
             self.assertEqual(bad_gif_dim.returncode, 1)
             self.assertIn("64..800px", bad_gif_dim.stdout)
-
-    def test_re_tpus_skill_is_packaged(self) -> None:
-        import re
-
-        skill = (RE_TPUS_SKILL / "SKILL.md").read_text(encoding="utf-8")
-        metadata = (RE_TPUS_SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")
-        cursor = json.loads(
-            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
-        )
-        self.assertLessEqual(len(skill.splitlines()), 500)
-        self.assertIn("name: re-tpus\n", skill)
-        self.assertIn("$re-tpus", metadata)
-        self.assertIn("allow_implicit_invocation: true", metadata)
-        self.assertEqual(cursor["skills"].count("./skills/re-tpus/"), 1)
-        for manifest in (".codex-plugin/plugin.json", ".claude-plugin/plugin.json"):
-            roots = json.loads((ROOT / manifest).read_text(encoding="utf-8"))["skills"]
-            discovered = [
-                p.name
-                for root in roots
-                for p in (ROOT / root).iterdir()
-                if p.is_dir() and (p / "SKILL.md").is_file()
-            ]
-            self.assertEqual(discovered.count("re-tpus"), 1, manifest)
-        self.assertEqual(
-            (RE_TPUS_SKILL / "LICENSE").read_bytes(),
-            (ROOT / "LICENSE").read_bytes(),
-        )
-        expected_refs = (
-            "differential-isa-vfio-re.md",
-            "cloud-tpu-colab-gcp-pjrt.md",
-            "native-runtime-ggml-perf.md",
-            "orchestration-swarm-cleanroom.md",
-        )
-        for ref_name in expected_refs:
-            ref_path = RE_TPUS_SKILL / "references" / ref_name
-            self.assertTrue(ref_path.is_file(), ref_name)
-            self.assertIn(ref_name, skill)
-        for document in RE_TPUS_SKILL.rglob("*.md"):
-            clean_doc = re.sub(r"`[^`]*`", "", document.read_text(encoding="utf-8"))
-            for target in re.findall(r"\]\(([^)]+)\)", clean_doc):
-                if "://" not in target and not target.startswith("#"):
-                    self.assertTrue(
-                        (document.parent / target.split("#")[0]).is_file(),
-                        f"{document}: {target}",
-                    )
-        for catalog in ("README.md", "docs/portable-skills.md"):
-            self.assertIn("skills/re-tpus/SKILL.md", (ROOT / catalog).read_text(encoding="utf-8"))
-        cloud_ref = (RE_TPUS_SKILL / "references" / "cloud-tpu-colab-gcp-pjrt.md").read_text(
-            encoding="utf-8"
-        )
-        isa_ref = (RE_TPUS_SKILL / "references" / "differential-isa-vfio-re.md").read_text(
-            encoding="utf-8"
-        )
-        runtime_ref = (RE_TPUS_SKILL / "references" / "native-runtime-ggml-perf.md").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("0x1000_00000000", cloud_ref)
-        self.assertIn("PJRT_Buffer_ToHostBuffer", cloud_ref)
-        self.assertIn("0x1001c", isa_ref)
-        self.assertIn("{1,0:T(2,128)}", isa_ref)
-        self.assertIn("ggml_backend_sched", runtime_ref)
-        forbidden = re.compile(
-            r"/Users/|/home/|[A-Z]:\\\\Users\\\\|saari-co|bobbybones|gen-lang-client|rea-lab|openclaw|clawsweeper",
-            re.I,
-        )
-        for path in RE_TPUS_SKILL.rglob("*"):
-            if path.is_file() and path.name != "LICENSE":
-                self.assertIsNone(forbidden.search(path.read_text(encoding="utf-8")), str(path))
 
 
 if __name__ == "__main__":
