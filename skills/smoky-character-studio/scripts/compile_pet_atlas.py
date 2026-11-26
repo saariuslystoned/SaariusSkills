@@ -131,6 +131,36 @@ def despill_magenta_rgba(arr: Any, np: Any) -> Any:
     return res
 
 
+def sanitize_final_cell(cell_arr: Any, np: Any) -> Any:
+    """Enforce zero chroma, fringe, transparent RGB residue, and edge touch after resize/compositing."""
+    out = cell_arr.copy()
+    out[0, :, :] = 0
+    out[-1, :, :] = 0
+    out[:, 0, :] = 0
+    out[:, -1, :] = 0
+
+    alpha = out[:, :, 3].copy()
+    alpha[alpha <= 24] = 0
+
+    ri = out[:, :, 0].astype(np.int32)
+    gi = out[:, :, 1].astype(np.int32)
+    bi = out[:, :, 2].astype(np.int32)
+
+    hard_chroma = (alpha > 0) & (ri > 230) & (gi < 30) & (bi > 230)
+    semi_fringe = (
+        (alpha > 0)
+        & (alpha < 185)
+        & (ri > gi + 85)
+        & (bi > gi + 85)
+        & (np.abs(ri - bi) < 45)
+    )
+    alpha[hard_chroma | semi_fringe] = 0
+
+    out[:, :, 3] = alpha
+    out[alpha == 0] = [0, 0, 0, 0]
+    return out
+
+
 def analyze_cell(cell_arr: Any, np: Any) -> dict[str, Any]:
     alpha = cell_arr[:, :, 3]
     r = cell_arr[:, :, 0].astype(np.int32)
