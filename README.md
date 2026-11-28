@@ -44,6 +44,12 @@ repo-owned bindings and the local-only Python helpers.
   with dual-theme `<picture>` hero banners, `1280x640` OpenGraph social previews,
   `512x512` character-marks/logos and seamless badges, top-starred README
   above-the-fold layout, and stdlib asset/visibility verification.
+- [smoky-video-studio](skills/smoky-video-studio/SKILL.md): produce, edit,
+  score, voice, redact, and verify short-form videos — social clips (X,
+  Reels/Shorts, YouTube), website hero loops, AI launch films, and computer-use
+  or hardware product demos with Gemini media tools, frame-accurate FFmpeg/DSP
+  editing, privacy redaction, contact-sheet frame QA, and mono phone-speaker
+  mastering.
 - [agy-sidebar-session](skills/agy-sidebar-session/SKILL.md): start, message,
   inspect, fork, wait on, stop, and export top-level Antigravity 2.0 sidebar
   sessions across any project via `agentapi` and the 365 local
