@@ -23,6 +23,7 @@ HARNESS2_SKILL = ROOT / "skills" / "harness2"
 PERFORMANCE_SKILL = ROOT / "skills" / "smoky-performance"
 CHARACTER_STUDIO_SKILL = ROOT / "skills" / "smoky-character-studio"
 GITHUB_DESIGN_SKILL = ROOT / "skills" / "smoky-github-design"
+VIDEO_STUDIO_SKILL = ROOT / "skills" / "smoky-video-studio"
 AGY_SIDEBAR_SESSION_SKILL = ROOT / "skills" / "agy-sidebar-session"
 
 
@@ -1324,6 +1325,154 @@ exit "$1"
             )
             self.assertEqual(bad_gif_dim.returncode, 1)
             self.assertIn("64..800px", bad_gif_dim.stdout)
+
+    def test_smoky_video_studio_skill_is_packaged_and_verifies_exports(self) -> None:
+        import importlib.util
+        import re
+        import struct
+
+        skill = (VIDEO_STUDIO_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (VIDEO_STUDIO_SKILL / "agents" / "openai.yaml").read_text(
+            encoding="utf-8"
+        )
+        helper = VIDEO_STUDIO_SKILL / "scripts" / "verify_video_export.py"
+        cursor = json.loads(
+            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertLessEqual(len(skill.splitlines()), 500)
+        self.assertIn("name: smoky-video-studio\n", skill)
+        self.assertIn("$smoky-video-studio", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("./skills/smoky-video-studio/", cursor["skills"])
+        self.assertEqual(
+            (VIDEO_STUDIO_SKILL / "LICENSE").read_bytes(),
+            (ROOT / "LICENSE").read_bytes(),
+        )
+        for catalog in ("README.md", "docs/portable-skills.md"):
+            self.assertIn("skills/smoky-video-studio/SKILL.md", (ROOT / catalog).read_text(encoding="utf-8"))
+
+        for ref_name in (
+            "platform-specs-and-framing.md",
+            "gemini-media-and-audio-craft.md",
+            "compositing-tracking-and-qa.md",
+        ):
+            self.assertTrue((VIDEO_STUDIO_SKILL / "references" / ref_name).is_file(), ref_name)
+
+        compositing_ref = (
+            VIDEO_STUDIO_SKILL / "references" / "compositing-tracking-and-qa.md"
+        ).read_text(encoding="utf-8")
+        audio_ref = (
+            VIDEO_STUDIO_SKILL / "references" / "gemini-media-and-audio-craft.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("wf-recorder", compositing_ref)
+        self.assertIn("wl-screenrec", compositing_ref)
+        self.assertIn("Kinetic Telemetry Callouts", compositing_ref)
+        self.assertIn("sidechaincompress", audio_ref)
+        self.assertIn("I=-14", audio_ref)
+
+        for doc in VIDEO_STUDIO_SKILL.rglob("*.md"):
+            text = doc.read_text(encoding="utf-8")
+            self.assertNotIn("/Users/", text, str(doc))
+            self.assertNotIn("/home/", text, str(doc))
+            for target in re.findall(r"\]\(([^)]+)\)", text):
+                if "://" not in target and not target.startswith("#"):
+                    self.assertTrue(
+                        (doc.parent / target.split("#")[0]).is_file(),
+                        f"{doc}: {target}",
+                    )
+
+        self.assertTrue(helper.is_file())
+        self.assertTrue(helper.stat().st_mode & 0o111)
+
+        spec_run = subprocess.run(
+            [sys.executable, str(helper), "spec"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(spec_run.returncode, 0, spec_run.stderr)
+        spec_payload = json.loads(spec_run.stdout)
+        self.assertEqual(spec_payload["schema"], "smoky-video-studio.spec.v1")
+        for preset in ("x-square", "x-portrait", "x-landscape", "reels-shorts", "youtube-hd", "web-hero", "demo-tall"):
+            self.assertIn(preset, spec_payload["presets"])
+
+        mod_spec = importlib.util.spec_from_file_location("verify_video_export", helper)
+        assert mod_spec is not None and mod_spec.loader is not None
+        mod = importlib.util.module_from_spec(mod_spec)
+        mod_spec.loader.exec_module(mod)
+
+        def box(box_type: bytes, payload: bytes) -> bytes:
+            return struct.pack(">I4s", 8 + len(payload), box_type) + payload
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            fast_mp4 = tmp_root / "fast.mp4"
+            fast_mp4.write_bytes(box(b"ftyp", b"isom\x00\x00\x02\x00") + box(b"moov", b"\x00" * 16) + box(b"mdat", b"\x00" * 32))
+            slow_mp4 = tmp_root / "slow.mp4"
+            slow_mp4.write_bytes(box(b"ftyp", b"isom\x00\x00\x02\x00") + box(b"mdat", b"\x00" * 32) + box(b"moov", b"\x00" * 16))
+
+            fast_atoms = mod.inspect_mp4_atoms(fast_mp4)
+            self.assertTrue(fast_atoms["is_mp4"])
+            self.assertTrue(fast_atoms["faststart"])
+            slow_atoms = mod.inspect_mp4_atoms(slow_mp4)
+            self.assertTrue(slow_atoms["is_mp4"])
+            self.assertFalse(slow_atoms["faststart"])
+
+        ok_errors, ok_warnings = mod.evaluate_preset_constraints(
+            "x-square",
+            width=1080,
+            height=1080,
+            duration_s=16.0,
+            size_bytes=8_000_000,
+            video_codec="h264",
+            pix_fmt="yuv420p",
+            has_audio=True,
+            audio_codec="aac",
+            sample_rate=48000,
+            faststart=True,
+        )
+        self.assertEqual(ok_errors, [])
+        self.assertEqual(ok_warnings, [])
+
+        bad_hero_errors, _ = mod.evaluate_preset_constraints(
+            "web-hero",
+            width=1920,
+            height=1080,
+            duration_s=8.0,
+            size_bytes=10_000_000,
+            video_codec="h264",
+            pix_fmt="yuv420p",
+            has_audio=True,
+            audio_codec="aac",
+            sample_rate=48000,
+            faststart=False,
+        )
+        self.assertTrue(any("muted video" in e for e in bad_hero_errors))
+        self.assertTrue(any("faststart" in e for e in bad_hero_errors))
+        self.assertTrue(any("exceeds web-hero limit" in e for e in bad_hero_errors))
+
+        good_cue_errs, cue_meta = mod.validate_cues_data(
+            [
+                {"kind": "sweep", "cut": 0.0, "depart": 0.15, "land": 0.90, "direction": 0.5},
+                {"kind": "drop", "cut": 8.0, "depart": 8.10, "land": 8.55, "direction": -0.4},
+            ],
+            duration_s=16.0,
+        )
+        self.assertEqual(good_cue_errs, [])
+        self.assertEqual(cue_meta["count"], 2)
+
+        bad_cue_errs, _ = mod.validate_cues_data(
+            [
+                {"kind": "menu", "cut": 2.0, "depart": 1.8, "land": 1.5, "direction": 1.8},
+            ],
+            duration_s=1.0,
+        )
+        self.assertGreaterEqual(len(bad_cue_errs), 3)
+
+        ebur = mod.parse_ebur128("    I:         -15.2 LUFS\n    LRA:         6.4 LU\n    Peak:       -1.6 dBFS\n")
+        self.assertEqual(ebur["integrated_lufs"], -15.2)
+        self.assertEqual(ebur["true_peak_dbfs"], -1.6)
+        self.assertEqual(ebur["lra_lu"], 6.4)
 
 
 if __name__ == "__main__":
